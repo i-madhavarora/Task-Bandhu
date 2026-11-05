@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Clock, CheckCircle2, AlertOctagon, ListTodo, Calendar as CalendarIcon, Tag, Trash2, Filter, ChevronDown, Check, Zap, Flame, Timer, Play, Pause, Square, Send, Search, Edit2, LogOut, Kanban, List as ListIcon, GripVertical, Pin, PinOff, DownloadCloud, UploadCloud, Wand2, Volume2, VolumeX, AlertTriangle, Info, WifiOff, Sun, Moon, Loader2, Presentation, Copy, Repeat, Link as LinkIcon, Eraser } from 'lucide-react';
+import { Plus, Clock, CheckCircle2, AlertOctagon, ListTodo, Calendar as CalendarIcon, Tag, Trash2, Filter, ChevronDown, Check, Zap, Flame, Timer, Play, Pause, Square, Send, Search, Edit2, LogOut, Kanban, List as ListIcon, GripVertical, Pin, PinOff, DownloadCloud, UploadCloud, Wand2, Volume2, VolumeX, AlertTriangle, Info, WifiOff, Sun, Moon, Loader2, Presentation, Copy, Repeat, Link as LinkIcon, Eraser, Folder, Users } from 'lucide-react';
 import { collection, onSnapshot, query, doc, deleteDoc, updateDoc, addDoc } from 'firebase/firestore';
 import { signInWithPopup, onAuthStateChanged, signOut } from 'firebase/auth';
 import { db, auth, googleProvider } from '../firebase';
@@ -14,21 +14,14 @@ const playSound = (type = 'pop') => {
     if (type === 'warn') { osc.type = 'sawtooth'; osc.frequency.setValueAtTime(150, ctx.currentTime); osc.frequency.exponentialRampToValueAtTime(50, ctx.currentTime + 0.5); gain.gain.setValueAtTime(0.1, ctx.currentTime); osc.start(); osc.stop(ctx.currentTime + 0.5); }
     else if (type === 'success') { osc.type = 'sine'; osc.frequency.setValueAtTime(600, ctx.currentTime); osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.2); gain.gain.setValueAtTime(0.1, ctx.currentTime); osc.start(); osc.stop(ctx.currentTime + 0.3); }
     else { osc.type = 'sine'; osc.frequency.setValueAtTime(400, ctx.currentTime); osc.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.1); gain.gain.setValueAtTime(0.1, ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1); osc.start(); osc.stop(ctx.currentTime + 0.1); }
-  } catch (e) {}
+  } catch (e) { }
 };
 
 const CustomDropdown = ({ options, value, onChange, className, onOpenChange }) => {
   const [isOpen, setIsOpen] = useState(false);
-  
-  const handleToggle = (e) => {
-    e.stopPropagation(); const nextState = !isOpen; setIsOpen(nextState); if (onOpenChange) onOpenChange(nextState);
-  };
-  const handleSelect = (opt, e) => {
-    e.stopPropagation(); onChange(opt); setIsOpen(false); if (onOpenChange) onOpenChange(false);
-  };
-  const handleClose = (e) => {
-    e.stopPropagation(); setIsOpen(false); if (onOpenChange) onOpenChange(false);
-  };
+  const handleToggle = (e) => { e.stopPropagation(); const nextState = !isOpen; setIsOpen(nextState); if (onOpenChange) onOpenChange(nextState); };
+  const handleSelect = (opt, e) => { e.stopPropagation(); onChange(opt); setIsOpen(false); if (onOpenChange) onOpenChange(false); };
+  const handleClose = (e) => { e.stopPropagation(); setIsOpen(false); if (onOpenChange) onOpenChange(false); };
 
   return (
     <div className={`relative ${className}`}>
@@ -38,7 +31,7 @@ const CustomDropdown = ({ options, value, onChange, className, onOpenChange }) =
       {isOpen && (
         <>
           <div className="fixed inset-0 z-[90]" onClick={handleClose}></div>
-          <div className="absolute top-full right-0 mt-1 min-w-[120px] w-full bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 rounded-xl shadow-2xl z-[100] overflow-y-auto max-h-60 hide-scrollbar">
+          <div className="absolute top-full left-0 mt-1 min-w-[120px] w-full bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 rounded-xl shadow-2xl z-[100] overflow-y-auto max-h-60 hide-scrollbar">
             {options.map(opt => (
               <button key={opt} type="button" onClick={(e) => handleSelect(opt, e)} className="w-full text-left px-3 py-2.5 hover:bg-blue-50 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-200 text-xs font-bold flex justify-between items-center">
                 {opt} {value === opt && <Check size={14} className="text-blue-600" />}
@@ -58,26 +51,26 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
-  
+
   const [toast, setToast] = useState(null);
   const [confirmState, setConfirmState] = useState({ isOpen: false, message: '', action: null });
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
   const [prefilledDate, setPrefilledDate] = useState('');
-  
+
   const [filter, setFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState('list');
-  
+
   const [quickTaskTitle, setQuickTaskTitle] = useState('');
   const [quickPriority, setQuickPriority] = useState('Medium');
-  
+
   const [isFocusModeActive, setIsFocusModeActive] = useState(false);
   const [focusMinutes, setFocusMinutes] = useState(25);
   const [timeLeft, setTimeLeft] = useState(25 * 60);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [isNoisePlaying, setIsNoisePlaying] = useState(false);
-  
+
   const [calendarMonth, setCalendarMonth] = useState(new Date().getMonth());
   const [calendarYear, setCalendarYear] = useState(new Date().getFullYear());
 
@@ -92,7 +85,7 @@ export default function Dashboard() {
   const executeConfirm = async () => { if (confirmState.action) await confirmState.action(); setConfirmState({ isOpen: false, message: '', action: null }); };
 
   useEffect(() => {
-    if (isDarkMode) { document.documentElement.classList.add('dark'); localStorage.setItem('theme', 'dark'); } 
+    if (isDarkMode) { document.documentElement.classList.add('dark'); localStorage.setItem('theme', 'dark'); }
     else { document.documentElement.classList.remove('dark'); localStorage.setItem('theme', 'light'); }
   }, [isDarkMode]);
 
@@ -130,12 +123,12 @@ export default function Dashboard() {
     if (tasks.length === 0) return 0;
     const completedDates = [...new Set(tasks.filter(t => t.status === 'Completed' && t.completedAt).map(t => t.completedAt.split('T')[0]))].sort((a, b) => new Date(b) - new Date(a));
     if (completedDates.length === 0) return 0;
-    let streak = 0; let checkDate = new Date(); checkDate.setHours(0,0,0,0);
-    const firstCompletedDate = new Date(completedDates[0]); firstCompletedDate.setHours(0,0,0,0);
+    let streak = 0; let checkDate = new Date(); checkDate.setHours(0, 0, 0, 0);
+    const firstCompletedDate = new Date(completedDates[0]); firstCompletedDate.setHours(0, 0, 0, 0);
     if (Math.floor((checkDate - firstCompletedDate) / (1000 * 60 * 60 * 24)) > 1) return 0;
     let currIterDate = new Date(firstCompletedDate);
     for (let i = 0; i < completedDates.length; i++) {
-      const d = new Date(completedDates[i]); d.setHours(0,0,0,0);
+      const d = new Date(completedDates[i]); d.setHours(0, 0, 0, 0);
       if (currIterDate.getTime() === d.getTime()) { streak++; currIterDate.setDate(currIterDate.getDate() - 1); } else break;
     }
     return streak;
@@ -149,18 +142,30 @@ export default function Dashboard() {
   }, [isTimerRunning, timeLeft]);
 
   const toggleBrownNoise = () => {
-    if (isNoisePlaying) { noiseNodeRef.current?.stop(); setIsNoisePlaying(false); } 
+    if (isNoisePlaying) { noiseNodeRef.current?.stop(); setIsNoisePlaying(false); }
     else {
       try {
         const ctx = new (window.AudioContext || window.webkitAudioContext)(); audioCtxRef.current = ctx;
         const buffer = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate); const data = buffer.getChannelData(0);
-        for (let i = 0; i < buffer.length; i++) data[i] = Math.random() * 2 - 1; 
+        for (let i = 0; i < buffer.length; i++) data[i] = Math.random() * 2 - 1;
         const noiseSource = ctx.createBufferSource(); noiseSource.buffer = buffer; noiseSource.loop = true;
         const filter = ctx.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.value = 400;
         noiseSource.connect(filter); filter.connect(ctx.destination); noiseSource.start(); noiseNodeRef.current = noiseSource; setIsNoisePlaying(true);
-      } catch (err) { showToast("Audio system blocked.", "error"); }
+      } catch (err) { }
     }
   };
+
+  // Tab Switch Punisher
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.hidden && isFocusModeActive && isTimerRunning) {
+        setIsTimerRunning(false);
+        showToast("Distraction detected! Timer paused.", "error");
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [isFocusModeActive, isTimerRunning]);
 
   const stopNoiseSafe = () => { if (isNoisePlaying) { noiseNodeRef.current?.stop(); setIsNoisePlaying(false); } };
 
@@ -172,7 +177,7 @@ export default function Dashboard() {
         if (taskObj.recurrence === 'Daily') nextDeadline.setDate(nextDeadline.getDate() + 1);
         else if (taskObj.recurrence === 'Weekly') nextDeadline.setDate(nextDeadline.getDate() + 7);
         else if (taskObj.recurrence === 'Monthly') nextDeadline.setMonth(nextDeadline.getMonth() + 1);
-        
+
         const { id: _, ...cleanTask } = taskObj;
         await addDoc(collection(db, 'users', user.uid, 'tasks'), {
           ...cleanTask, deadline: nextDeadline.toISOString().split('T')[0], status: 'To Do', createdAt: new Date().toISOString()
@@ -181,9 +186,7 @@ export default function Dashboard() {
       }
       await updateDoc(doc(db, 'users', user.uid, 'tasks', id), { status: newStatus, completedAt: isNowCompleted ? new Date().toISOString() : null });
       playSound(isNowCompleted ? 'success' : 'pop');
-    } catch (err) {
-      showToast("Failed to update status", "error");
-    }
+    } catch (err) { showToast("Failed to update status", "error"); }
   };
 
   const toggleSubtask = async (e, task, index) => {
@@ -196,7 +199,7 @@ export default function Dashboard() {
   };
 
   const handleDelete = (id) => confirmAction("Delete this task permanently?", async () => await deleteDoc(doc(db, 'users', user.uid, 'tasks', id)));
-  
+
   const handleBulkClear = () => {
     const completedTasks = tasks.filter(t => t.status === 'Completed');
     if (completedTasks.length === 0) return showToast("No completed tasks to clear.", "info");
@@ -209,37 +212,29 @@ export default function Dashboard() {
   const handleDuplicate = async (task) => {
     try {
       const { id, ...cleanTask } = task;
-      // Strip undefined fields to prevent silent NoSQL crashes
       const sanitized = Object.fromEntries(Object.entries(cleanTask).filter(([_, v]) => v !== undefined));
-      sanitized.pinned = false; // Prevent auto-hitting the 3-pin limit
-      
+      sanitized.pinned = false;
       await addDoc(collection(db, 'users', user.uid, 'tasks'), { ...sanitized, title: `${task.title} (Copy)`, createdAt: new Date().toISOString() });
       showToast("Task duplicated!", "success");
-    } catch (err) {
-      showToast("Failed to duplicate task.", "error");
-    }
+    } catch (err) { showToast("Failed to duplicate task.", "error"); }
   };
 
   const handleTogglePin = async (task) => {
     try {
       if (!task.pinned && tasks.filter(t => t.pinned).length >= 3) return showToast("You can only pin up to 3 tasks.", "warning");
       await updateDoc(doc(db, 'users', user.uid, 'tasks', task.id), { pinned: !task.pinned });
-    } catch (err) {
-      showToast("Failed to pin task.", "error");
-    }
+    } catch (err) { showToast("Failed to pin task.", "error"); }
   };
 
   const handleDragStart = (e, taskId) => e.dataTransfer.setData('taskId', taskId);
   const handleDrop = async (e, newStatus) => {
     e.preventDefault(); const taskId = e.dataTransfer.getData('taskId');
-    if (taskId) {
-      const taskObj = tasks.find(t => t.id === taskId);
-      if (taskObj) await handleUpdateStatus(taskId, newStatus, taskObj);
-    }
+    if (taskId) { const taskObj = tasks.find(t => t.id === taskId); if (taskObj) await handleUpdateStatus(taskId, newStatus, taskObj); }
   };
+
   const submitQuickTask = async () => {
     if (quickTaskTitle.trim()) {
-      await addDoc(collection(db, 'users', user.uid, 'tasks'), { title: quickTaskTitle.trim(), description: '', priority: quickPriority, category: 'Inbox', deadline: todayStr, status: 'To Do', createdAt: new Date().toISOString(), pinned: false, recurrence: 'None' });
+      await addDoc(collection(db, 'users', user.uid, 'tasks'), { title: quickTaskTitle.trim(), description: '', priority: quickPriority, category: 'Inbox', project: 'General Workspace', deadline: todayStr, status: 'To Do', createdAt: new Date().toISOString(), pinned: false, recurrence: 'None' });
       setQuickTaskTitle(''); playSound('pop');
     }
   };
@@ -262,11 +257,11 @@ export default function Dashboard() {
         const validTasks = importedData.filter(t => t.title && typeof t.title === 'string');
         if (validTasks.length === 0) throw new Error("No tasks found.");
         confirmAction(`Found ${validTasks.length} tasks. Restore to database?`, async () => {
-          for (const task of validTasks) { await addDoc(collection(db, 'users', user.uid, 'tasks'), { title: task.title, description: task.description || '', priority: task.priority || 'Medium', category: task.category || 'Inbox', deadline: task.deadline || '', status: task.status || 'To Do', createdAt: task.createdAt || new Date().toISOString(), pinned: !!task.pinned, recurrence: task.recurrence || 'None' }); }
+          for (const task of validTasks) { await addDoc(collection(db, 'users', user.uid, 'tasks'), { title: task.title, description: task.description || '', priority: task.priority || 'Medium', category: task.category || 'Inbox', project: task.project || 'General Workspace', deadline: task.deadline || '', status: task.status || 'To Do', createdAt: task.createdAt || new Date().toISOString(), pinned: !!task.pinned, recurrence: task.recurrence || 'None' }); }
           showToast("Data restored perfectly!", "success");
         });
       } catch (err) { showToast("Import Failed: " + err.message, "error"); }
-      e.target.value = null; 
+      e.target.value = null;
     };
     reader.readAsText(file);
   };
@@ -291,7 +286,7 @@ export default function Dashboard() {
   });
 
   const getPriorityColor = (priority) => {
-    switch(priority) { case 'Urgent': return 'bg-red-600 text-white border-red-700 animate-pulse shadow-md'; case 'High': return 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/40 dark:text-orange-300'; case 'Medium': return 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/40 dark:text-blue-300'; default: return 'bg-gray-100 text-gray-700 border-gray-200 dark:bg-slate-700 dark:text-slate-300'; }
+    switch (priority) { case 'Urgent': return 'bg-red-600 text-white border-red-700 animate-pulse shadow-md'; case 'High': return 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/40 dark:text-orange-300'; case 'Medium': return 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/40 dark:text-blue-300'; default: return 'bg-gray-100 text-gray-700 border-gray-200 dark:bg-slate-700 dark:text-slate-300'; }
   };
   const formatTime = (seconds) => { const m = Math.floor(seconds / 60).toString().padStart(2, '0'); const s = (seconds % 60).toString().padStart(2, '0'); return `${m}:${s}`; };
 
@@ -316,10 +311,10 @@ export default function Dashboard() {
         const text = line.replace('- [ ]', '').replace('- [x]', '').trim();
         return (
           <div key={i} className="flex items-center gap-2 mt-2 cursor-pointer group" onClick={(e) => toggleSubtask(e, task, i)}>
-             <div className={`w-4 h-4 rounded flex items-center justify-center border transition-colors ${isDone ? 'bg-green-500 border-green-500' : 'border-gray-400 group-hover:border-blue-500'}`}>
-               {isDone && <Check size={12} className="text-white"/>}
-             </div>
-             <span className={`text-sm font-medium ${isDone ? 'line-through text-gray-400 dark:text-slate-500' : 'text-gray-700 dark:text-slate-300'}`}>{text}</span>
+            <div className={`w-4 h-4 rounded flex items-center justify-center border transition-colors ${isDone ? 'bg-green-500 border-green-500' : 'border-gray-400 group-hover:border-blue-500'}`}>
+              {isDone && <Check size={12} className="text-white" />}
+            </div>
+            <span className={`text-sm font-medium ${isDone ? 'line-through text-gray-400 dark:text-slate-500' : 'text-gray-700 dark:text-slate-300'}`}>{text}</span>
           </div>
         );
       }
@@ -334,34 +329,48 @@ export default function Dashboard() {
 
     return (
       <div draggable={viewMode === 'kanban'} onDragStart={(e) => handleDragStart(e, task.id)} className={`p-4 md:p-5 rounded-2xl border flex flex-col transition-all relative ${isDropdownOpen ? 'z-50' : 'z-10 hover:z-20'} ${viewMode === 'list' ? 'md:flex-row justify-between hover:shadow-md' : 'bg-white dark:bg-slate-800 cursor-grab active:cursor-grabbing gap-3'} ${task.pinned ? 'bg-amber-50/40 dark:bg-amber-900/20 border-amber-200 dark:border-amber-700/50' : 'bg-white dark:bg-slate-800 hover:border-blue-200 dark:hover:border-slate-600 border-gray-100 dark:border-slate-700'}`}>
-        {viewMode === 'kanban' && <div className="absolute top-2 right-2 text-gray-300 hover:text-gray-500"><GripVertical size={16}/></div>}
+        {viewMode === 'kanban' && <div className="absolute top-2 right-2 text-gray-300 hover:text-gray-500"><GripVertical size={16} /></div>}
         <div className="flex-1 min-w-0 pr-6 md:pr-0">
+
           <div className="flex items-center gap-2 mb-2 flex-wrap">
             {task.pinned && <Pin size={16} className="text-amber-500 fill-amber-500 shrink-0" />}
             <h3 className={`text-base md:text-lg font-bold truncate ${task.status === 'Completed' ? 'text-gray-400 dark:text-slate-500 line-through' : 'text-gray-800 dark:text-white'}`}>{task.title}</h3>
-            {isOverdue && <span className="bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-400 text-[10px] md:text-xs px-2 py-0.5 rounded-full font-black animate-pulse flex items-center gap-1 border border-red-200 dark:border-red-800"><AlertOctagon size={12}/> OVERDUE</span>}
+            {isOverdue && <span className="bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-400 text-[10px] md:text-xs px-2 py-0.5 rounded-full font-black animate-pulse flex items-center gap-1 border border-red-200 dark:border-red-800"><AlertOctagon size={12} /> OVERDUE</span>}
             {task.deadline === todayStr && !isOverdue && task.status !== 'Completed' && <span className="bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 text-[10px] md:text-xs px-2 py-0.5 rounded-full font-bold">Due Today</span>}
             <span className={`px-2 py-0.5 rounded-full text-[10px] md:text-xs font-semibold border shrink-0 ${getPriorityColor(task.priority)}`}>{task.priority}</span>
-            {task.recurrence && task.recurrence !== 'None' && <span className="text-blue-500 dark:text-blue-400 flex items-center gap-1 text-[10px] font-bold"><Repeat size={10}/> {task.recurrence}</span>}
+            {task.recurrence && task.recurrence !== 'None' && <span className="text-blue-500 dark:text-blue-400 flex items-center gap-1 text-[10px] font-bold"><Repeat size={10} /> {task.recurrence}</span>}
           </div>
+
+          <div className="flex items-center gap-3 text-[10px] md:text-xs text-indigo-500 dark:text-indigo-400 font-bold mb-3">
+            {task.project && <span className="flex items-center gap-1 bg-indigo-50 dark:bg-indigo-900/30 px-2 py-1 rounded-md"><Folder size={12} /> {task.project}</span>}
+            {task.assignee && <span className="flex items-center gap-1 bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 px-2 py-1 rounded-md"><Users size={12} /> {task.assignee}</span>}
+          </div>
+
           <div className="mb-3">{renderDescription(task)}</div>
-          
+
           <div className="flex flex-wrap items-center gap-2 md:gap-3 text-[10px] md:text-xs text-gray-500 dark:text-slate-400">
-            {tags.map((tag, idx) => (
-              <div key={idx} className="flex items-center gap-1 bg-gray-100 dark:bg-slate-700 px-2 py-1 rounded-md"><Tag size={10}/>{tag}</div>
-            ))}
-            {task.deadline && <div className="flex items-center gap-1 font-semibold"><CalendarIcon size={12}/>{task.deadline} {task.startTime && `(${task.startTime})`}</div>}
-            {task.attachmentLink && <a href={task.attachmentLink} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-blue-500 hover:underline"><LinkIcon size={12}/> Link</a>}
+            {tags.map((tag, idx) => <div key={idx} className="flex items-center gap-1 bg-gray-100 dark:bg-slate-700 px-2 py-1 rounded-md"><Tag size={10} />{tag}</div>)}
+            {task.deadline && <div className="flex items-center gap-1 font-semibold"><CalendarIcon size={12} />{task.deadline} {task.startTime && `(${task.startTime})`}</div>}
+
+            {/* Renders Base64 Image/PDF or Standard URL Link */}
+            {task.attachmentLink && (
+              <a href={task.attachmentLink} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-blue-500 hover:underline">
+                <LinkIcon size={12} /> {task.attachmentName || 'Link'}
+              </a>
+            )}
           </div>
         </div>
-        <div className={`flex items-center gap-1 md:gap-2 mt-4 md:mt-0 ${viewMode === 'list' ? '' : 'pt-3 mt-1 border-t border-gray-100 dark:border-slate-700 justify-end'}`}>
-          <div className="mr-auto md:mr-2">
-            <CustomDropdown options={['To Do', 'In Progress', 'Review', 'Completed']} value={task.status} onChange={(val) => handleUpdateStatus(task.id, val, task)} onOpenChange={setIsDropdownOpen} className="w-32" />
+
+        <div className={`flex flex-wrap items-center justify-between w-full gap-2 mt-4 md:mt-0 ${viewMode === 'list' ? '' : 'pt-3 mt-1 border-t border-gray-100 dark:border-slate-700'}`}>
+          <div className="w-28 flex-shrink-0">
+            <CustomDropdown options={['To Do', 'In Progress', 'Review', 'Completed']} value={task.status} onChange={(val) => handleUpdateStatus(task.id, val, task)} onOpenChange={setIsDropdownOpen} />
           </div>
-          <button onClick={() => handleTogglePin(task)} className={`p-1.5 md:p-2 rounded-lg transition-colors ${task.pinned ? 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400' : 'hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-400'}`} title={task.pinned ? "Unpin Task" : "Pin Task"}><PinOff size={16} /></button>
-          <button onClick={() => handleDuplicate(task)} className="p-1.5 md:p-2 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/30 text-gray-400 hover:text-purple-500" title="Duplicate Task"><Copy size={16} /></button>
-          <button onClick={() => { setPrefilledDate(''); setEditingTask(task); setIsFormOpen(true); }} className="p-1.5 md:p-2 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/30 text-gray-400 hover:text-blue-400" title="Edit Task"><Edit2 size={16} /></button>
-          <button onClick={() => handleDelete(task.id)} className="p-1.5 md:p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/30 text-gray-400 hover:text-red-400" title="Delete Task"><Trash2 size={16} /></button>
+          <div className="flex items-center gap-1 bg-gray-50 dark:bg-slate-800 p-1 rounded-lg">
+            <button onClick={() => handleTogglePin(task)} className={`p-1.5 md:p-2 rounded-lg transition-colors ${task.pinned ? 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400' : 'hover:bg-white dark:hover:bg-slate-700 text-gray-400'}`} title={task.pinned ? "Unpin Task" : "Pin Task"}><PinOff size={16} /></button>
+            <button onClick={() => handleDuplicate(task)} className="p-1.5 md:p-2 rounded-lg hover:bg-white dark:hover:bg-slate-700 text-gray-400 hover:text-purple-500" title="Duplicate Task"><Copy size={16} /></button>
+            <button onClick={() => { setPrefilledDate(''); setEditingTask(task); setIsFormOpen(true); }} className="p-1.5 md:p-2 rounded-lg hover:bg-white dark:hover:bg-slate-700 text-gray-400 hover:text-blue-400" title="Edit Task"><Edit2 size={16} /></button>
+            <button onClick={() => handleDelete(task.id)} className="p-1.5 md:p-2 rounded-lg hover:bg-white dark:hover:bg-slate-700 text-gray-400 hover:text-red-400" title="Delete Task"><Trash2 size={16} /></button>
+          </div>
         </div>
       </div>
     );
@@ -387,7 +396,7 @@ export default function Dashboard() {
         <div key={i} onClick={() => { setPrefilledDate(dateStr); setEditingTask(null); setIsFormOpen(true); }} className={`p-2 border border-gray-100 dark:border-slate-700 min-h-[100px] rounded-xl flex flex-col gap-1 transition-all hover:shadow-md cursor-pointer group ${dateStr === todayStr ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-700 ring-2 ring-blue-500/20' : 'bg-white dark:bg-slate-800'}`}>
           <div className="flex justify-between items-center mb-1">
             <span className={`font-bold ${dateStr === todayStr ? 'text-blue-600 dark:text-blue-400' : 'text-gray-500 dark:text-slate-400'}`}>{i}</span>
-            {festival ? <span className="text-[10px] bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300 px-1.5 py-0.5 rounded font-bold truncate max-w-[80px]">{festival}</span> : <span className="text-[10px] text-gray-300 dark:text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity flex items-center"><Plus size={12}/> Add</span>}
+            {festival ? <span className="text-[10px] bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300 px-1.5 py-0.5 rounded font-bold truncate max-w-[80px]">{festival}</span> : <span className="text-[10px] text-gray-300 dark:text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity flex items-center"><Plus size={12} /> Add</span>}
           </div>
           <div className="space-y-1 overflow-y-auto max-h-[80px] hide-scrollbar">
             {dayTasks.map(t => (
@@ -441,7 +450,7 @@ export default function Dashboard() {
     </div>
   );
 
-  if (isAuthLoading) return <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center"><Loader2 className="animate-spin text-blue-600 w-12 h-12"/></div>;
+  if (isAuthLoading) return <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center"><Loader2 className="animate-spin text-blue-600 w-12 h-12" /></div>;
   if (!user) return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex flex-col items-center justify-center p-4 transition-colors">
       <img src={logo} alt="Task Bandhu" className="w-20 h-20 mb-6 shadow-md rounded-2xl" />
@@ -454,17 +463,17 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 transition-colors duration-200">
       {isOffline && <div className="bg-red-500 text-white text-center py-2 px-4 text-sm font-bold flex items-center justify-center gap-2 z-[300] relative"><WifiOff size={16} /> Offline. Changes saving to device.</div>}
-      
+
       <div className="p-4 md:p-6 lg:p-10 max-w-7xl mx-auto">
-        {toast && <div className={`fixed top-4 right-4 md:top-8 md:right-8 z-[300] flex items-center gap-3 px-5 py-4 rounded-xl shadow-2xl animate-in slide-in-from-top-4 fade-in font-bold ${toast.type === 'error' ? 'bg-red-600 text-white' : toast.type === 'success' ? 'bg-green-600 text-white' : toast.type === 'warning' ? 'bg-amber-500 text-white' : 'bg-slate-800 text-white'}`}>{toast.type === 'success' ? <CheckCircle2 size={20}/> : toast.type === 'warning' ? <AlertTriangle size={20}/> : toast.type === 'error' ? <AlertOctagon size={20}/> : <Info size={20}/>} {toast.message}</div>}
-        
+        {toast && <div className={`fixed top-4 right-4 md:top-8 md:right-8 z-[9999] flex items-center gap-3 px-5 py-4 rounded-xl shadow-2xl animate-in slide-in-from-top-4 fade-in font-bold ${toast.type === 'error' ? 'bg-red-600 text-white' : toast.type === 'success' ? 'bg-green-600 text-white' : toast.type === 'warning' ? 'bg-amber-500 text-white' : 'bg-slate-800 text-white'}`}>{toast.type === 'success' ? <CheckCircle2 size={20} /> : toast.type === 'warning' ? <AlertTriangle size={20} /> : toast.type === 'error' ? <AlertOctagon size={20} /> : <Info size={20} />} {toast.message}</div>}
+
         {confirmState.isOpen && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[250] flex items-center justify-center p-4 animate-in fade-in">
             <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border border-gray-100 dark:border-slate-700 animate-in zoom-in-95">
-              <h3 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white mb-3 flex items-center gap-3"><AlertTriangle className="text-amber-500"/> Confirm Action</h3>
+              <h3 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white mb-3 flex items-center gap-3"><AlertTriangle className="text-amber-500" /> Confirm Action</h3>
               <p className="text-gray-600 dark:text-slate-400 mb-8 font-medium">{confirmState.message}</p>
               <div className="flex justify-end gap-3">
-                <button onClick={() => setConfirmState({isOpen: false, message: '', action: null})} className="px-5 md:px-6 py-2.5 md:py-3 rounded-xl font-bold text-gray-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-700">Cancel</button>
+                <button onClick={() => setConfirmState({ isOpen: false, message: '', action: null })} className="px-5 md:px-6 py-2.5 md:py-3 rounded-xl font-bold text-gray-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-700">Cancel</button>
                 <button onClick={executeConfirm} className="px-5 md:px-6 py-2.5 md:py-3 rounded-xl font-bold bg-blue-600 text-white hover:bg-blue-700 shadow-md">Confirm</button>
               </div>
             </div>
@@ -479,16 +488,16 @@ export default function Dashboard() {
               <p className="text-gray-500 dark:text-slate-400 font-medium text-xs md:text-sm">Welcome, {user.displayName?.split(' ')[0]}</p>
             </div>
           </div>
-          
+
           <div className="flex items-center gap-2 md:gap-3 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0 hide-scrollbar relative z-[80]">
             <input type="file" accept=".json" ref={fileInputRef} onChange={handleImportBackup} className="hidden" />
             <div className="flex items-center bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl p-1 shrink-0 shadow-sm">
-              <button onClick={handleExportBackup} className="p-1.5 md:p-2 text-gray-400 hover:text-blue-600 rounded-lg hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors" title="Export Backup"><DownloadCloud size={18}/></button>
+              <button onClick={handleExportBackup} className="p-1.5 md:p-2 text-gray-400 hover:text-blue-600 rounded-lg hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors" title="Export Backup"><DownloadCloud size={18} /></button>
               <div className="w-px h-5 bg-gray-200 dark:bg-slate-700 mx-1"></div>
-              <button onClick={() => fileInputRef.current?.click()} className="p-1.5 md:p-2 text-gray-400 hover:text-blue-600 rounded-lg hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors" title="Restore Backup"><UploadCloud size={18}/></button>
+              <button onClick={() => fileInputRef.current?.click()} className="p-1.5 md:p-2 text-gray-400 hover:text-blue-600 rounded-lg hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors" title="Restore Backup"><UploadCloud size={18} /></button>
             </div>
-            <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2 md:p-2.5 text-gray-500 dark:text-amber-400 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl shadow-sm shrink-0">{isDarkMode ? <Sun size={18}/> : <Moon size={18}/>}</button>
-            <button onClick={() => signOut(auth)} className="p-2 md:p-2.5 text-gray-400 hover:text-red-600 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 hover:border-red-200 rounded-xl shrink-0"><LogOut size={18}/></button>
+            <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2 md:p-2.5 text-gray-500 dark:text-amber-400 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl shadow-sm shrink-0">{isDarkMode ? <Sun size={18} /> : <Moon size={18} />}</button>
+            <button onClick={() => signOut(auth)} className="p-2 md:p-2.5 text-gray-400 hover:text-red-600 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 hover:border-red-200 rounded-xl shrink-0"><LogOut size={18} /></button>
             <button onClick={() => { playSound('start'); setIsFocusModeActive(true); }} className="flex items-center gap-2 bg-slate-800 dark:bg-blue-600 text-white px-4 md:px-5 py-2 md:py-3 rounded-xl font-bold shadow-lg active:scale-95 transition-all shrink-0"><Timer size={16} /> Focus</button>
             <button onClick={() => { setPrefilledDate(''); setEditingTask(null); setIsFormOpen(true); }} className="flex items-center gap-2 bg-blue-600 text-white px-4 md:px-5 py-2 md:py-3 rounded-xl font-bold shadow-lg active:scale-95 transition-all shrink-0"><Plus size={18} /> New Task</button>
           </div>
@@ -507,11 +516,11 @@ export default function Dashboard() {
           </div>
           <div className="flex gap-3 md:gap-4 w-full lg:w-auto overflow-x-auto hide-scrollbar pb-1 lg:pb-0">
             <div className="bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800/50 px-4 md:px-5 py-3 rounded-xl flex items-center gap-3 shrink-0">
-              <div className="bg-indigo-200 dark:bg-indigo-800 p-1.5 md:p-2 rounded-lg text-indigo-700 dark:text-indigo-300"><Zap size={20} className="md:w-6 md:h-6"/></div>
+              <div className="bg-indigo-200 dark:bg-indigo-800 p-1.5 md:p-2 rounded-lg text-indigo-700 dark:text-indigo-300"><Zap size={20} className="md:w-6 md:h-6" /></div>
               <div><p className="text-[10px] md:text-xs text-indigo-600 dark:text-indigo-400 font-bold uppercase">Rank</p><p className="text-lg md:text-xl font-extrabold text-indigo-900 dark:text-indigo-100">Lv. {currentLevel}</p></div>
             </div>
             <div className={`border px-4 md:px-5 py-3 rounded-xl flex items-center gap-3 shrink-0 ${realStreak > 0 ? 'bg-orange-50 dark:bg-orange-900/30 border-orange-200 dark:border-orange-800/50' : 'bg-gray-50 dark:bg-slate-800/50 border-gray-100 dark:border-slate-700'}`}>
-              <div className={`p-1.5 md:p-2 rounded-lg ${realStreak > 0 ? 'bg-orange-200 dark:bg-orange-800 text-orange-700 dark:text-orange-300' : 'bg-gray-200 dark:bg-slate-700 text-gray-500 dark:text-slate-400'}`}><Flame size={20} className="md:w-6 md:h-6"/></div>
+              <div className={`p-1.5 md:p-2 rounded-lg ${realStreak > 0 ? 'bg-orange-200 dark:bg-orange-800 text-orange-700 dark:text-orange-300' : 'bg-gray-200 dark:bg-slate-700 text-gray-500 dark:text-slate-400'}`}><Flame size={20} className="md:w-6 md:h-6" /></div>
               <div><p className={`text-[10px] md:text-xs font-bold uppercase ${realStreak > 0 ? 'text-orange-600 dark:text-orange-400' : 'text-gray-500 dark:text-slate-400'}`}>Streak</p><p className={`text-lg md:text-xl font-extrabold ${realStreak > 0 ? 'text-orange-900 dark:text-orange-100' : 'text-gray-700 dark:text-slate-300'}`}>{realStreak} Days</p></div>
             </div>
           </div>
@@ -524,67 +533,67 @@ export default function Dashboard() {
           </div>
           <div className="flex items-center gap-2 sm:border-l border-gray-200 dark:border-slate-700 sm:pl-3 pr-1 w-full sm:w-auto justify-end">
             <CustomDropdown options={['Urgent', 'High', 'Medium', 'Low']} value={quickPriority} onChange={setQuickPriority} className="w-32" />
-            <button onClick={submitQuickTask} className="bg-blue-600 text-white p-2 md:p-2.5 rounded-xl w-full sm:w-auto flex justify-center hover:bg-blue-700"><Send size={18} className="md:w-5 md:h-5"/></button>
+            <button onClick={submitQuickTask} className="bg-blue-600 text-white p-2 md:p-2.5 rounded-xl w-full sm:w-auto flex justify-center hover:bg-blue-700"><Send size={18} className="md:w-5 md:h-5" /></button>
           </div>
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 mb-8 relative z-[50]">
           <div className="bg-white dark:bg-slate-800 p-4 md:p-6 rounded-2xl md:rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm relative overflow-hidden group">
-            <div className="absolute top-0 right-0 p-3 md:p-4 opacity-10"><ListTodo size={48} className="md:w-16 md:h-16 dark:text-white"/></div>
+            <div className="absolute top-0 right-0 p-3 md:p-4 opacity-10"><ListTodo size={48} className="md:w-16 md:h-16 dark:text-white" /></div>
             <h2 className="text-gray-500 dark:text-slate-400 font-bold text-[10px] md:text-xs uppercase tracking-wider mb-1 md:mb-2">Total</h2><p className="text-2xl md:text-4xl font-extrabold text-gray-900 dark:text-white">{stats.total}</p>
           </div>
           <div className="bg-white dark:bg-slate-800 p-4 md:p-6 rounded-2xl md:rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm relative overflow-hidden group">
-            <div className="absolute top-0 right-0 p-3 md:p-4 text-green-500 opacity-10"><CheckCircle2 size={48} className="md:w-16 md:h-16"/></div>
+            <div className="absolute top-0 right-0 p-3 md:p-4 text-green-500 opacity-10"><CheckCircle2 size={48} className="md:w-16 md:h-16" /></div>
             <h2 className="text-green-600 dark:text-green-400 font-bold text-[10px] md:text-xs uppercase tracking-wider mb-1 md:mb-2">Done</h2><p className="text-2xl md:text-4xl font-extrabold text-gray-900 dark:text-white">{stats.completed}</p>
           </div>
           <div className={`col-span-2 p-4 md:p-6 rounded-2xl md:rounded-3xl shadow-lg relative overflow-hidden flex flex-col sm:flex-row sm:justify-between sm:items-center text-white gap-4 sm:gap-0 ${stats.overdue > 0 ? 'bg-gradient-to-br from-red-500 to-rose-600' : 'bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700'}`}>
             <div>
               <h2 className={`font-bold text-[10px] md:text-xs uppercase tracking-wider mb-1 md:mb-2 flex items-center gap-1 ${stats.overdue > 0 ? 'text-red-100' : 'text-gray-500 dark:text-slate-400'}`}>
-                {stats.overdue > 0 && <AlertOctagon size={16} className="animate-pulse"/>} OVERDUE ALERT
+                {stats.overdue > 0 && <AlertOctagon size={16} className="animate-pulse" />} OVERDUE ALERT
               </h2>
               <p className={`text-2xl md:text-4xl font-extrabold ${stats.overdue > 0 ? 'text-white' : 'text-gray-900 dark:text-white'}`}>{stats.overdue}</p>
             </div>
-            {stats.overdue > 0 && <button onClick={handleSmartReschedule} className="bg-white text-red-600 px-4 md:px-6 py-3 md:py-4 rounded-xl md:rounded-2xl font-black text-sm md:text-lg hover:scale-105 active:scale-95 transition-transform shadow-xl flex items-center justify-center gap-2"><Wand2 size={20} className="md:w-6 md:h-6"/> FIX NOW</button>}
+            {stats.overdue > 0 && <button onClick={handleSmartReschedule} className="bg-white text-red-600 px-4 md:px-6 py-3 md:py-4 rounded-xl md:rounded-2xl font-black text-sm md:text-lg hover:scale-105 active:scale-95 transition-transform shadow-xl flex items-center justify-center gap-2"><Wand2 size={20} className="md:w-6 md:h-6" /> FIX NOW</button>}
           </div>
         </div>
 
         <div className="bg-white dark:bg-slate-800 p-4 md:p-8 rounded-2xl md:rounded-3xl shadow-sm border border-gray-100 dark:border-slate-700 min-h-[400px]">
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-8 gap-4 w-full relative z-[40]">
             <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white">Workspace</h2>
-            
+
             <div className="flex flex-wrap items-center gap-2 md:gap-4 w-full lg:w-auto">
               <div className="relative flex-1 min-w-[140px] lg:flex-none">
                 <Search size={14} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
                 <input type="text" placeholder="Search..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-8 md:pl-9 pr-3 py-2.5 bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl text-xs md:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-full lg:w-48 transition-all lg:focus:w-64 dark:text-white" />
               </div>
-              
-              <button onClick={handleBulkClear} className="bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400 px-3 py-2 rounded-xl text-xs font-bold hover:bg-red-100 dark:hover:bg-red-900/50 flex items-center gap-1 shadow-sm"><Eraser size={14}/> Clear Done</button>
-              
+
+              <button onClick={handleBulkClear} className="bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400 px-3 py-2 rounded-xl text-xs font-bold hover:bg-red-100 dark:hover:bg-red-900/50 flex items-center gap-1 shadow-sm"><Eraser size={14} /> Clear Done</button>
+
               <div className="flex items-center bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl p-1 shrink-0">
-                <button onClick={() => setViewMode('list')} className={`p-1.5 md:p-2 rounded-lg transition-colors ${viewMode === 'list' ? 'bg-white dark:bg-slate-800 shadow-sm text-blue-600' : 'text-gray-400 dark:text-slate-400'}`} title="List View"><ListIcon size={16}/></button>
-                <button onClick={() => setViewMode('kanban')} className={`p-1.5 md:p-2 rounded-lg transition-colors ${viewMode === 'kanban' ? 'bg-white dark:bg-slate-800 shadow-sm text-blue-600' : 'text-gray-400 dark:text-slate-400'}`} title="Kanban Board"><Kanban size={16}/></button>
-                <button onClick={() => setViewMode('timeline')} className={`p-1.5 md:p-2 rounded-lg transition-colors ${viewMode === 'timeline' ? 'bg-white dark:bg-slate-800 shadow-sm text-blue-600' : 'text-gray-400 dark:text-slate-400'}`} title="Timeline View"><Presentation size={16}/></button>
-                <button onClick={() => setViewMode('calendar')} className={`p-1.5 md:p-2 rounded-lg transition-colors ${viewMode === 'calendar' ? 'bg-white dark:bg-slate-800 shadow-sm text-blue-600' : 'text-gray-400 dark:text-slate-400'}`} title="Calendar View"><CalendarIcon size={16}/></button>
+                <button onClick={() => setViewMode('list')} className={`p-1.5 md:p-2 rounded-lg transition-colors ${viewMode === 'list' ? 'bg-white dark:bg-slate-800 shadow-sm text-blue-600' : 'text-gray-400 dark:text-slate-400'}`} title="List View"><ListIcon size={16} /></button>
+                <button onClick={() => setViewMode('kanban')} className={`p-1.5 md:p-2 rounded-lg transition-colors ${viewMode === 'kanban' ? 'bg-white dark:bg-slate-800 shadow-sm text-blue-600' : 'text-gray-400 dark:text-slate-400'}`} title="Kanban Board"><Kanban size={16} /></button>
+                <button onClick={() => setViewMode('timeline')} className={`p-1.5 md:p-2 rounded-lg transition-colors ${viewMode === 'timeline' ? 'bg-white dark:bg-slate-800 shadow-sm text-blue-600' : 'text-gray-400 dark:text-slate-400'}`} title="Timeline View"><Presentation size={16} /></button>
+                <button onClick={() => setViewMode('calendar')} className={`p-1.5 md:p-2 rounded-lg transition-colors ${viewMode === 'calendar' ? 'bg-white dark:bg-slate-800 shadow-sm text-blue-600' : 'text-gray-400 dark:text-slate-400'}`} title="Calendar View"><CalendarIcon size={16} /></button>
               </div>
               <CustomDropdown options={['All', 'To Do', 'In Progress', 'Review', 'Completed', 'Overdue']} value={filter} onChange={setFilter} className="w-36 md:w-40 z-[50]" />
             </div>
           </div>
-          
+
           {loading ? (
-            <div className="flex justify-center items-center py-20"><Loader2 className="animate-spin text-blue-600 w-8 h-8"/></div>
+            <div className="flex justify-center items-center py-20"><Loader2 className="animate-spin text-blue-600 w-8 h-8" /></div>
           ) : displayTasks.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center px-4">
               <div className="bg-gray-50 dark:bg-slate-700 p-5 md:p-6 rounded-full mb-4"><ListTodo size={32} className="text-gray-400 dark:text-slate-500" /></div>
               <h3 className="text-base md:text-lg font-semibold text-gray-800 dark:text-white mb-1">No tasks found</h3>
             </div>
           ) : viewMode === 'list' ? (
-            <div className="space-y-3 md:space-y-4">{displayTasks.map(t => <TaskCard key={t.id} task={t}/>)}</div>
+            <div className="space-y-3 md:space-y-4">{displayTasks.map(t => <TaskCard key={t.id} task={t} />)}</div>
           ) : viewMode === 'kanban' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 md:gap-6 pb-24">
               {['To Do', 'In Progress', 'Review', 'Completed'].map(status => (
                 <div key={status} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDrop(e, status)} className="bg-gray-50 dark:bg-slate-900/50 p-4 rounded-3xl border border-gray-100 dark:border-slate-700 min-h-[300px]">
                   <h3 className="font-extrabold text-gray-700 dark:text-slate-300 mb-4 pb-3 border-b border-gray-200 dark:border-slate-700 text-sm md:text-base">{status} ({displayTasks.filter(t => t.status === status).length})</h3>
-                  <div className="space-y-3 md:space-y-4">{displayTasks.filter(t => t.status === status).map(t => <TaskCard key={t.id} task={t}/>)}</div>
+                  <div className="space-y-3 md:space-y-4">{displayTasks.filter(t => t.status === status).map(t => <TaskCard key={t.id} task={t} />)}</div>
                 </div>
               ))}
             </div>
@@ -597,14 +606,14 @@ export default function Dashboard() {
       </div>
 
       {isFormOpen && <TaskForm taskToEdit={editingTask} onClose={() => { setIsFormOpen(false); setEditingTask(null); }} user={user} showToast={showToast} prefilledDate={prefilledDate} />}
-      
+
       {isFocusModeActive && (
         <div className="fixed inset-0 bg-slate-900 flex flex-col items-center justify-center p-4 z-[400] overflow-y-auto">
           <div className="text-center w-full max-w-md my-auto relative">
             <button onClick={toggleBrownNoise} className={`absolute -top-12 md:top-0 right-0 p-3 rounded-full transition-all ${isNoisePlaying ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/50' : 'bg-slate-800 text-slate-400 hover:text-white'}`}>
               {isNoisePlaying ? <Volume2 size={24} /> : <VolumeX size={24} />}
             </button>
-            <h2 className="text-white text-2xl md:text-3xl font-bold mb-2 flex items-center justify-center gap-2 md:gap-3"><Timer size={28} className="text-blue-500"/> Deep Focus</h2>
+            <h2 className="text-white text-2xl md:text-3xl font-bold mb-2 flex items-center justify-center gap-2 md:gap-3"><Timer size={28} className="text-blue-500" /> Deep Focus</h2>
             <p className="text-slate-400 text-sm md:text-base mb-8 md:mb-10 px-4">Do not switch tabs. Distractions will be logged.</p>
             <div className="mb-8 md:mb-10 flex justify-center items-center gap-2">
               {!isTimerRunning && timeLeft === focusMinutes * 60 ? (
@@ -620,7 +629,7 @@ export default function Dashboard() {
               <button onClick={() => { setIsTimerRunning(!isTimerRunning); playSound('start'); }} className={`px-6 md:px-8 py-3 md:py-4 rounded-2xl font-bold text-base md:text-lg transition-all shadow-xl flex items-center gap-2 md:gap-3 ${isTimerRunning ? 'bg-orange-500 text-white' : 'bg-white text-slate-900'}`}>
                 {isTimerRunning ? <><Pause size={20} /> Pause</> : <><Play size={20} /> Start</>}
               </button>
-              <button onClick={() => { setIsTimerRunning(false); setTimeLeft(focusMinutes * 60); stopNoiseSafe(); playSound('pop'); }} className="bg-slate-800 text-white px-4 md:px-5 py-3 md:py-4 rounded-2xl font-bold hover:bg-slate-700"><Square size={18}/></button>
+              <button onClick={() => { setIsTimerRunning(false); setTimeLeft(focusMinutes * 60); stopNoiseSafe(); playSound('pop'); }} className="bg-slate-800 text-white px-4 md:px-5 py-3 md:py-4 rounded-2xl font-bold hover:bg-slate-700"><Square size={18} /></button>
             </div>
             <button onClick={() => { setIsFocusModeActive(false); setIsTimerRunning(false); stopNoiseSafe(); playSound('pop'); }} className="mt-8 md:mt-12 text-slate-400 hover:text-white px-6 py-4 font-semibold text-sm md:text-base">Exit Focus Mode</button>
           </div>
