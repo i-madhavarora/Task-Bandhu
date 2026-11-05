@@ -8,8 +8,8 @@ import {
   Sparkles, CheckSquare, Settings2, Bell, CheckCircle, ShieldAlert, ShieldCheck,
   UserPlus, Lock
 } from 'lucide-react';
-import { collection, onSnapshot, query, doc, deleteDoc, updateDoc, addDoc } from 'firebase/firestore';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { collection, onSnapshot, query, doc, deleteDoc, updateDoc, addDoc, setDoc, getDoc } from 'firebase/firestore';
+import { onAuthStateChanged, signOut, updateProfile } from 'firebase/auth';
 import { db, auth } from '../firebase';
 import TaskForm from './TaskForm';
 import Sidebar from './Sidebar';
@@ -20,6 +20,7 @@ import AnalyticsView from './AnalyticsView';
 import AIAssistantModal from './AIAssistantModal';
 import TeamInviteModal from './TeamInviteModal';
 import NotificationCenter from './NotificationCenter';
+import ProfileView from './ProfileView';
 import logo from '../assets/logo.png';
 
 const playSound = (type = 'pop') => {
@@ -59,6 +60,20 @@ const playSound = (type = 'pop') => {
   }
 };
 
+const getOptionDot = (opt) => {
+  switch (opt) {
+    case 'To Do': return 'bg-slate-400';
+    case 'In Progress': return 'bg-blue-500';
+    case 'Review': return 'bg-amber-500';
+    case 'Completed': return 'bg-emerald-500';
+    case 'Urgent': return 'bg-red-500';
+    case 'High': return 'bg-orange-500';
+    case 'Medium': return 'bg-blue-500';
+    case 'Low': return 'bg-emerald-500';
+    default: return 'bg-slate-400';
+  }
+};
+
 const CustomDropdown = ({ options, value, onChange, className = '', onOpenChange, dropUp = false }) => {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef(null);
@@ -70,8 +85,8 @@ const CustomDropdown = ({ options, value, onChange, className = '', onOpenChange
     if (nextState && containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
       const spaceBelow = window.innerHeight - rect.bottom;
-      // Auto-detect direction: if space below is tight (< 200px) and plenty of space above, drop up
-      if (!dropUp && spaceBelow < 200 && rect.top > 180) {
+      // Auto-detect direction: if space below is tight (< 160px) and plenty of space above, drop up
+      if (!dropUp && spaceBelow < 165 && rect.top > 165) {
         setComputedDropUp(true);
       } else {
         setComputedDropUp(dropUp);
@@ -99,22 +114,28 @@ const CustomDropdown = ({ options, value, onChange, className = '', onOpenChange
         onClick={handleToggle}
         className="w-full h-10 bg-white dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl px-3 text-xs md:text-sm font-semibold text-gray-700 dark:text-slate-200 flex justify-between items-center outline-none shadow-sm hover:bg-gray-50 dark:hover:bg-slate-600 transition-colors whitespace-nowrap"
       >
-        <span className="truncate">{value}</span>
+        <span className="flex items-center gap-2 truncate">
+          <span className={`w-2 h-2 rounded-full shrink-0 ${getOptionDot(value)}`}></span>
+          <span className="truncate">{value}</span>
+        </span>
         <ChevronDown size={14} className={`ml-2 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
       {isOpen && (
         <>
-          <div className="fixed inset-0 z-[90]" onClick={handleClose}></div>
-          <div className={`absolute ${computedDropUp ? 'bottom-full mb-1' : 'top-full mt-1'} left-0 min-w-full w-max max-w-[220px] bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 rounded-xl shadow-2xl z-[100] overflow-y-auto max-h-60 hide-scrollbar`}>
+          <div className="fixed inset-0 z-[110]" onClick={handleClose}></div>
+          <div className={`absolute ${computedDropUp ? 'bottom-full mb-1.5' : 'top-full mt-1.5'} left-0 w-full min-w-[150px] bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl shadow-2xl z-[120] py-1`}>
             {options.map(opt => (
               <button
                 key={opt}
                 type="button"
                 onClick={(e) => handleSelect(opt, e)}
-                className="w-full text-left px-3.5 py-2.5 hover:bg-blue-50 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-200 text-xs font-semibold flex justify-between items-center gap-2 transition-colors"
+                className="w-full text-left px-3 py-2 hover:bg-blue-50 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-200 text-xs font-semibold flex items-center justify-between gap-2 transition-colors"
               >
-                <span className="truncate">{opt}</span>
-                {value === opt && <Check size={14} className="text-blue-600 shrink-0" />}
+                <span className="flex items-center gap-2 truncate">
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${getOptionDot(opt)}`}></span>
+                  <span className="truncate">{opt}</span>
+                </span>
+                {value === opt && <Check size={14} className="text-blue-600 dark:text-blue-400 shrink-0" />}
               </button>
             ))}
           </div>
@@ -168,20 +189,97 @@ export default function Dashboard() {
     setConfirmState({ isOpen: false, message: '', action: null });
   };
 
+  // Cryptographically unique team & project code generator
+  const generateSecureCode = useCallback((prefix = 'TB') => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let p1 = '';
+    let p2 = '';
+    for (let i = 0; i < 4; i++) {
+      p1 += chars.charAt(Math.floor(Math.random() * chars.length));
+      p2 += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return `${prefix}-${p1}-${p2}`;
+  }, []);
+
   // Team Workspace Identification & Invites
   const workspaceId = effectiveUser?.isGuest ? 'local_workspace' : (`ws_${effectiveUser?.uid || 'main'}`);
   const workspaceName = `${effectiveUser?.displayName ? `${effectiveUser.displayName}'s` : 'My'} Team Workspace`;
-  const [inviteCode] = useState(() => {
-    const saved = localStorage.getItem('tb_team_code_' + (effectiveUser?.uid || 'guest'));
-    if (saved) return saved;
-    const code = 'TB-' + (effectiveUser?.uid ? effectiveUser.uid.slice(0, 4).toUpperCase() : Math.floor(1000 + Math.random() * 9000));
+
+  const [inviteCode, setInviteCode] = useState(() => {
+    const uKey = effectiveUser?.isGuest ? 'guest' : (effectiveUser?.uid || 'guest');
     try {
-      localStorage.setItem('tb_team_code_' + (effectiveUser?.uid || 'guest'), code);
+      const saved = localStorage.getItem(`tb_team_code_${uKey}`);
+      if (saved) return saved;
     } catch {
       /* ignore */
     }
-    return code;
+    const initialCode = effectiveUser?.isGuest ? generateSecureCode('TB-GUEST') : generateSecureCode('TB');
+    try { localStorage.setItem(`tb_team_code_${uKey}`, initialCode); } catch { /* ignore */ }
+    return initialCode;
   });
+
+  // Synchronize, register, and validate unique workspace code in Firebase Firestore
+  useEffect(() => {
+    if (!effectiveUser || effectiveUser.isGuest) return;
+    const uKey = effectiveUser.uid;
+
+    let isMounted = true;
+    const syncWorkspaceCode = async () => {
+      try {
+        const wsRef = doc(db, 'workspaces', workspaceId);
+        const wsSnap = await getDoc(wsRef);
+
+        let finalCode = '';
+        if (wsSnap.exists() && wsSnap.data().inviteCode) {
+          finalCode = wsSnap.data().inviteCode;
+          // Ensure code is also mapped in team_codes index for instant O(1) Firebase lookup
+          await setDoc(doc(db, 'team_codes', finalCode), {
+            code: finalCode,
+            type: 'workspace',
+            workspaceId,
+            workspaceName,
+            ownerUid: effectiveUser.uid,
+            ownerName: effectiveUser.displayName || 'Workspace Owner',
+            ownerEmail: effectiveUser.email || '',
+            createdAt: new Date().toISOString()
+          }, { merge: true });
+        } else {
+          finalCode = generateSecureCode('TB');
+          await setDoc(doc(db, 'team_codes', finalCode), {
+            code: finalCode,
+            type: 'workspace',
+            workspaceId,
+            workspaceName,
+            ownerUid: effectiveUser.uid,
+            ownerName: effectiveUser.displayName || 'Workspace Owner',
+            ownerEmail: effectiveUser.email || '',
+            createdAt: new Date().toISOString()
+          }, { merge: true });
+
+          await setDoc(wsRef, {
+            id: workspaceId,
+            name: workspaceName,
+            ownerUid: effectiveUser.uid,
+            inviteCode: finalCode,
+            members: [
+              { id: effectiveUser.uid, name: effectiveUser.displayName || 'Me', role: 'Workspace Owner', email: effectiveUser.email || '', status: 'Owner', joinedAt: new Date().toISOString() }
+            ],
+            updatedAt: new Date().toISOString()
+          }, { merge: true });
+        }
+
+        if (isMounted) {
+          setInviteCode(finalCode);
+          try { localStorage.setItem(`tb_team_code_${uKey}`, finalCode); } catch { /* ignore */ }
+        }
+      } catch (err) {
+        console.warn("Cloud workspace code registration:", err);
+      }
+    };
+
+    syncWorkspaceCode();
+    return () => { isMounted = false; };
+  }, [effectiveUser, workspaceId, workspaceName, generateSecureCode]);
 
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
 
@@ -204,20 +302,75 @@ export default function Dashboard() {
     }
   });
 
-  // Persistent team roster with live connection statuses
+  // Persistent team roster with live connection statuses (strictly isolated per user!)
   const [teamMembers, setTeamMembers] = useState(() => {
     try {
-      const saved = localStorage.getItem('tb_team_members');
+      const uKey = effectiveUser?.isGuest ? 'guest' : (effectiveUser?.uid || 'guest');
+      const saved = localStorage.getItem(`tb_team_members_${uKey}`);
       if (saved) return JSON.parse(saved);
     } catch {
       /* ignore */
     }
-    return [
-      { id: '1', name: effectiveUser?.displayName || 'Me', role: 'Workspace Owner', email: effectiveUser?.email || 'owner@workspace.com', status: 'Owner' },
-      { id: '2', name: 'Alex Morgan', role: 'Lead Developer', email: 'alex@company.com', status: 'Connected' },
-      { id: '3', name: 'Sarah Chen', role: 'UI/UX Designer', email: 'sarah@company.com', status: 'Connected' }
-    ];
+    if (effectiveUser && !effectiveUser.isGuest) {
+      return [
+        { id: '1', name: effectiveUser?.displayName || 'Me', role: 'Workspace Owner', email: effectiveUser?.email || 'owner@workspace.com', status: 'Owner' }
+      ];
+    }
+    return [];
   });
+
+  // User Profile & Account Data (synced to Firestore for signed in users)
+  const [userProfile, setUserProfile] = useState(() => {
+    try {
+      const uKey = effectiveUser?.isGuest ? 'guest' : (effectiveUser?.uid || 'guest');
+      const saved = localStorage.getItem(`tb_profile_${uKey}`);
+      return saved ? JSON.parse(saved) : {
+        displayName: effectiveUser?.displayName || '',
+        jobTitle: 'Productivity Champion',
+        bio: 'Organizing goals, driving deep focus, and managing team projects with Task Bandhu.',
+        plan: 'PRO'
+      };
+    } catch {
+      return {
+        displayName: effectiveUser?.displayName || '',
+        jobTitle: 'Productivity Champion',
+        bio: 'Organizing goals, driving deep focus, and managing team projects with Task Bandhu.',
+        plan: 'PRO'
+      };
+    }
+  });
+
+  const handleUpdateProfile = useCallback(async (newProfile) => {
+    const uKey = effectiveUser?.isGuest ? 'guest' : (effectiveUser?.uid || 'guest');
+    setUserProfile(prev => {
+      const updated = { ...prev, ...newProfile };
+      try {
+        localStorage.setItem(`tb_profile_${uKey}`, JSON.stringify(updated));
+      } catch {
+        /* ignore */
+      }
+      return updated;
+    });
+
+    if (effectiveUser && !effectiveUser.isGuest) {
+      if (newProfile.displayName && auth.currentUser) {
+        try {
+          await updateProfile(auth.currentUser, { displayName: newProfile.displayName });
+        } catch {
+          /* ignore */
+        }
+      }
+      try {
+        await setDoc(doc(db, 'users', effectiveUser.uid), {
+          ...newProfile,
+          email: effectiveUser.email,
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+      } catch (err) {
+        console.error("Failed to sync profile to cloud:", err);
+      }
+    }
+  }, [effectiveUser]);
 
   const handleDispatchNotification = useCallback(({
     type = 'task_assigned',
@@ -334,7 +487,8 @@ export default function Dashboard() {
     const updated = [...teamMembers, newMemberObj];
     setTeamMembers(updated);
     try {
-      localStorage.setItem('tb_team_members', JSON.stringify(updated));
+      const uKey = effectiveUser?.isGuest ? 'guest' : (effectiveUser?.uid || 'guest');
+      localStorage.setItem(`tb_team_members_${uKey}`, JSON.stringify(updated));
     } catch {
       /* ignore */
     }
@@ -345,7 +499,7 @@ export default function Dashboard() {
       message: `${name} (${email}) was invited as ${role}. Share the invite link with them to connect!`,
       project: 'Team Workspace'
     });
-  }, [teamMembers, handleDispatchNotification, showToast]);
+  }, [teamMembers, handleDispatchNotification, showToast, effectiveUser]);
 
   const handleJoinTeamByCode = useCallback(async (codeOrUrl) => {
     let targetCode = codeOrUrl.trim();
@@ -361,9 +515,31 @@ export default function Dashboard() {
       }
     }
 
+    targetCode = targetCode.trim().toUpperCase();
+
     if (!targetCode) {
-      throw new Error("Please enter a valid Team Code (e.g. TB-8492) or invite link.");
+      throw new Error("Please enter a valid Team Code (e.g. TB-XXXX-XXXX) or invite link.");
     }
+
+    if (effectiveUser?.isGuest) {
+      throw new Error("Please sign in or create a free account to join team workspaces and sync across devices.");
+    }
+
+    // 🔒 FIREBASE CLOUD VALIDATION: Check if code exists in Firestore database
+    const codeRef = doc(db, 'team_codes', targetCode);
+    const codeSnap = await getDoc(codeRef);
+
+    if (!codeSnap.exists()) {
+      throw new Error(`Invalid Code: "${targetCode}" was not found in Firebase database. Please check with the project owner for a valid code or invite link.`);
+    }
+
+    const codeData = codeSnap.data();
+
+    if (codeData.ownerUid === effectiveUser?.uid) {
+      throw new Error(`You are already the owner of this ${codeData.type === 'project' ? 'project' : 'workspace'} (${codeData.projectName || codeData.workspaceName})!`);
+    }
+
+    targetWsName = codeData.workspaceName || targetWsName;
 
     const newMember = {
       id: effectiveUser?.uid || 'usr_' + Date.now(),
@@ -372,14 +548,72 @@ export default function Dashboard() {
       role: 'Member',
       status: 'Connected',
       joinedAt: new Date().toISOString(),
-      workspaceCode: targetCode
+      workspaceCode: targetCode,
+      projectName: codeData.projectName || 'All Projects'
     };
 
-    if (!teamMembers.some(m => m.email === newMember.email && m.name === newMember.name)) {
-      const updated = [...teamMembers, newMember];
+    // Update target workspace in Firestore
+    try {
+      if (codeData.workspaceId) {
+        const targetWsRef = doc(db, 'workspaces', codeData.workspaceId);
+        const targetWsSnap = await getDoc(targetWsRef);
+        if (targetWsSnap.exists()) {
+          const currentMembers = targetWsSnap.data().members || [];
+          const isAlreadyMember = currentMembers.some(m => m.email?.toLowerCase() === newMember.email.toLowerCase());
+          if (!isAlreadyMember) {
+            await updateDoc(targetWsRef, {
+              members: [...currentMembers, newMember],
+              updatedAt: new Date().toISOString()
+            });
+          }
+        }
+      }
+
+      // Notify the workspace owner in Firestore
+      if (codeData.ownerUid) {
+        await addDoc(collection(db, 'users', codeData.ownerUid, 'notifications'), {
+          type: 'team_join',
+          title: 'Teammate Connected!',
+          message: `${newMember.name} (${newMember.email}) joined your ${codeData.type === 'project' ? 'project' : 'workspace'} "${codeData.projectName || codeData.workspaceName}" using code ${targetCode}.`,
+          project: codeData.projectName || codeData.workspaceName,
+          createdAt: new Date().toISOString(),
+          read: false
+        });
+      }
+    } catch (cloudErr) {
+      console.warn("Cloud workspace member update:", cloudErr);
+    }
+
+    // Reconcile pending invites locally:
+    let updated;
+    const pendingInviteIndex = teamMembers.findIndex(m =>
+      m.status === 'Invited' && (
+        (m.email && newMember.email && m.email.toLowerCase() === newMember.email.toLowerCase()) ||
+        (m.name && newMember.name && m.name.toLowerCase() === newMember.name.toLowerCase())
+      )
+    );
+
+    if (pendingInviteIndex !== -1) {
+      // Reconcile and upgrade this invite
+      updated = [...teamMembers];
+      updated[pendingInviteIndex] = {
+        ...updated[pendingInviteIndex],
+        ...newMember,
+        status: 'Connected',
+        id: updated[pendingInviteIndex].id || newMember.id
+      };
       setTeamMembers(updated);
+    } else if (!teamMembers.some(m => m.email?.toLowerCase() === newMember.email?.toLowerCase())) {
+      updated = [...teamMembers, newMember];
+      setTeamMembers(updated);
+    } else {
+      updated = teamMembers;
+    }
+
+    if (updated) {
       try {
-        localStorage.setItem('tb_team_members', JSON.stringify(updated));
+        const uKey = effectiveUser?.isGuest ? 'guest' : (effectiveUser?.uid || 'guest');
+        localStorage.setItem(`tb_team_members_${uKey}`, JSON.stringify(updated));
       } catch {
         /* ignore */
       }
@@ -389,20 +623,21 @@ export default function Dashboard() {
       id: 'notif_joined_' + Date.now(),
       type: 'team_join',
       title: 'Connected to Team Workspace',
-      message: `You successfully joined ${targetWsName} (Code: ${targetCode})! You will now receive shared tasks and updates.`,
+      message: `Verified by Firebase! You successfully joined "${targetWsName}" (${codeData.type === 'project' ? `Project: ${codeData.projectName}` : `Code: ${targetCode}`}).`,
       project: targetWsName,
       createdAt: new Date().toISOString(),
       read: false
     };
     setNotifications(prev => [joinNotif, ...prev]);
-    showToast(`Connected to team workspace (${targetCode})!`, "success");
+    showToast(`Firebase Verified! Connected to "${targetWsName}" (${targetCode})`, "success");
     setActiveNavTab('team');
   }, [effectiveUser, teamMembers, showToast]);
 
-  // Persistent lifetime completed tasks for permanent level and rank tracking
+  // Persistent lifetime completed tasks for permanent level and rank tracking (scoped per user)
   const [lifetimeCompleted, setLifetimeCompleted] = useState(() => {
     try {
-      const saved = localStorage.getItem('tb_lifetime_completed');
+      const uKey = effectiveUser?.isGuest ? 'guest' : (effectiveUser?.uid || 'guest');
+      const saved = localStorage.getItem(`tb_lifetime_completed_${uKey}`);
       return saved ? parseInt(saved, 10) : 0;
     } catch {
       return 0;
@@ -456,6 +691,7 @@ export default function Dashboard() {
   // Quick Capture & Focus Mode
   const [quickTaskTitle, setQuickTaskTitle] = useState('');
   const [quickPriority, setQuickPriority] = useState('Medium');
+  const [isQuickPriorityOpen, setIsQuickPriorityOpen] = useState(false);
   const [isFocusModeActive, setIsFocusModeActive] = useState(false);
   const [focusMinutes, setFocusMinutes] = useState(25);
   const [timeLeft, setTimeLeft] = useState(25 * 60);
@@ -470,10 +706,11 @@ export default function Dashboard() {
   const [calendarMonth, setCalendarMonth] = useState(new Date().getMonth());
   const [calendarYear, setCalendarYear] = useState(new Date().getFullYear());
 
-  // Automations state
+  // Automations state (scoped per user)
   const [automationRules, setAutomationRules] = useState(() => {
     try {
-      const saved = localStorage.getItem('tb_automation_rules');
+      const uKey = effectiveUser?.isGuest ? 'guest' : (effectiveUser?.uid || 'guest');
+      const saved = localStorage.getItem(`tb_automation_rules_${uKey}`);
       return saved ? JSON.parse(saved) : {
         autoOverdueAlert: true,
         rewardStreakXP: true,
@@ -533,6 +770,87 @@ export default function Dashboard() {
         setUser(null);
       } else {
         setUser(currentUser);
+        if (currentUser) {
+          const uKey = currentUser.uid;
+          // Purge legacy un-scoped global keys from old versions
+          try {
+            localStorage.removeItem('tb_team_members');
+            localStorage.removeItem('tb_projects');
+            localStorage.removeItem('tb_lifetime_completed');
+            localStorage.removeItem('tb_automation_rules');
+          } catch {
+            /* ignore */
+          }
+
+          // 1. Team roster for this user
+          try {
+            const savedTeam = localStorage.getItem(`tb_team_members_${uKey}`);
+            if (savedTeam) {
+              setTeamMembers(JSON.parse(savedTeam));
+            } else {
+              const ownerOnly = [
+                { id: '1', name: currentUser.displayName || 'Me', role: 'Workspace Owner', email: currentUser.email || 'owner@workspace.com', status: 'Owner' }
+              ];
+              setTeamMembers(ownerOnly);
+              localStorage.setItem(`tb_team_members_${uKey}`, JSON.stringify(ownerOnly));
+            }
+          } catch {
+            setTeamMembers([]);
+          }
+
+          // 2. Notifications for this user
+          try {
+            const savedNotifs = localStorage.getItem(`tb_notifications_${uKey}`);
+            setNotifications(savedNotifs ? JSON.parse(savedNotifs) : []);
+          } catch {
+            setNotifications([]);
+          }
+
+          // 3. Lifetime XP for this user
+          try {
+            const savedXP = localStorage.getItem(`tb_lifetime_completed_${uKey}`);
+            setLifetimeCompleted(savedXP ? parseInt(savedXP, 10) : 0);
+          } catch {
+            setLifetimeCompleted(0);
+          }
+
+          // 4. Automation preferences
+          try {
+            const savedAuto = localStorage.getItem(`tb_automation_rules_${uKey}`);
+            if (savedAuto) setAutomationRules(JSON.parse(savedAuto));
+          } catch {
+            /* ignore */
+          }
+
+          // 5. User Profile from Firestore / local
+          try {
+            const savedProfile = localStorage.getItem(`tb_profile_${uKey}`);
+            if (savedProfile) {
+              setUserProfile(JSON.parse(savedProfile));
+            }
+          } catch {
+            /* ignore */
+          }
+          getDoc(doc(db, 'users', uKey)).then(snap => {
+            if (snap.exists()) {
+              const data = snap.data();
+              setUserProfile(prev => ({ ...prev, ...data }));
+              try { localStorage.setItem(`tb_profile_${uKey}`, JSON.stringify(data)); } catch { /* ignore */ }
+            } else {
+              const initP = {
+                displayName: currentUser.displayName || 'Productivity User',
+                email: currentUser.email || '',
+                jobTitle: 'Productivity Champion',
+                bio: 'Organizing goals, driving deep focus, and managing team projects with Task Bandhu.',
+                plan: 'PRO',
+                createdAt: new Date().toISOString()
+              };
+              setDoc(doc(db, 'users', uKey), initP, { merge: true }).catch(() => {});
+              setUserProfile(initP);
+              try { localStorage.setItem(`tb_profile_${uKey}`, JSON.stringify(initP)); } catch { /* ignore */ }
+            }
+          }).catch(() => {});
+        }
       }
       setIsAuthLoading(false);
     });
@@ -615,12 +933,25 @@ export default function Dashboard() {
   };
 
   const handleSignOut = async () => {
+    // Clear in-memory state so nothing leaks into the next account
+    setTasks([]);
+    setTeamMembers([]);
+    setNotifications([]);
+    setLifetimeCompleted(0);
+    setUserProfile({
+      displayName: '',
+      jobTitle: 'Productivity Champion',
+      bio: 'Organizing goals, driving deep focus, and managing team projects with Task Bandhu.',
+      plan: 'PRO'
+    });
     if (guestUser) {
       setGuestUser(null);
       localStorage.removeItem('tb_guest_user');
+      localStorage.removeItem('tb_guest_tasks');
     }
     if (user) {
       await signOut(auth);
+      setUser(null);
     }
     showToast("Signed out successfully.", "info");
   };
@@ -655,7 +986,10 @@ export default function Dashboard() {
 
       loadGuestTasks();
       window.addEventListener('tb_guest_tasks_updated', loadGuestTasks);
-      return () => window.removeEventListener('tb_guest_tasks_updated', loadGuestTasks);
+      return () => {
+        window.removeEventListener('tb_guest_tasks_updated', loadGuestTasks);
+        setTasks([]);
+      };
     }
 
     const q = query(collection(db, 'users', effectiveUser.uid, 'tasks'));
@@ -680,7 +1014,10 @@ export default function Dashboard() {
       setTasks(tasksData);
       setLoading(false);
     });
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      setTasks([]);
+    };
   }, [effectiveUser, todayStr]);
 
   const calculateRealStreak = () => {
@@ -845,7 +1182,8 @@ export default function Dashboard() {
     if (newStatus === 'Completed' && currentTask?.status !== 'Completed') {
       const nextCount = Math.max(lifetimeCompleted + 1, tasks.filter(t => t.status === 'Completed').length + 1);
       setLifetimeCompleted(nextCount);
-      localStorage.setItem('tb_lifetime_completed', String(nextCount));
+      const uKey = effectiveUser?.isGuest ? 'guest' : (effectiveUser?.uid || 'guest');
+      localStorage.setItem(`tb_lifetime_completed_${uKey}`, String(nextCount));
       const oldLvl = Math.floor(lifetimeCompleted / 5) + 1;
       const newLvl = Math.floor(nextCount / 5) + 1;
       if (newLvl > oldLvl) {
@@ -1091,16 +1429,17 @@ export default function Dashboard() {
   const allAssignees = Array.from(new Set(['Me', ...teamMembers.map(m => m.name), ...tasks.map(t => t.assignee).filter(Boolean)]));
   const teamFilterOptions = ['All Members', ...allAssignees];
 
-  // Discover all projects (tasks + custom created projects)
+  // Discover all projects (tasks + custom created projects strictly scoped per user)
   let customProjectsList = [];
   try {
-    const saved = localStorage.getItem('tb_projects');
+    const uKey = effectiveUser?.isGuest ? 'guest' : (effectiveUser?.uid || 'guest');
+    const saved = localStorage.getItem(`tb_projects_${uKey}`);
     if (saved) customProjectsList = JSON.parse(saved);
   } catch {
     customProjectsList = [];
   }
-  const taskProjects = Array.from(new Set(tasks.map(t => t.project).filter(Boolean)));
-  const allProjectNames = Array.from(new Set(['General Workspace', ...taskProjects, ...customProjectsList.map(p => p?.name).filter(Boolean)]));
+  const taskProjects = Array.from(new Set(tasks.map(t => t.project?.trim()).filter(Boolean)));
+  const allProjectNames = Array.from(new Set(['General Workspace', ...taskProjects, ...customProjectsList.map(p => p?.name?.trim()).filter(Boolean)]));
 
   // Filter tasks based on active navigation tab & workspace filters
   const displayTasks = tasks.filter(task => {
@@ -1542,7 +1881,8 @@ export default function Dashboard() {
     confirmAction(`Remove ${memberName} from team workspaces?`, () => {
       const updated = teamMembers.filter(m => m.id !== memberId);
       setTeamMembers(updated);
-      localStorage.setItem('tb_team_members', JSON.stringify(updated));
+      const uKey = effectiveUser?.isGuest ? 'guest' : (effectiveUser?.uid || 'guest');
+      localStorage.setItem(`tb_team_members_${uKey}`, JSON.stringify(updated));
       if (selectedTeamMember === memberName) setSelectedTeamMember('All');
       showToast(`${memberName} removed from team.`, "info");
     });
@@ -1551,7 +1891,8 @@ export default function Dashboard() {
   const toggleAutomationRule = (ruleKey) => {
     const updated = { ...automationRules, [ruleKey]: !automationRules[ruleKey] };
     setAutomationRules(updated);
-    localStorage.setItem('tb_automation_rules', JSON.stringify(updated));
+    const uKey = effectiveUser?.isGuest ? 'guest' : (effectiveUser?.uid || 'guest');
+    localStorage.setItem(`tb_automation_rules_${uKey}`, JSON.stringify(updated));
     showToast("Automation preference updated", "success");
   };
 
@@ -1607,7 +1948,7 @@ export default function Dashboard() {
       {/* Main App Workspace Area */}
       <main className="flex-1 min-w-0 flex flex-col min-h-screen overflow-x-hidden">
         {/* Mobile Header Bar */}
-        <header className="lg:hidden flex items-center justify-between p-4 bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-800 sticky top-0 z-[120]">
+        <header className="lg:hidden flex items-center justify-between p-4 bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-800 sticky top-0 z-[200]">
           <div className="flex items-center gap-3">
             <button
               onClick={() => setIsSidebarOpen(true)}
@@ -1700,7 +2041,7 @@ export default function Dashboard() {
         {/* View Routing Area */}
         <div className="p-4 md:p-6 lg:p-8 max-w-7xl w-full mx-auto space-y-6">
           {/* Top Bar with Title, AI Assistant quick launch & New Task button */}
-          <div className="hidden lg:flex justify-between items-center bg-white dark:bg-slate-800/80 backdrop-blur-md p-4 rounded-3xl border border-gray-100 dark:border-slate-700/80 shadow-sm relative z-[150]">
+          <div className="hidden lg:flex justify-between items-center bg-white dark:bg-slate-800/80 backdrop-blur-md p-4 rounded-3xl border border-gray-100 dark:border-slate-700/80 shadow-sm relative z-[200]">
             <div className="flex items-center gap-3.5">
               <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-white dark:bg-slate-800 border border-gray-200/80 dark:border-slate-700 shadow-md flex items-center justify-center p-2 shrink-0 overflow-hidden">
                 <img src={logo} alt="Task Bandhu Logo" className="w-full h-full object-contain rounded-xl" />
@@ -1761,7 +2102,11 @@ export default function Dashboard() {
             />
           ) : activeNavTab === 'projects' ? (
             <ProjectsView
+              key={effectiveUser?.uid || 'guest'}
               tasks={tasks}
+              user={effectiveUser}
+              showToast={showToast}
+              workspaceId={workspaceId}
               onFilterProject={(projectName) => {
                 setFilter('All');
                 setSearchQuery(projectName);
@@ -1936,8 +2281,8 @@ export default function Dashboard() {
                                   e.stopPropagation();
                                   handleRemoveTeamMember(member.id, member.name);
                                 }}
-                                className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-500 transition-opacity"
-                                title="Remove Teammate"
+                                className="p-1 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
+                                title={member.status === 'Invited' ? "Cancel Invite" : "Remove Teammate"}
                               >
                                 <Trash2 size={13} />
                               </button>
@@ -1982,20 +2327,33 @@ export default function Dashboard() {
                         >
                           {isSelected ? '✓ Filtering' : 'Filter Tasks'}
                         </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setPrefilledDate('');
-                            setPrefilledProject('Team Workspace');
-                            setEditingTask({ assignee: member.name, project: 'Team Workspace', priority: 'Medium' });
-                            setFormInstanceKey(prev => prev + 1);
-                            setIsFormOpen(true);
-                          }}
-                          className="text-[11px] px-2.5 py-1 bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-slate-200 rounded-lg font-bold hover:bg-blue-50 dark:hover:bg-slate-600 hover:text-blue-600 transition-colors"
-                        >
-                          + Assign Task
-                        </button>
+                        {member.status === 'Invited' ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRemoveTeamMember(member.id, member.name);
+                            }}
+                            className="text-[11px] px-2.5 py-1 text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/50 rounded-lg font-bold hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
+                          >
+                            Cancel Invite
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setPrefilledDate('');
+                              setPrefilledProject('Team Workspace');
+                              setEditingTask({ assignee: member.name, project: 'Team Workspace', priority: 'Medium' });
+                              setFormInstanceKey(prev => prev + 1);
+                              setIsFormOpen(true);
+                            }}
+                            className="text-[11px] px-2.5 py-1 bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-slate-200 rounded-lg font-bold hover:bg-blue-50 dark:hover:bg-slate-600 hover:text-blue-600 transition-colors"
+                          >
+                            + Assign Task
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
@@ -2119,6 +2477,23 @@ export default function Dashboard() {
                 })}
               </div>
             </div>
+          ) : activeNavTab === 'profile' ? (
+            <ProfileView
+              user={effectiveUser}
+              profileData={userProfile}
+              onUpdateProfile={handleUpdateProfile}
+              lifetimeCompleted={lifetimeCompleted}
+              currentLevel={currentLevel}
+              currentXP={currentXP}
+              realStreak={realStreak}
+              stats={stats}
+              workspaceName="Team Workspace"
+              inviteCode={inviteCode}
+              teamMembers={teamMembers}
+              onSignOut={handleSignOut}
+              onExportBackup={handleExportBackup}
+              showToast={showToast}
+            />
           ) : (
             /* DEFAULT WORKSPACE TABS ('my-day', 'inbox', 'all-tasks', 'favorites') */
             <div className="space-y-6">
@@ -2163,7 +2538,7 @@ export default function Dashboard() {
               </div>
 
               {/* Quick Capture Input */}
-              <div className="relative flex flex-col sm:flex-row items-stretch sm:items-center bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-2xl p-1.5 md:p-2 focus-within:ring-2 focus-within:ring-blue-500 shadow-sm gap-2 sm:gap-0 z-[60]">
+              <div className={`relative flex flex-col sm:flex-row items-stretch sm:items-center bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-2xl p-1.5 md:p-2 focus-within:ring-2 focus-within:ring-blue-500 shadow-sm gap-2 sm:gap-0 ${isQuickPriorityOpen ? 'z-40' : 'z-30'}`}>
                 <div className="flex items-center flex-1 px-2 sm:px-0">
                   <Plus size={20} className="text-gray-400 hidden sm:block mx-2 shrink-0" />
                   <input
@@ -2176,7 +2551,13 @@ export default function Dashboard() {
                   />
                 </div>
                 <div className="flex items-center gap-2 sm:border-l border-gray-200 dark:border-slate-700 sm:pl-3 pr-1 w-full sm:w-auto justify-end">
-                  <CustomDropdown options={['Urgent', 'High', 'Medium', 'Low']} value={quickPriority} onChange={setQuickPriority} className="w-28 sm:w-32" />
+                  <CustomDropdown
+                    options={['Urgent', 'High', 'Medium', 'Low']}
+                    value={quickPriority}
+                    onChange={setQuickPriority}
+                    onOpenChange={setIsQuickPriorityOpen}
+                    className="w-28 sm:w-32"
+                  />
                   <button
                     onClick={submitQuickTask}
                     className="h-10 px-4 bg-blue-600 text-white rounded-xl w-full sm:w-auto flex items-center justify-center hover:bg-blue-700 transition-colors shadow-sm active:scale-95"
@@ -2188,7 +2569,7 @@ export default function Dashboard() {
               </div>
 
               {/* 4 Stats Cards */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 relative z-[50]">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 relative z-10">
                 <div className="bg-white dark:bg-slate-800 p-4 md:p-6 rounded-2xl md:rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm relative overflow-hidden group">
                   <div className="absolute top-0 right-0 p-3 md:p-4 opacity-10">
                     <ListTodo size={48} className="md:w-16 md:h-16 dark:text-white" />
@@ -2345,7 +2726,7 @@ export default function Dashboard() {
                         key={status}
                         onDragOver={(e) => e.preventDefault()}
                         onDrop={(e) => handleDrop(e, status)}
-                        className="bg-gray-50 dark:bg-slate-900/50 p-4 rounded-3xl border border-gray-100 dark:border-slate-700 min-h-[300px] flex flex-col"
+                        className="bg-gray-50 dark:bg-slate-900/50 p-4 rounded-3xl border border-gray-100 dark:border-slate-700 min-h-[300px] flex flex-col overflow-visible"
                       >
                         <h3 className="font-extrabold text-gray-700 dark:text-slate-300 mb-4 pb-3 border-b border-gray-200 dark:border-slate-700 text-sm md:text-base flex justify-between items-center">
                           <span>{status}</span>
@@ -2353,7 +2734,7 @@ export default function Dashboard() {
                             {displayTasks.filter(t => t.status === status).length}
                           </span>
                         </h3>
-                        <div className="space-y-3 flex-1 overflow-y-auto hide-scrollbar">
+                        <div className="space-y-3 flex-1 pb-16">
                           {displayTasks.filter(t => t.status === status).map(t => <TaskCard key={t.id} task={t} />)}
                         </div>
                       </div>

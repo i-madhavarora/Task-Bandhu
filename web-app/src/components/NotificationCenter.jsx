@@ -145,7 +145,7 @@ export default function NotificationCenter({
 
       {/* Floating Notification Panel */}
       {isOpen && (
-        <div className="fixed sm:absolute top-16 sm:top-full right-2 sm:right-0 mt-2 w-[calc(100vw-1rem)] sm:w-[420px] max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-gray-100 dark:border-slate-800 z-[9999] overflow-hidden flex flex-col max-h-[82vh] animate-in fade-in slide-in-from-top-2">
+        <div className="fixed sm:absolute top-16 sm:top-full right-2 sm:right-0 mt-2 w-[calc(100vw-1rem)] sm:w-[420px] max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-gray-200 dark:border-slate-800 z-[99999] overflow-hidden flex flex-col max-h-[82vh] animate-in fade-in slide-in-from-top-2">
           {/* Header */}
           <div className="p-4 border-b border-gray-100 dark:border-slate-800 flex items-center justify-between bg-gray-50/50 dark:bg-slate-800/40">
             <div className="flex items-center gap-2">

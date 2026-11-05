@@ -36,7 +36,7 @@ export default function AuthModal({ onGuestLogin, showToast }) {
       await signInWithPopup(auth, googleProvider);
       showToast?.("Welcome back!", "success");
     } catch (err) {
-      if (err.code === 'auth/operation-not-allowed') {
+      if (err.code === 'auth/operation-not-allowed' || err.message?.includes('operation-not-allowed')) {
         setOperationNotAllowed(true);
         setErrorMsg("Google Sign-In is disabled in Firebase Console. Please enable it under Authentication -> Sign-in method.");
       } else {
@@ -103,9 +103,13 @@ export default function AuthModal({ onGuestLogin, showToast }) {
         showToast?.("Welcome back!", "success");
       }
     } catch (err) {
-      if (err.code === 'auth/operation-not-allowed') {
+      const isOpNotAllowed = err.code === 'auth/operation-not-allowed' ||
+        err.message?.includes('operation-not-allowed') ||
+        err.message?.includes('auth/operation-not-allowed');
+
+      if (isOpNotAllowed) {
         setOperationNotAllowed(true);
-        setErrorMsg("Email/Password authentication is not enabled in your Firebase Console. Follow the guide below to enable it in 30 seconds, or use Demo Mode immediately!");
+        setErrorMsg("Email/Password provider is disabled in Firebase Console. Please enable it under Authentication -> Sign-in method.");
       } else if (err.code === 'auth/email-already-in-use') {
         setErrorMsg("This email is already registered. Please sign in instead.");
       } else if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found') {
@@ -144,7 +148,12 @@ export default function AuthModal({ onGuestLogin, showToast }) {
         showToast?.("Email verified! Welcome to Task Bandhu.", "success");
       }
     } catch (err) {
-      setErrorMsg(err.message || "Verification check failed. Please try logging in manually.");
+      if (err.code === 'auth/operation-not-allowed' || err.message?.includes('operation-not-allowed')) {
+        setOperationNotAllowed(true);
+        setErrorMsg("Email/Password provider is disabled in Firebase Console. Please enable it in Authentication -> Sign-in method.");
+      } else {
+        setErrorMsg(err.message || "Verification check failed. Please try logging in manually.");
+      }
     } finally {
       setIsCheckingStatus(false);
     }

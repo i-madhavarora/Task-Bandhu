@@ -1,12 +1,50 @@
 import { useState } from 'react';
-import { Folder, Plus, ChevronRight, X } from 'lucide-react';
+import { Folder, Plus, ChevronRight, X, Trash2, Copy, Check, Share2, ShieldCheck } from 'lucide-react';
+import { doc, setDoc, deleteDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 
-export default function ProjectsView({ tasks, onFilterProject, onOpenNewTask }) {
+const generateProjectCode = () => {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let p1 = '';
+  let p2 = '';
+  for (let i = 0; i < 4; i++) {
+    p1 += chars.charAt(Math.floor(Math.random() * chars.length));
+    p2 += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return `PRJ-${p1}-${p2}`;
+};
+
+export default function ProjectsView({
+  tasks,
+  user,
+  workspaceId,
+  showToast,
+  onFilterProject,
+  onOpenNewTask
+}) {
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
+  const [copiedCodeMap, setCopiedCodeMap] = useState({});
+  const userKey = user?.isGuest ? 'guest' : (user?.uid || 'guest');
+
   const [customProjects, setCustomProjects] = useState(() => {
     try {
-      const saved = localStorage.getItem('tb_projects');
-      return saved ? JSON.parse(saved) : [];
+      const saved = localStorage.getItem(`tb_projects_${userKey}`);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        let modified = false;
+        const enriched = parsed.map(p => {
+          if (!p.code) {
+            p.code = generateProjectCode();
+            modified = true;
+          }
+          return p;
+        });
+        if (modified) {
+          localStorage.setItem(`tb_projects_${userKey}`, JSON.stringify(enriched));
+        }
+        return enriched;
+      }
+      return [];
     } catch {
       return [];
     }
@@ -20,19 +58,97 @@ export default function ProjectsView({ tasks, onFilterProject, onOpenNewTask }) 
     color: 'blue'
   });
 
-  // Collect all projects (both from tasks and custom created)
+  // Collect all projects (both from tasks and custom created strictly for this user)
   const taskProjects = Array.from(new Set(tasks.map(t => t.project?.trim()).filter(Boolean)));
   const allProjectNames = Array.from(new Set(['General Workspace', ...taskProjects, ...customProjects.map(p => p.name?.trim())].filter(Boolean)));
 
-  const handleCreateProject = (e) => {
+  const handleCreateProject = async (e) => {
     e.preventDefault();
     if (!newProject.name.trim()) return;
     const cleanName = newProject.name.trim();
-    const updated = [...customProjects, { ...newProject, name: cleanName, id: Date.now().toString() }];
+    const projCode = generateProjectCode();
+
+    const newProjObj = {
+      ...newProject,
+      name: cleanName,
+      id: Date.now().toString(),
+      code: projCode,
+      createdAt: new Date().toISOString()
+    };
+
+    const updated = [...customProjects, newProjObj];
     setCustomProjects(updated);
-    localStorage.setItem('tb_projects', JSON.stringify(updated));
+    const currentKey = user?.isGuest ? 'guest' : (user?.uid || 'guest');
+    localStorage.setItem(`tb_projects_${currentKey}`, JSON.stringify(updated));
+
+    // 🔒 Register unique project code with Firebase Firestore
+    if (user && !user.isGuest) {
+      try {
+        await setDoc(doc(db, 'team_codes', projCode), {
+          code: projCode,
+          type: 'project',
+          workspaceId: workspaceId || `ws_${user.uid}`,
+          workspaceName: `${user.displayName || 'Owner'}'s Workspace`,
+          projectName: cleanName,
+          ownerUid: user.uid,
+          ownerName: user.displayName || 'Project Lead',
+          ownerEmail: user.email || '',
+          createdAt: new Date().toISOString()
+        });
+      } catch (err) {
+        console.warn("Cloud project code registration error:", err);
+      }
+    }
+
+    showToast?.(`Project "${cleanName}" created with unique code ${projCode}!`, "success");
     setNewProject({ name: '', description: '', category: 'Work', targetDate: '', color: 'blue' });
     setIsNewProjectModalOpen(false);
+  };
+
+  const handleDeleteProject = async (projId, e) => {
+    e?.stopPropagation();
+    const targetProj = customProjects.find(p => p.id === projId);
+    const updated = customProjects.filter(p => p.id !== projId);
+    setCustomProjects(updated);
+    const currentKey = user?.isGuest ? 'guest' : (user?.uid || 'guest');
+    localStorage.setItem(`tb_projects_${currentKey}`, JSON.stringify(updated));
+
+    if (targetProj?.code && user && !user.isGuest) {
+      try {
+        await deleteDoc(doc(db, 'team_codes', targetProj.code));
+      } catch (err) {
+        console.warn("Cloud project code deletion error:", err);
+      }
+    }
+    showToast?.("Project deleted.", "info");
+  };
+
+  const handleCopyProjectCode = async (code, e) => {
+    e?.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopiedCodeMap(prev => ({ ...prev, [code]: true }));
+      showToast?.(`Project Code ${code} copied!`, "success");
+      setTimeout(() => setCopiedCodeMap(prev => ({ ...prev, [code]: false })), 2500);
+    } catch {
+      showToast?.("Could not copy project code.", "error");
+    }
+  };
+
+  const handleShareProjectLink = async (projectName, code, e) => {
+    e?.stopPropagation();
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const path = typeof window !== 'undefined' ? window.location.pathname : '';
+    const wsId = workspaceId || (user?.isGuest ? 'local_workspace' : `ws_${user?.uid || 'main'}`);
+    const inviter = user?.displayName || 'Project Lead';
+    const link = `${origin}${path}?joinTeam=${encodeURIComponent(wsId)}&code=${encodeURIComponent(code)}&inviter=${encodeURIComponent(inviter)}&wsName=${encodeURIComponent(projectName)}`;
+
+    try {
+      await navigator.clipboard.writeText(link);
+      showToast?.(`Invite link for "${projectName}" copied to clipboard!`, "success");
+    } catch {
+      showToast?.("Could not copy link automatically.", "error");
+    }
   };
 
   const getProjectStats = (projectName) => {
@@ -138,6 +254,43 @@ export default function ProjectsView({ tasks, onFilterProject, onOpenNewTask }) 
                     <p className="text-sm font-extrabold text-red-600 dark:text-red-400">{stats.overdue}</p>
                   </div>
                 </div>
+
+                {/* Unique Project Code Badge & Quick Share */}
+                {customMeta?.code && (
+                  <div className="flex items-center justify-between p-2.5 mb-2 rounded-2xl bg-indigo-50/70 dark:bg-slate-900/60 border border-indigo-100 dark:border-slate-700/80">
+                    <div className="min-w-0 flex items-center gap-1.5">
+                      <span className="text-[10px] font-black uppercase text-indigo-600 dark:text-indigo-400">
+                        Code:
+                      </span>
+                      <span className="font-mono font-bold text-xs text-gray-800 dark:text-slate-200 truncate">
+                        {customMeta.code}
+                      </span>
+                      {!user?.isGuest && (
+                        <span className="hidden sm:inline-flex items-center gap-0.5 text-[9px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.2 rounded-md">
+                          <ShieldCheck size={10} /> Cloud
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={(e) => handleCopyProjectCode(customMeta.code, e)}
+                        className="p-1.5 rounded-lg text-indigo-600 dark:text-indigo-400 hover:bg-white dark:hover:bg-slate-800 transition-colors"
+                        title="Copy Unique Project Code"
+                      >
+                        {copiedCodeMap[customMeta.code] ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => handleShareProjectLink(name, customMeta.code, e)}
+                        className="p-1.5 rounded-lg text-blue-600 dark:text-blue-400 hover:bg-white dark:hover:bg-slate-800 transition-colors"
+                        title="Share Project Invite Link"
+                      >
+                        <Share2 size={13} />
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Action Buttons */}
@@ -157,6 +310,16 @@ export default function ProjectsView({ tasks, onFilterProject, onOpenNewTask }) 
                 >
                   <Plus size={16} />
                 </button>
+                {customMeta?.id && (
+                  <button
+                    type="button"
+                    onClick={(e) => handleDeleteProject(customMeta.id, e)}
+                    className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-xl transition-colors"
+                    title="Delete Project"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                )}
               </div>
             </div>
           );

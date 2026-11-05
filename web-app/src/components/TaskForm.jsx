@@ -268,13 +268,28 @@ export default function TaskForm({
                 <label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5">
                   <Folder size={16} /> Project
                 </label>
-                <input
-                  type="text"
-                  className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40 text-sm"
-                  placeholder="Project Name"
-                  value={task.project}
-                  onChange={(e) => setTask({ ...task, project: e.target.value })}
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    className="flex-1 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40 text-sm"
+                    placeholder="Project Name"
+                    value={task.project}
+                    onChange={(e) => setTask({ ...task, project: e.target.value })}
+                  />
+                  {allProjects.length > 0 && (
+                    <select
+                      value={task.project}
+                      onChange={(e) => setTask({ ...task, project: e.target.value })}
+                      className="bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-2.5 py-2 text-gray-700 dark:text-slate-300 text-xs font-semibold outline-none focus:ring-2 focus:ring-blue-500/40 cursor-pointer"
+                      title="Select Existing Project"
+                    >
+                      <option value="" disabled>Choose...</option>
+                      {allProjects.map(proj => (
+                        <option key={proj} value={proj}>{proj}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
                 {allProjects.length > 0 && (
                   <div className="flex items-center gap-1.5 flex-wrap mt-2">
                     <span className="text-[10px] font-semibold text-gray-400 dark:text-slate-500 flex items-center gap-1">

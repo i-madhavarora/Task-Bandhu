@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Copy, Check, Share2, Mail, Users, ArrowRight, Sparkles, MessageCircle, Link2, Lock } from 'lucide-react';
+import { X, Copy, Check, Share2, Mail, Users, ArrowRight, Sparkles, MessageCircle, Link2, Lock, ShieldCheck, RotateCw } from 'lucide-react';
 
 export default function TeamInviteModal({
   isOpen,
@@ -296,26 +296,29 @@ export default function TeamInviteModal({
                 <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white flex items-center justify-center mx-auto mb-2 shadow-md">
                   <ArrowRight size={22} />
                 </div>
-                <h3 className="font-extrabold text-sm text-gray-900 dark:text-white">
-                  Join a Teammate's Workspace
+                <h3 className="font-extrabold text-sm text-gray-900 dark:text-white flex items-center justify-center gap-1.5">
+                  Join a Teammate's Workspace or Project
                 </h3>
                 <p className="text-xs text-gray-500 dark:text-slate-400 mt-1 max-w-sm mx-auto leading-relaxed">
-                  Enter the 6-character Team Code (e.g. <span className="font-mono font-bold text-blue-600 dark:text-blue-400">TB-7942</span>) or paste the complete invite link sent to you.
+                  Enter any Firebase-validated Team Code (<span className="font-mono font-bold text-blue-600 dark:text-blue-400">TB-XXXX-XXXX</span>), Project Code (<span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">PRJ-XXXX-XXXX</span>), or paste an invite link.
                 </p>
+                <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[10px] font-bold mt-2">
+                  <ShieldCheck size={11} className="text-emerald-600" /> Validated in Real-Time by Firebase
+                </div>
               </div>
 
               <form onSubmit={handleJoinSubmit} className="space-y-3">
                 <div>
                   <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1.5">
-                    Team Code or Invite URL
+                    Team Code, Project Code, or Invite URL
                   </label>
                   <input
                     type="text"
                     required
-                    placeholder="TB-XXXX or https://.../?joinTeam=..."
+                    placeholder="TB-XXXX-XXXX or PRJ-XXXX-XXXX or invite link..."
                     value={joinCodeInput}
                     onChange={(e) => setJoinCodeInput(e.target.value)}
-                    className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-2xl text-xs sm:text-sm font-mono outline-none focus:ring-2 focus:ring-blue-500/40 text-gray-900 dark:text-white transition-all"
+                    className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-2xl text-xs sm:text-sm font-mono outline-none focus:ring-2 focus:ring-blue-500/40 text-gray-900 dark:text-white transition-all uppercase"
                   />
                 </div>
 
@@ -325,10 +328,12 @@ export default function TeamInviteModal({
                   className="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-2xl font-bold text-xs sm:text-sm shadow-lg shadow-blue-500/25 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   {isJoining ? (
-                    <span>Connecting to workspace...</span>
+                    <span className="flex items-center gap-2">
+                      <RotateCw size={14} className="animate-spin" /> Validating code in Firebase cloud...
+                    </span>
                   ) : (
                     <>
-                      Connect & Join Team <ArrowRight size={16} />
+                      Verify & Join Workspace <ArrowRight size={16} />
                     </>
                   )}
                 </button>

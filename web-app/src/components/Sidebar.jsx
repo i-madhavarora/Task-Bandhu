@@ -2,7 +2,7 @@ import {
   Sun, Moon, LogOut, DownloadCloud, UploadCloud,
   CheckCircle2, Inbox, Folder, Users,
   Sparkles, Timer, BarChart3, Zap, Pin, LayoutGrid, X,
-  ShieldCheck, Lock
+  ShieldCheck, Lock, User
 } from 'lucide-react';
 import logo from '../assets/logo.png';
 
@@ -32,6 +32,7 @@ export default function Sidebar({
   const projectItems = [
     { id: 'projects', label: 'Projects', icon: Folder, badge: projectsCount, color: 'text-emerald-500' },
     { id: 'team', label: 'Team Workspaces', icon: Users, badge: teamCount, color: 'text-cyan-500' },
+    { id: 'profile', label: 'Profile & Account', icon: User, color: 'text-indigo-500' },
   ];
 
   const productivityItems = [
@@ -236,7 +237,16 @@ export default function Sidebar({
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5 pt-1">
+          <button
+            type="button"
+            onClick={() => { setActiveTab('profile'); onClose?.(); }}
+            className={`w-full flex items-center gap-2.5 p-2 rounded-2xl transition-all text-left ${
+              activeTab === 'profile'
+                ? 'bg-blue-50 dark:bg-blue-900/40 ring-2 ring-blue-500/30'
+                : 'hover:bg-gray-100 dark:hover:bg-slate-800'
+            }`}
+            title="View & Edit Account Profile"
+          >
             <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white font-extrabold text-xs flex items-center justify-center shrink-0 shadow-sm">
               {user?.displayName ? user.displayName.charAt(0).toUpperCase() : 'G'}
             </div>
@@ -248,7 +258,7 @@ export default function Sidebar({
                 {user?.isGuest ? 'Local storage only • Not synced' : (user?.email || 'Logged In')}
               </p>
             </div>
-          </div>
+          </button>
 
           {user?.isGuest && (
             <button
