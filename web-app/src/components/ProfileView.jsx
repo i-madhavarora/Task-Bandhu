@@ -283,12 +283,12 @@ export default function ProfileView({
           </div>
         </div>
 
-        {/* Card 2: Productivity Gamification & Rank */}
+        {/* Card 2: Productivity Achievements & Rank */}
         <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm flex flex-col justify-between space-y-4">
           <div>
             <div className="flex items-center justify-between mb-3">
               <span className="text-[11px] font-black uppercase tracking-wider text-gray-400 dark:text-slate-500">
-                Gamification & Level
+                Achievements & Level
               </span>
               <span className="p-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600">
                 <Zap size={18} />

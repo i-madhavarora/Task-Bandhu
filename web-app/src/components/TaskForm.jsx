@@ -65,12 +65,11 @@ export default function TaskForm({
   prefilledProject = '',
   prefilledPriority = '',
   allProjects = [],
-  isApex = false,
-  onOpenApexModal,
+  _isApex = false,
+  _onOpenApexModal,
   onNotifyTeammate
 }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isAIGenerating, setIsAIGenerating] = useState(false);
   const [newComment, setNewComment] = useState('');
 
   const fileInputRef = useRef(null);
@@ -114,47 +113,7 @@ export default function TaskForm({
   };
 
   const handleAIBreakdown = () => {
-    if (!task.title.trim()) return showToast("Please enter a Task Title first.", "warning");
-
-    const todayUsageKey = `tb_ai_usage_${new Date().toISOString().split('T')[0]}_${user?.isGuest ? 'guest' : (user?.uid || 'guest')}`;
-    let dailyUsage = 0;
-    try {
-      dailyUsage = parseInt(localStorage.getItem(todayUsageKey) || '0', 10);
-    } catch {
-      dailyUsage = 0;
-    }
-
-    if (!isApex && dailyUsage >= 3) {
-      showToast("Daily AI breakdown limit reached (3/3 used). Upgrade to Apex for unlimited AI suggestions!", "warning");
-      onOpenApexModal?.();
-      return;
-    }
-
-    setIsAIGenerating(true);
-    setTimeout(() => {
-      try {
-        localStorage.setItem(todayUsageKey, (dailyUsage + 1).toString());
-      } catch {
-        /* ignore */
-      }
-      const t = task.title.toLowerCase();
-      let steps = "- [ ] Define the end goal\n- [ ] Outline necessary resources\n- [ ] Execute step-by-step\n- [ ] Final review";
-      if (t.includes('web') || t.includes('app') || t.includes('code') || t.includes('dev')) {
-        steps = "- [ ] Design UI/UX mockups\n- [ ] Setup project & database\n- [ ] Build frontend components\n- [ ] Test & Deploy";
-      } else if (t.includes('write') || t.includes('blog') || t.includes('report') || t.includes('doc')) {
-        steps = "- [ ] Research and outline key sections\n- [ ] Draft initial content\n- [ ] Fact check and edit\n- [ ] Final proofreading and publish";
-      } else if (t.includes('study') || t.includes('exam') || t.includes('learn')) {
-        steps = "- [ ] Gather reference materials\n- [ ] Break chapters into study blocks\n- [ ] Practice flashcards and problems\n- [ ] Mock test and review weak points";
-      }
-      setTask(prev => ({
-        ...prev,
-        description: prev.description
-          ? `${prev.description}\n\n🤖 AI Breakdown:\n${steps}`
-          : `🤖 AI Breakdown for "${prev.title}":\n\n${steps}`
-      }));
-      setIsAIGenerating(false);
-      showToast("AI Subtasks Generated!", "success");
-    }, 600);
+    showToast("AI Task Breakdown is coming soon! Intelligent task decomposition is currently in development.", "info");
   };
 
   // Immediate Team Activity Comment Posting
@@ -415,10 +374,9 @@ export default function TaskForm({
                 <button
                   type="button"
                   onClick={handleAIBreakdown}
-                  disabled={isAIGenerating}
-                  className="text-xs font-bold text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/30 px-3 py-1.5 rounded-lg flex items-center gap-1 hover:bg-purple-100 dark:hover:bg-purple-900/50 transition-colors"
+                  className="text-xs font-bold text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/30 px-3 py-1.5 rounded-lg flex items-center gap-1.5 hover:bg-purple-100 dark:hover:bg-purple-900/50 transition-colors"
                 >
-                  <Sparkles size={12} /> AI Breakdown
+                  <Sparkles size={13} /> AI Breakdown <span className="text-[10px] font-semibold opacity-75">(Coming Soon)</span>
                 </button>
               </div>
               <textarea

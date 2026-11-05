@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Mail, Lock, User, ArrowRight, Sparkles, CheckCircle2, AlertCircle, Eye, EyeOff, RotateCw, ExternalLink, ShieldCheck } from 'lucide-react';
+import { Mail, Lock, User, ArrowRight, Sparkles, CheckCircle2, AlertCircle, Eye, EyeOff, RotateCw, ShieldCheck } from 'lucide-react';
 import {
   signInWithPopup,
   signInWithEmailAndPassword,
@@ -9,7 +9,7 @@ import {
   signOut
 } from 'firebase/auth';
 import { auth, googleProvider } from '../firebase';
-import logo from '../assets/logo.png';
+import logoDark from '../assets/logo_d.png';
 
 export default function AuthModal({ onGuestLogin, showToast }) {
   const [isSignUp, setIsSignUp] = useState(false);
@@ -28,6 +28,38 @@ export default function AuthModal({ onGuestLogin, showToast }) {
   const [isResending, setIsResending] = useState(false);
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
 
+  const getFriendlyError = (err) => {
+    if (!err) return "Something went wrong. Please try again.";
+    const code = err.code || '';
+    const message = err.message || '';
+
+    if (code === 'auth/user-not-found' || code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
+      return "Incorrect email or password. Please verify and try again.";
+    }
+    if (code === 'auth/email-already-in-use') {
+      return "An account with this email already exists. Please sign in instead.";
+    }
+    if (code === 'auth/invalid-email') {
+      return "Please enter a valid email address.";
+    }
+    if (code === 'auth/weak-password') {
+      return "Password is too short. Please choose a password with at least 6 characters.";
+    }
+    if (code === 'auth/too-many-requests') {
+      return "Too many sign-in attempts. Please wait a few moments and try again.";
+    }
+    if (code === 'auth/network-request-failed') {
+      return "Network connection issue. Please check your internet connection.";
+    }
+    if (code === 'auth/popup-closed-by-user') {
+      return "Sign in window was closed. Please try again.";
+    }
+    if (code === 'auth/operation-not-allowed' || message.includes('operation-not-allowed')) {
+      return "This sign-in method is temporarily unavailable. Please try Guest Mode or another option.";
+    }
+    return "Unable to sign in. Please verify your details and try again.";
+  };
+
   const handleGoogleSignIn = async () => {
     setIsLoading(true);
     setErrorMsg('');
@@ -38,9 +70,9 @@ export default function AuthModal({ onGuestLogin, showToast }) {
     } catch (err) {
       if (err.code === 'auth/operation-not-allowed' || err.message?.includes('operation-not-allowed')) {
         setOperationNotAllowed(true);
-        setErrorMsg("Google Sign-In is disabled in Firebase Console. Please enable it under Authentication -> Sign-in method.");
+        setErrorMsg("Google Sign-In is temporarily unavailable. Please sign in with email or explore in Guest Mode.");
       } else {
-        setErrorMsg(err.message || "Failed to sign in with Google.");
+        setErrorMsg(getFriendlyError(err));
       }
     } finally {
       setIsLoading(false);
@@ -109,15 +141,9 @@ export default function AuthModal({ onGuestLogin, showToast }) {
 
       if (isOpNotAllowed) {
         setOperationNotAllowed(true);
-        setErrorMsg("Email/Password provider is disabled in Firebase Console. Please enable it under Authentication -> Sign-in method.");
-      } else if (err.code === 'auth/email-already-in-use') {
-        setErrorMsg("This email is already registered. Please sign in instead.");
-      } else if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found') {
-        setErrorMsg("Invalid email or password. Please try again.");
-      } else if (err.code === 'auth/invalid-email') {
-        setErrorMsg("Please enter a valid email address.");
+        setErrorMsg("Email sign-in is temporarily unavailable. Please try Guest Mode or check back shortly.");
       } else {
-        setErrorMsg(err.message || "Authentication failed.");
+        setErrorMsg(getFriendlyError(err));
       }
     } finally {
       setIsLoading(false);
@@ -150,9 +176,9 @@ export default function AuthModal({ onGuestLogin, showToast }) {
     } catch (err) {
       if (err.code === 'auth/operation-not-allowed' || err.message?.includes('operation-not-allowed')) {
         setOperationNotAllowed(true);
-        setErrorMsg("Email/Password provider is disabled in Firebase Console. Please enable it in Authentication -> Sign-in method.");
+        setErrorMsg("Sign in service is temporarily unavailable. Please try again shortly.");
       } else {
-        setErrorMsg(err.message || "Verification check failed. Please try logging in manually.");
+        setErrorMsg(getFriendlyError(err));
       }
     } finally {
       setIsCheckingStatus(false);
@@ -175,7 +201,7 @@ export default function AuthModal({ onGuestLogin, showToast }) {
       await signOut(auth);
       showToast?.(`Fresh verification link sent to ${targetEmail}!`, "success");
     } catch (err) {
-      showToast?.(err.message || "Could not resend email. Please try again later.", "error");
+      showToast?.(getFriendlyError(err), "error");
     } finally {
       setIsResending(false);
     }
@@ -190,14 +216,14 @@ export default function AuthModal({ onGuestLogin, showToast }) {
       <div className="bg-white dark:bg-slate-800/95 backdrop-blur-xl border border-gray-100 dark:border-slate-700/80 rounded-3xl p-6 sm:p-10 max-w-md w-full shadow-2xl relative z-10 transition-all">
         {/* Brand Header with Box-Fitted Logo */}
         <div className="text-center mb-6">
-          <div className="w-24 h-24 sm:w-28 sm:h-28 mx-auto mb-3.5 rounded-3xl bg-white dark:bg-slate-900 border border-gray-200/80 dark:border-slate-700 shadow-xl flex items-center justify-center p-3 overflow-hidden">
-            <img src={logo} alt="Task Bandhu Logo" className="w-full h-full object-contain rounded-2xl" />
+          <div className="w-28 h-28 sm:w-32 sm:h-32 mx-auto mb-3.5 rounded-3xl bg-white dark:bg-slate-900 border border-gray-200/80 dark:border-slate-700 shadow-xl flex items-center justify-center p-3 overflow-hidden">
+            <img src={logoDark} alt="Task Bandhu Logo" className="w-full h-full object-contain rounded-2xl" />
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 dark:text-white tracking-tight">
             Task Bandhu
           </h1>
           <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400 mt-1 font-medium">
-            AI-Powered Task & Productivity Operating System
+            Next-Gen Productivity & Task Management
           </p>
         </div>
 
@@ -299,43 +325,30 @@ export default function AuthModal({ onGuestLogin, showToast }) {
               </button>
             </div>
 
-            {/* Error or Operation-Not-Allowed Guidance */}
+            {/* Friendly Notice or Error Guidance */}
             {operationNotAllowed ? (
               <div className="mb-5 p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-xs text-amber-800 dark:text-amber-200 space-y-2 animate-in fade-in">
                 <div className="flex items-center gap-2 font-black text-sm text-amber-900 dark:text-amber-100">
                   <AlertCircle size={18} className="text-amber-600 shrink-0" />
-                  Enable Email Auth in Firebase
+                  Account Service Update
                 </div>
                 <p className="leading-relaxed">
-                  In Firebase, Email & Password login is turned off by default. To enable it:
+                  Direct sign up is temporarily paused for routine maintenance. You can immediately jump into Task Bandhu using Guest Mode.
                 </p>
-                <ol className="list-decimal pl-5 space-y-1 font-medium text-[11px]">
-                  <li>Open <strong>Firebase Console</strong> &gt; Select your project</li>
-                  <li>Click <strong>Authentication</strong> &gt; <strong>Sign-in method</strong></li>
-                  <li>Click <strong>Email/Password</strong> &gt; toggle <strong>Enable</strong> &gt; Save</li>
-                </ol>
                 <div className="pt-2 flex flex-col sm:flex-row gap-2">
-                  <a
-                    href="https://console.firebase.google.com"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 bg-amber-600 text-white rounded-xl font-bold text-[11px] hover:bg-amber-700 transition-colors shadow-sm"
-                  >
-                    Open Firebase Console <ExternalLink size={12} />
-                  </a>
                   <button
                     type="button"
                     onClick={() => onGuestLogin({ displayName: name.trim() || 'Guest User', email: email.trim() || 'guest@taskbandhu.app' })}
-                    className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-xl font-bold text-[11px] hover:bg-blue-700 transition-colors shadow-sm"
+                    className="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-xl font-bold text-xs hover:bg-blue-700 transition-colors shadow-sm"
                   >
-                    Continue as {name.trim() || 'Guest'} <ArrowRight size={12} />
+                    Continue as {name.trim() || 'Guest'} <ArrowRight size={13} />
                   </button>
                   <button
                     type="button"
                     onClick={() => onGuestLogin()}
-                    className="px-3 py-1.5 bg-white dark:bg-slate-800 text-gray-800 dark:text-white rounded-xl font-bold text-[11px] border border-amber-200 hover:bg-amber-100 dark:hover:bg-slate-700 transition-colors"
+                    className="px-4 py-2 bg-white dark:bg-slate-800 text-gray-800 dark:text-white rounded-xl font-bold text-xs border border-amber-200 hover:bg-amber-100 dark:hover:bg-slate-700 transition-colors"
                   >
-                    Demo Mode
+                    Quick Guest Mode
                   </button>
                 </div>
               </div>

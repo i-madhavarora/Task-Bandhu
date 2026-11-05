@@ -2,9 +2,10 @@ import {
   Sun, Moon, LogOut, DownloadCloud, UploadCloud,
   CheckCircle2, Inbox, Folder, Users,
   Sparkles, Timer, BarChart3, Zap, Pin, LayoutGrid, X,
-  ShieldCheck, Lock, User
+  ShieldCheck, User
 } from 'lucide-react';
-import logo from '../assets/logo.png';
+import logoDark from '../assets/logo_d.png';
+import logoLight from '../assets/logo_l.png';
 
 export default function Sidebar({
   activeTab,
@@ -23,25 +24,27 @@ export default function Sidebar({
   isOpen,
   onClose
 }) {
+  const isGuest = !!user?.isGuest;
+
   const navItems = [
     { id: 'my-day', label: 'My Day', icon: Sun, badge: stats?.todayCount, color: 'text-amber-500' },
-    { id: 'inbox', label: 'Inbox', icon: Inbox, badge: stats?.inboxCount, color: 'text-blue-500' },
+    { id: 'inbox', label: 'Inbox', icon: Inbox, badge: stats?.inboxCount, color: 'text-blue-500', guestHidden: true },
     { id: 'all-tasks', label: 'All Tasks', icon: CheckCircle2, badge: stats?.total, color: 'text-indigo-500' },
-    { id: 'eisenhower', label: 'Eisenhower Matrix', icon: LayoutGrid, color: 'text-purple-500' },
+    { id: 'eisenhower', label: 'Focus Matrix', icon: LayoutGrid, color: 'text-purple-500', guestHidden: true },
     { id: 'favorites', label: 'Pinned & Favorites', icon: Pin, badge: stats?.pinnedCount, color: 'text-rose-500' },
   ];
 
   const projectItems = [
-    { id: 'projects', label: 'Projects', icon: Folder, badge: projectsCount, color: 'text-emerald-500' },
-    { id: 'team', label: 'Team Workspaces', icon: Users, badge: teamCount, color: 'text-cyan-500' },
-    { id: 'profile', label: 'Profile & Account', icon: User, color: 'text-indigo-500' },
+    { id: 'projects', label: 'Projects', icon: Folder, badge: projectsCount, color: 'text-emerald-500', guestHidden: true },
+    { id: 'team', label: 'Team Workspaces', icon: Users, badge: teamCount, color: 'text-cyan-500', guestHidden: true },
+    { id: 'profile', label: 'Profile & Account', icon: User, color: 'text-indigo-500', guestHidden: true },
   ];
 
   const productivityItems = [
-    { id: 'ai-assistant', label: 'AI Assistant', icon: Sparkles, color: 'text-purple-600 dark:text-purple-400', isHot: true },
-    { id: 'focus', label: 'Focus Mode', icon: Timer, color: 'text-blue-500' },
-    { id: 'analytics', label: 'Reports & Analytics', icon: BarChart3, color: 'text-amber-500' },
-    { id: 'automations', label: 'Automations', icon: Zap, color: 'text-yellow-500' },
+    { id: 'ai-assistant', label: 'AI Assistant', icon: Sparkles, color: 'text-purple-600 dark:text-purple-400', isHot: true, guestHidden: true },
+    { id: 'focus', label: 'Deep Focus', icon: Timer, color: 'text-blue-500' },
+    { id: 'analytics', label: 'Reports & Analytics', icon: BarChart3, color: 'text-amber-500', guestHidden: true },
+    { id: 'automations', label: 'Automations', icon: Zap, color: 'text-yellow-500', guestHidden: true },
   ];
 
   return (
@@ -64,17 +67,23 @@ export default function Sidebar({
           <div className="p-4 sm:p-5 flex items-center justify-between border-b border-gray-100 dark:border-slate-800">
             <div className="flex items-center gap-3">
               <div className="w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-white dark:bg-slate-800 border border-gray-200/80 dark:border-slate-700 shadow-md flex items-center justify-center p-2 shrink-0 overflow-hidden">
-                <img src={logo} alt="Logo" className="w-full h-full object-contain rounded-xl" />
+                <img src={isDarkMode ? logoDark : logoLight} alt="Task Bandhu Logo" className="w-full h-full object-contain rounded-xl" />
               </div>
               <div>
                 <h2 className="text-base sm:text-lg font-extrabold text-gray-900 dark:text-white tracking-tight flex items-center gap-1.5">
                   Task Bandhu
-                  <span className="text-[10px] px-1.5 py-0.2 bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 rounded font-black">
-                    PRO
-                  </span>
+                  {isApex ? (
+                    <span className="text-[10px] px-1.5 py-0.2 bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300 rounded font-black">
+                      APEX
+                    </span>
+                  ) : !user?.isGuest ? (
+                    <span className="text-[10px] px-1.5 py-0.2 bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 rounded font-black">
+                      CORE
+                    </span>
+                  ) : null}
                 </h2>
                 <p className="text-[11px] text-gray-400 dark:text-slate-500 font-semibold truncate max-w-[130px]">
-                  {user?.isGuest ? 'Local Guest Mode' : (user?.displayName || 'Workspace')}
+                  {user?.isGuest ? 'Guest Mode' : (user?.displayName || 'Workspace')}
                 </p>
               </div>
             </div>
@@ -95,7 +104,7 @@ export default function Sidebar({
                 Workspace
               </p>
               <div className="space-y-1">
-                {navItems.map((item) => {
+                {navItems.filter(item => !isGuest || !item.guestHidden).map((item) => {
                   const Icon = item.icon;
                   const isActive = activeTab === item.id;
                   return (
@@ -133,7 +142,7 @@ export default function Sidebar({
                 Manage
               </p>
               <div className="space-y-1">
-                {projectItems.map((item) => {
+                {projectItems.filter(item => !isGuest || !item.guestHidden).map((item) => {
                   const Icon = item.icon;
                   const isActive = activeTab === item.id;
                   return (
@@ -150,11 +159,7 @@ export default function Sidebar({
                         <Icon size={16} className={item.color} />
                         <span>{item.label}</span>
                       </div>
-                      {user?.isGuest && item.id === 'team' ? (
-                        <span className="flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded font-black bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
-                          <Lock size={9} /> Account
-                        </span>
-                      ) : typeof item.badge === 'number' && item.badge > 0 ? (
+                      {typeof item.badge === 'number' && item.badge > 0 ? (
                         <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-slate-400">
                           {item.badge}
                         </span>
@@ -171,7 +176,7 @@ export default function Sidebar({
                 Productivity & AI
               </p>
               <div className="space-y-1">
-                {productivityItems.map((item) => {
+                {productivityItems.filter(item => !isGuest || !item.guestHidden).map((item) => {
                   const Icon = item.icon;
                   const isActive = activeTab === item.id;
                   return (
@@ -283,10 +288,10 @@ export default function Sidebar({
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-xs font-bold text-gray-800 dark:text-white truncate">
-                {user?.isGuest ? 'Guest (Local Mode)' : (user?.displayName || 'Active User')}
+                {user?.isGuest ? 'Guest User' : (user?.displayName || 'Active User')}
               </p>
               <p className="text-[10px] text-gray-400 dark:text-slate-500 truncate">
-                {user?.isGuest ? 'Local storage only • Not synced' : (user?.email || 'Logged In')}
+                {user?.isGuest ? 'Saved on this device' : (user?.email || 'Active Account')}
               </p>
             </div>
           </button>
@@ -297,7 +302,7 @@ export default function Sidebar({
               onClick={onSignOut}
               className="w-full mt-2 py-2 px-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl text-xs font-black shadow-md flex items-center justify-center gap-1.5 transition-all active:scale-95"
             >
-              <ShieldCheck size={14} /> Sign In to Sync & Teams
+              <ShieldCheck size={14} /> Sign In to Access All Features
             </button>
           )}
         </div>

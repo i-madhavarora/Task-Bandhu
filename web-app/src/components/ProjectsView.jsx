@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Folder, Plus, ChevronRight, X, Trash2, Copy, Check, Share2, ShieldCheck, Sparkles } from 'lucide-react';
-import { doc, setDoc, deleteDoc } from 'firebase/firestore';
+import { doc, setDoc, deleteDoc, collection, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 import { PLAN_LIMITS } from '../utils/planLimits';
 
@@ -61,6 +61,30 @@ export default function ProjectsView({
     color: 'blue'
   });
 
+  // Pull projects from Firestore for signed in users
+  useEffect(() => {
+    if (!user || user.isGuest) return;
+    let isMounted = true;
+    const fetchCloudProjects = async () => {
+      try {
+        const snap = await getDocs(collection(db, 'users', user.uid, 'projects'));
+        if (!snap.empty && isMounted) {
+          const cloudList = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+          setCustomProjects(cloudList);
+          try {
+            localStorage.setItem(`tb_projects_${user.uid}`, JSON.stringify(cloudList));
+          } catch {
+            /* ignore */
+          }
+        }
+      } catch (err) {
+        console.warn("Cloud projects load error:", err);
+      }
+    };
+    fetchCloudProjects();
+    return () => { isMounted = false; };
+  }, [user]);
+
   // Collect all projects (both from tasks and custom created strictly for this user)
   const taskProjects = Array.from(new Set(tasks.map(t => t.project?.trim()).filter(Boolean)));
   const allProjectNames = Array.from(new Set(['General Workspace', ...taskProjects, ...customProjects.map(p => p.name?.trim())].filter(Boolean)));
@@ -89,9 +113,10 @@ export default function ProjectsView({
     const currentKey = user?.isGuest ? 'guest' : (user?.uid || 'guest');
     localStorage.setItem(`tb_projects_${currentKey}`, JSON.stringify(updated));
 
-    // 🔒 Register unique project code with Firebase Firestore
+    // Register unique project in Firestore
     if (user && !user.isGuest) {
       try {
+        await setDoc(doc(db, 'users', user.uid, 'projects', newProjObj.id), newProjObj);
         await setDoc(doc(db, 'team_codes', projCode), {
           code: projCode,
           type: 'project',
@@ -104,7 +129,7 @@ export default function ProjectsView({
           createdAt: new Date().toISOString()
         });
       } catch (err) {
-        console.warn("Cloud project code registration error:", err);
+        console.warn("Cloud project registration error:", err);
       }
     }
 
@@ -121,11 +146,14 @@ export default function ProjectsView({
     const currentKey = user?.isGuest ? 'guest' : (user?.uid || 'guest');
     localStorage.setItem(`tb_projects_${currentKey}`, JSON.stringify(updated));
 
-    if (targetProj?.code && user && !user.isGuest) {
+    if (user && !user.isGuest) {
       try {
-        await deleteDoc(doc(db, 'team_codes', targetProj.code));
+        await deleteDoc(doc(db, 'users', user.uid, 'projects', projId));
+        if (targetProj?.code) {
+          await deleteDoc(doc(db, 'team_codes', targetProj.code));
+        }
       } catch (err) {
-        console.warn("Cloud project code deletion error:", err);
+        console.warn("Cloud project deletion error:", err);
       }
     }
     showToast?.("Project deleted.", "info");

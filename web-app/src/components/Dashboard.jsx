@@ -23,7 +23,8 @@ import NotificationCenter from './NotificationCenter';
 import ProfileView from './ProfileView';
 import ApexUpgradeModal from './ApexUpgradeModal';
 import { isApexPlan, PLAN_LIMITS } from '../utils/planLimits';
-import logo from '../assets/logo.png';
+import logoDark from '../assets/logo_d.png';
+import logoLight from '../assets/logo_l.png';
 
 const playSound = (type = 'pop') => {
   try {
@@ -164,6 +165,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  const appLogo = isDarkMode ? logoDark : logoLight;
 
   // App Navigation & Modal Controls
   const [activeNavTab, setActiveNavTab] = useState('my-day'); // 'my-day' | 'inbox' | 'all-tasks' | 'eisenhower' | 'favorites' | 'projects' | 'team' | 'analytics' | 'automations'
@@ -220,68 +222,32 @@ export default function Dashboard() {
     return initialCode;
   });
 
-  // Synchronize, register, and validate unique workspace code in Firebase Firestore
+  // Load workspace code if workspace was explicitly created in Firestore (NEVER auto-created!)
   useEffect(() => {
     if (!effectiveUser || effectiveUser.isGuest) return;
     const uKey = effectiveUser.uid;
 
     let isMounted = true;
-    const syncWorkspaceCode = async () => {
+    const checkExistingWorkspace = async () => {
       try {
         const wsRef = doc(db, 'workspaces', workspaceId);
         const wsSnap = await getDoc(wsRef);
 
-        let finalCode = '';
         if (wsSnap.exists() && wsSnap.data().inviteCode) {
-          finalCode = wsSnap.data().inviteCode;
-          // Ensure code is also mapped in team_codes index for instant O(1) Firebase lookup
-          await setDoc(doc(db, 'team_codes', finalCode), {
-            code: finalCode,
-            type: 'workspace',
-            workspaceId,
-            workspaceName,
-            ownerUid: effectiveUser.uid,
-            ownerName: effectiveUser.displayName || 'Workspace Owner',
-            ownerEmail: effectiveUser.email || '',
-            createdAt: new Date().toISOString()
-          }, { merge: true });
-        } else {
-          finalCode = generateSecureCode('TB');
-          await setDoc(doc(db, 'team_codes', finalCode), {
-            code: finalCode,
-            type: 'workspace',
-            workspaceId,
-            workspaceName,
-            ownerUid: effectiveUser.uid,
-            ownerName: effectiveUser.displayName || 'Workspace Owner',
-            ownerEmail: effectiveUser.email || '',
-            createdAt: new Date().toISOString()
-          }, { merge: true });
-
-          await setDoc(wsRef, {
-            id: workspaceId,
-            name: workspaceName,
-            ownerUid: effectiveUser.uid,
-            inviteCode: finalCode,
-            members: [
-              { id: effectiveUser.uid, name: effectiveUser.displayName || 'Me', role: 'Workspace Owner', email: effectiveUser.email || '', status: 'Owner', joinedAt: new Date().toISOString() }
-            ],
-            updatedAt: new Date().toISOString()
-          }, { merge: true });
-        }
-
-        if (isMounted) {
-          setInviteCode(finalCode);
-          try { localStorage.setItem(`tb_team_code_${uKey}`, finalCode); } catch { /* ignore */ }
+          const finalCode = wsSnap.data().inviteCode;
+          if (isMounted) {
+            setInviteCode(finalCode);
+            try { localStorage.setItem(`tb_team_code_${uKey}`, finalCode); } catch { /* ignore */ }
+          }
         }
       } catch (err) {
-        console.warn("Cloud workspace code registration:", err);
+        console.warn("Check workspace error:", err);
       }
     };
 
-    syncWorkspaceCode();
+    checkExistingWorkspace();
     return () => { isMounted = false; };
-  }, [effectiveUser, workspaceId, workspaceName, generateSecureCode]);
+  }, [effectiveUser, workspaceId]);
 
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
 
@@ -313,13 +279,64 @@ export default function Dashboard() {
     } catch {
       /* ignore */
     }
-    if (effectiveUser && !effectiveUser.isGuest) {
-      return [
-        { id: '1', name: effectiveUser?.displayName || 'Me', role: 'Workspace Owner', email: effectiveUser?.email || 'owner@workspace.com', status: 'Owner' }
-      ];
-    }
     return [];
   });
+
+  // Explicit user action to create a team workspace
+  const handleCreateWorkspace = useCallback(async () => {
+    if (!effectiveUser || effectiveUser.isGuest) {
+      showToast("Please sign in with an account to create a team workspace.", "info");
+      return;
+    }
+    const finalCode = generateSecureCode('TB');
+    const ownerMember = {
+      id: effectiveUser.uid,
+      name: effectiveUser.displayName || 'Me',
+      role: 'Team Lead',
+      email: effectiveUser.email || '',
+      status: 'Owner',
+      joinedAt: new Date().toISOString()
+    };
+    const members = [ownerMember];
+
+    try {
+      const wsRef = doc(db, 'workspaces', workspaceId);
+      await setDoc(wsRef, {
+        id: workspaceId,
+        name: workspaceName,
+        ownerUid: effectiveUser.uid,
+        inviteCode: finalCode,
+        members,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+
+      await setDoc(doc(db, 'team_codes', finalCode), {
+        code: finalCode,
+        type: 'workspace',
+        workspaceId,
+        workspaceName,
+        ownerUid: effectiveUser.uid,
+        ownerName: effectiveUser.displayName || 'Team Lead',
+        ownerEmail: effectiveUser.email || '',
+        createdAt: new Date().toISOString()
+      }, { merge: true });
+
+      setInviteCode(finalCode);
+      setTeamMembers(members);
+      const uKey = effectiveUser.uid;
+      try {
+        localStorage.setItem(`tb_team_code_${uKey}`, finalCode);
+        localStorage.setItem(`tb_team_members_${uKey}`, JSON.stringify(members));
+      } catch {
+        /* ignore */
+      }
+      showToast("Team Workspace created! Share your code or invite teammates.", "success");
+    } catch (err) {
+      console.warn("Create workspace error:", err);
+      showToast("Could not create workspace. Please check your connection.", "error");
+    }
+  }, [effectiveUser, generateSecureCode, showToast, workspaceId, workspaceName]);
 
   // User Profile & Account Data (synced to Firestore for signed in users)
   // Default tier is strictly 'Core' (Free). Upgrades to Apex Prestige are managed via VIP / Checkout.
@@ -444,13 +461,13 @@ export default function Dashboard() {
       try {
         new Notification(newNotif.title, {
           body: newNotif.message,
-          icon: logo
+          icon: appLogo
         });
       } catch {
         /* ignore */
       }
     }
-  }, [effectiveUser, showToast]);
+  }, [effectiveUser, showToast, appLogo]);
 
   const handleMarkNotificationRead = (notifId) => {
     setNotifications(prev => {
@@ -514,7 +531,22 @@ export default function Dashboard() {
       status: 'Invited',
       invitedAt: new Date().toISOString()
     };
-    const updated = [...teamMembers, newMemberObj];
+
+    let updated;
+    if (teamMembers.length === 0 && effectiveUser && !effectiveUser.isGuest) {
+      const ownerMember = {
+        id: effectiveUser.uid,
+        name: effectiveUser.displayName || 'Me',
+        role: 'Team Lead',
+        email: effectiveUser.email || '',
+        status: 'Owner',
+        joinedAt: new Date().toISOString()
+      };
+      updated = [ownerMember, newMemberObj];
+    } else {
+      updated = [...teamMembers, newMemberObj];
+    }
+
     setTeamMembers(updated);
     try {
       const uKey = effectiveUser?.isGuest ? 'guest' : (effectiveUser?.uid || 'guest');
@@ -526,10 +558,25 @@ export default function Dashboard() {
     if (effectiveUser && !effectiveUser.isGuest && workspaceId) {
       try {
         const wsRef = doc(db, 'workspaces', workspaceId);
-        await updateDoc(wsRef, {
+        await setDoc(wsRef, {
+          id: workspaceId,
+          name: workspaceName,
+          ownerUid: effectiveUser.uid,
+          inviteCode,
           members: updated,
           updatedAt: new Date().toISOString()
-        });
+        }, { merge: true });
+
+        await setDoc(doc(db, 'team_codes', inviteCode), {
+          code: inviteCode,
+          type: 'workspace',
+          workspaceId,
+          workspaceName,
+          ownerUid: effectiveUser.uid,
+          ownerName: effectiveUser.displayName || 'Team Lead',
+          ownerEmail: effectiveUser.email || '',
+          createdAt: new Date().toISOString()
+        }, { merge: true });
       } catch (err) {
         console.warn("Cloud workspace invite update:", err);
       }
@@ -541,7 +588,7 @@ export default function Dashboard() {
       message: `${name} (${email}) was invited as ${role}. Share the invite link with them to connect!`,
       project: 'Team Workspace'
     });
-  }, [teamMembers, handleDispatchNotification, showToast, effectiveUser, workspaceId, isApex]);
+  }, [teamMembers, setTeamMembers, handleDispatchNotification, showToast, effectiveUser, workspaceId, workspaceName, inviteCode, isApex]);
 
   const handleJoinTeamByCode = useCallback(async (codeOrUrl) => {
     let targetCode = codeOrUrl.trim();
@@ -572,7 +619,7 @@ export default function Dashboard() {
     const codeSnap = await getDoc(codeRef);
 
     if (!codeSnap.exists()) {
-      throw new Error(`Invalid Code: "${targetCode}" was not found in Firebase database. Please check with the project owner for a valid code or invite link.`);
+      throw new Error(`Invalid Code: "${targetCode}" was not found. Please check with your team lead for a valid code or invite link.`);
     }
 
     const codeData = codeSnap.data();
@@ -674,15 +721,15 @@ export default function Dashboard() {
       id: 'notif_joined_' + Date.now(),
       type: 'team_join',
       title: 'Connected to Team Workspace',
-      message: `Verified by Firebase! You successfully joined "${targetWsName}" (${codeData.type === 'project' ? `Project: ${codeData.projectName}` : `Code: ${targetCode}`}).`,
+      message: `You successfully joined "${targetWsName}" (${codeData.type === 'project' ? `Project: ${codeData.projectName}` : `Code: ${targetCode}`}).`,
       project: targetWsName,
       createdAt: new Date().toISOString(),
       read: false
     };
     setNotifications(prev => [joinNotif, ...prev]);
-    showToast(`Firebase Verified! Connected to "${targetWsName}" (${targetCode})`, "success");
+    showToast(`Connected to "${targetWsName}" (${targetCode})!`, "success");
     setActiveNavTab('team');
-  }, [effectiveUser, teamMembers, showToast]);
+  }, [effectiveUser, teamMembers, setTeamMembers, showToast]);
 
   // Persistent lifetime completed tasks for permanent level and rank tracking (scoped per user)
   const [lifetimeCompleted, setLifetimeCompleted] = useState(() => {
@@ -833,28 +880,65 @@ export default function Dashboard() {
             /* ignore */
           }
 
-          // 1. Team roster for this user
+          // 0. Guest Task Migration: preserve all guest data without any loss
+          const rawGuestTasks = localStorage.getItem('tb_guest_tasks');
+          if (rawGuestTasks) {
+            try {
+              const guestTasks = JSON.parse(rawGuestTasks);
+              if (Array.isArray(guestTasks) && guestTasks.length > 0) {
+                const validTasks = guestTasks.filter(t => t && t.title);
+                if (validTasks.length > 0) {
+                  Promise.all(validTasks.map(t => {
+                    const { id: _ignore, ...taskData } = t;
+                    return addDoc(collection(db, 'users', uKey, 'tasks'), {
+                      ...taskData,
+                      migratedFromGuest: true,
+                      migratedAt: new Date().toISOString()
+                    });
+                  })).then(() => {
+                    localStorage.removeItem('tb_guest_tasks');
+                    localStorage.removeItem('tb_guest_user');
+                    showToast(`Your ${validTasks.length} tasks from Guest Mode have been safely transferred to your account! Nothing was lost.`, "success");
+                  }).catch(err => {
+                    console.warn("Guest task migration:", err);
+                  });
+                } else {
+                  localStorage.removeItem('tb_guest_tasks');
+                  localStorage.removeItem('tb_guest_user');
+                }
+              }
+            } catch (err) {
+              console.warn("Guest tasks parse error:", err);
+            }
+          }
+
+          // 1. Team roster for this user (strictly from existing workspace, NEVER auto-created)
           try {
             const savedTeam = localStorage.getItem(`tb_team_members_${uKey}`);
             if (savedTeam) {
               const parsed = JSON.parse(savedTeam);
-              const cleaned = parsed.map(m => {
-                if (m.role === 'Workspace Owner' && currentUser.displayName) {
-                  return { ...m, name: currentUser.displayName, email: currentUser.email || m.email };
-                }
-                return m;
-              });
-              setTeamMembers(cleaned);
+              setTeamMembers(Array.isArray(parsed) ? parsed : []);
             } else {
-              const ownerOnly = [
-                { id: '1', name: currentUser.displayName || 'Me', role: 'Workspace Owner', email: currentUser.email || 'owner@workspace.com', status: 'Owner' }
-              ];
-              setTeamMembers(ownerOnly);
-              localStorage.setItem(`tb_team_members_${uKey}`, JSON.stringify(ownerOnly));
+              setTeamMembers([]);
             }
           } catch {
             setTeamMembers([]);
           }
+
+          // Check if workspace exists in cloud
+          getDoc(doc(db, 'workspaces', `ws_${uKey}`)).then(wsSnap => {
+            if (wsSnap.exists()) {
+              const wsData = wsSnap.data();
+              if (Array.isArray(wsData.members) && wsData.members.length > 0) {
+                setTeamMembers(wsData.members);
+                try { localStorage.setItem(`tb_team_members_${uKey}`, JSON.stringify(wsData.members)); } catch { /* ignore */ }
+              }
+              if (wsData.inviteCode) {
+                setInviteCode(wsData.inviteCode);
+                try { localStorage.setItem(`tb_team_code_${uKey}`, wsData.inviteCode); } catch { /* ignore */ }
+              }
+            }
+          }).catch(() => {});
 
           // 2. Notifications for this user
           try {
@@ -864,7 +948,7 @@ export default function Dashboard() {
             setNotifications([]);
           }
 
-          // 3. Lifetime XP for this user
+          // 3. Lifetime Progress for this user
           try {
             const savedXP = localStorage.getItem(`tb_lifetime_completed_${uKey}`);
             setLifetimeCompleted(savedXP ? parseInt(savedXP, 10) : 0);
@@ -880,7 +964,7 @@ export default function Dashboard() {
             /* ignore */
           }
 
-          // 5. User Profile from Firestore / local
+          // 5. User Profile from Firestore
           try {
             const savedProfile = localStorage.getItem(`tb_profile_${uKey}`);
             if (savedProfile) {
@@ -893,6 +977,14 @@ export default function Dashboard() {
             if (snap.exists()) {
               const data = snap.data();
               setUserProfile(prev => ({ ...prev, ...data }));
+              if (data.lifetimeCompleted !== undefined) {
+                setLifetimeCompleted(data.lifetimeCompleted);
+                try { localStorage.setItem(`tb_lifetime_completed_${uKey}`, String(data.lifetimeCompleted)); } catch { /* ignore */ }
+              }
+              if (data.automationRules) {
+                setAutomationRules(data.automationRules);
+                try { localStorage.setItem(`tb_automation_rules_${uKey}`, JSON.stringify(data.automationRules)); } catch { /* ignore */ }
+              }
               try { localStorage.setItem(`tb_profile_${uKey}`, JSON.stringify(data)); } catch { /* ignore */ }
             } else {
               const initP = {
@@ -913,7 +1005,7 @@ export default function Dashboard() {
       setIsAuthLoading(false);
     });
     return () => unsubscribe();
-  }, []);
+  }, [showToast]);
 
   // Detect URL Team Invitation parameters on initial load
   useEffect(() => {
@@ -1000,7 +1092,7 @@ export default function Dashboard() {
       displayName: '',
       jobTitle: 'Productivity Champion',
       bio: 'Organizing goals, driving deep focus, and managing team projects with Task Bandhu.',
-      plan: 'PRO'
+      plan: 'Core'
     });
     if (guestUser) {
       setGuestUser(null);
@@ -1340,6 +1432,12 @@ export default function Dashboard() {
       setLifetimeCompleted(nextCount);
       const uKey = effectiveUser?.isGuest ? 'guest' : (effectiveUser?.uid || 'guest');
       localStorage.setItem(`tb_lifetime_completed_${uKey}`, String(nextCount));
+      if (effectiveUser && !effectiveUser.isGuest) {
+        setDoc(doc(db, 'users', effectiveUser.uid), {
+          lifetimeCompleted: nextCount,
+          updatedAt: new Date().toISOString()
+        }, { merge: true }).catch(() => {});
+      }
       const oldLvl = Math.floor(lifetimeCompleted / 5) + 1;
       const newLvl = Math.floor(nextCount / 5) + 1;
       if (newLvl > oldLvl) {
@@ -1399,7 +1497,11 @@ export default function Dashboard() {
   const handleTogglePin = async (task) => {
     playSound('pop');
     const newPinned = !task.pinned;
-    if (newPinned && !isApex && tasks.filter(t => t.pinned).length >= PLAN_LIMITS.CORE.pinnedTasks) {
+    if (newPinned && effectiveUser?.isGuest && tasks.filter(t => t.pinned).length >= 1) {
+      showToast("Guest Mode allows pinning 1 priority task. Sign in with an account to pin more!", "warning");
+      return;
+    }
+    if (newPinned && !effectiveUser?.isGuest && !isApex && tasks.filter(t => t.pinned).length >= PLAN_LIMITS.CORE.pinnedTasks) {
       showToast(`Core Plan Limit: You can pin up to ${PLAN_LIMITS.CORE.pinnedTasks} priority tasks. Upgrade to Apex for unlimited pins!`, "warning");
       setIsApexUpgradeModalOpen(true);
       return;
@@ -2039,7 +2141,18 @@ export default function Dashboard() {
   );
 
   const handleNavTabChange = (tabId) => {
+    if (effectiveUser?.isGuest) {
+      const allowedGuestTabs = ['my-day', 'all-tasks', 'favorites', 'focus'];
+      if (!allowedGuestTabs.includes(tabId)) {
+        showToast("Please sign in with an account to access this feature.", "info");
+        return;
+      }
+    }
     if (tabId === 'ai-assistant') {
+      if (effectiveUser?.isGuest) {
+        showToast("AI Assistant is available for registered accounts. Please sign in.", "info");
+        return;
+      }
       setIsAIModalOpen(true);
       return;
     }
@@ -2089,6 +2202,12 @@ export default function Dashboard() {
     setAutomationRules(updated);
     const uKey = effectiveUser?.isGuest ? 'guest' : (effectiveUser?.uid || 'guest');
     localStorage.setItem(`tb_automation_rules_${uKey}`, JSON.stringify(updated));
+    if (effectiveUser && !effectiveUser.isGuest) {
+      setDoc(doc(db, 'users', effectiveUser.uid), {
+        automationRules: updated,
+        updatedAt: new Date().toISOString()
+      }, { merge: true }).catch(() => {});
+    }
     showToast("Automation preference updated", "success");
   };
 
@@ -2155,7 +2274,7 @@ export default function Dashboard() {
               <Menu size={22} />
             </button>
             <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-white dark:bg-slate-800 border border-gray-200/80 dark:border-slate-700 shadow-md flex items-center justify-center p-1.5 shrink-0 overflow-hidden">
-              <img src={logo} alt="Logo" className="w-full h-full object-contain rounded-xl" />
+              <img src={appLogo} alt="Task Bandhu Logo" className="w-full h-full object-contain rounded-xl" />
             </div>
             <div>
               <span className="font-extrabold text-base block leading-tight">Task Bandhu</span>
@@ -2254,7 +2373,7 @@ export default function Dashboard() {
           <div className="hidden lg:flex justify-between items-center bg-white dark:bg-slate-800/80 backdrop-blur-md p-4 rounded-3xl border border-gray-100 dark:border-slate-700/80 shadow-sm relative z-[200]">
             <div className="flex items-center gap-3.5">
               <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-white dark:bg-slate-800 border border-gray-200/80 dark:border-slate-700 shadow-md flex items-center justify-center p-2 shrink-0 overflow-hidden">
-                <img src={logo} alt="Task Bandhu Logo" className="w-full h-full object-contain rounded-xl" />
+                <img src={appLogo} alt="Task Bandhu Logo" className="w-full h-full object-contain rounded-xl" />
               </div>
               <div>
                 <h1 className="text-xl sm:text-2xl font-extrabold text-gray-900 dark:text-white capitalize">
@@ -2263,7 +2382,7 @@ export default function Dashboard() {
                 <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">
                   {effectiveUser.isGuest ? (
                     <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-bold">
-                      <ShieldAlert size={12} /> Local Guest Mode • Sign in to sync across devices
+                      <ShieldAlert size={12} /> Guest Mode • Sign in to save across devices
                     </span>
                   ) : (
                     <span className="flex items-center gap-2">
@@ -2297,12 +2416,14 @@ export default function Dashboard() {
                 onSelectTask={handleSelectTaskFromNotification}
                 showToast={showToast}
               />
-              <button
-                onClick={() => setIsAIModalOpen(true)}
-                className="flex items-center gap-2 bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 px-4 py-2.5 rounded-xl text-xs font-black shadow-sm hover:bg-purple-100 transition-colors active:scale-95"
-              >
-                <Sparkles size={16} /> AI Assistant
-              </button>
+              {!effectiveUser.isGuest && (
+                <button
+                  onClick={() => setIsAIModalOpen(true)}
+                  className="flex items-center gap-2 bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 px-4 py-2.5 rounded-xl text-xs font-black shadow-sm hover:bg-purple-100 transition-colors active:scale-95"
+                >
+                  <Sparkles size={16} /> AI Assistant
+                </button>
+              )}
               <button
                 onClick={() => { playSound('start'); setIsFocusModeActive(true); }}
                 className="flex items-center gap-2 bg-slate-800 dark:bg-slate-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold shadow-md hover:bg-slate-700 active:scale-95 transition-all"
@@ -2364,7 +2485,7 @@ export default function Dashboard() {
                       Team Workspaces & Real-Time Collaboration
                     </h2>
                     <p className="text-slate-300 text-xs sm:text-sm leading-relaxed">
-                      You are currently in <strong>Local Guest Mode</strong>. Guest tasks are stored directly on this browser. To invite teammates, assign work, receive live notifications, and maintain cross-device data consistency, sign in with an account.
+                      You are currently using <strong>Guest Mode</strong>. Guest tasks are stored directly on this device. To invite teammates, assign work, receive live notifications, and maintain cross-device data consistency, sign in with an account.
                     </p>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
@@ -2478,124 +2599,156 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* Team Members Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                {teamMembers.map((member) => {
-                  const memberTasks = tasks.filter(t => t.assignee === member.name);
-                  const memberCompleted = memberTasks.filter(t => t.status === 'Completed').length;
-                  const memberPending = memberTasks.length - memberCompleted;
-                  const memberRate = memberTasks.length > 0 ? Math.round((memberCompleted / memberTasks.length) * 100) : 0;
-                  const isSelected = selectedTeamMember === member.name;
-
-                  return (
-                    <div
-                      key={member.id || member.name}
-                      onClick={() => setSelectedTeamMember(isSelected ? 'All' : member.name)}
-                      className={`p-5 rounded-3xl border transition-all cursor-pointer relative group flex flex-col justify-between ${isSelected
-                        ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-400 dark:border-blue-600 ring-2 ring-blue-500/20 shadow-md'
-                        : 'bg-white dark:bg-slate-800 border-gray-100 dark:border-slate-700 hover:shadow-md'
-                        }`}
+              {/* Team Members Grid or Empty State */}
+              {teamMembers.length === 0 ? (
+                <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 sm:p-12 border border-gray-100 dark:border-slate-700 text-center max-w-2xl mx-auto shadow-sm space-y-5 animate-in fade-in">
+                  <div className="w-16 h-16 rounded-3xl bg-cyan-50 dark:bg-cyan-900/30 text-cyan-600 dark:text-cyan-400 flex items-center justify-center mx-auto shadow-inner">
+                    <Users size={32} />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-extrabold text-gray-900 dark:text-white">
+                      No Team Workspace Created Yet
+                    </h3>
+                    <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400 mt-2 max-w-md mx-auto leading-relaxed">
+                      Team workspaces are completely private. Create your workspace to generate an invite code, add teammates, and delegate tasks in real time.
+                    </p>
+                  </div>
+                  <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={handleCreateWorkspace}
+                      className="w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 text-white rounded-2xl font-bold text-xs shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2"
                     >
-                      <div>
-                        <div className="flex items-center justify-between mb-3">
-                          <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-cyan-500 to-blue-600 text-white font-black flex items-center justify-center text-sm shadow-sm">
-                            {member.name.charAt(0).toUpperCase()}
+                      <Plus size={16} /> Create Team Workspace
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsInviteModalOpen(true)}
+                      className="w-full sm:w-auto px-5 py-3 bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 dark:hover:bg-slate-600 text-gray-800 dark:text-white rounded-2xl font-bold text-xs transition-all flex items-center justify-center gap-1.5"
+                    >
+                      <UserPlus size={15} /> Join with Code
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {teamMembers.map((member) => {
+                    const memberTasks = tasks.filter(t => t.assignee === member.name);
+                    const memberCompleted = memberTasks.filter(t => t.status === 'Completed').length;
+                    const memberPending = memberTasks.length - memberCompleted;
+                    const memberRate = memberTasks.length > 0 ? Math.round((memberCompleted / memberTasks.length) * 100) : 0;
+                    const isSelected = selectedTeamMember === member.name;
+
+                    return (
+                      <div
+                        key={member.id || member.name}
+                        onClick={() => setSelectedTeamMember(isSelected ? 'All' : member.name)}
+                        className={`p-5 rounded-3xl border transition-all cursor-pointer relative group flex flex-col justify-between ${isSelected
+                          ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-400 dark:border-blue-600 ring-2 ring-blue-500/20 shadow-md'
+                          : 'bg-white dark:bg-slate-800 border-gray-100 dark:border-slate-700 hover:shadow-md'
+                          }`}
+                      >
+                        <div>
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-cyan-500 to-blue-600 text-white font-black flex items-center justify-center text-sm shadow-sm">
+                              {member.name.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                              <span className={`text-[9px] px-2 py-0.5 rounded-full font-extrabold uppercase tracking-wider border ${
+                                member.status === 'Owner'
+                                  ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/40'
+                                  : member.status === 'Connected'
+                                  ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/40'
+                                  : 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800/40'
+                              }`}>
+                                {member.status === 'Owner' ? '⭐ Owner' : member.status === 'Connected' ? '🟢 Connected' : '✉️ Invited'}
+                              </span>
+                              {member.status !== 'Owner' && member.name !== 'Me' && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRemoveTeamMember(member.id, member.name, member.email);
+                                  }}
+                                  className="p-1 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
+                                  title={member.status === 'Invited' ? "Cancel Invite" : "Remove Teammate"}
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              )}
+                            </div>
                           </div>
-                          <div className="flex items-center gap-1.5 flex-wrap justify-end">
-                            <span className={`text-[9px] px-2 py-0.5 rounded-full font-extrabold uppercase tracking-wider border ${
-                              member.status === 'Owner'
-                                ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/40'
-                                : member.status === 'Connected'
-                                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/40'
-                                : 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800/40'
-                            }`}>
-                              {member.status === 'Owner' ? '⭐ Owner' : member.status === 'Connected' ? '🟢 Connected' : '✉️ Invited'}
-                            </span>
-                            {member.status !== 'Owner' && member.name !== 'Me' && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleRemoveTeamMember(member.id, member.name, member.email);
-                                }}
-                                className="p-1 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
-                                title={member.status === 'Invited' ? "Cancel Invite" : "Remove Teammate"}
-                              >
-                                <Trash2 size={13} />
-                              </button>
-                            )}
+
+                          <div className="mb-2">
+                            <h3 className="font-bold text-gray-900 dark:text-white text-sm mb-0.5 truncate">{member.name}</h3>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-slate-300">
+                                {member.role || 'Member'}
+                              </span>
+                              <p className="text-[10px] text-gray-400 dark:text-slate-500 truncate">{member.email}</p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between text-xs font-semibold text-gray-600 dark:text-slate-400 mb-3">
+                            <span>{memberPending} Active</span>
+                            <span>{memberCompleted} Done</span>
+                          </div>
+
+                          <div className="space-y-1 mb-4">
+                            <div className="flex justify-between text-[10px] font-bold text-gray-400 dark:text-slate-500">
+                              <span>Completion</span>
+                              <span>{memberRate}%</span>
+                            </div>
+                            <div className="w-full bg-gray-100 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
+                              <div className="bg-blue-600 h-full rounded-full transition-all" style={{ width: `${memberRate}%` }}></div>
+                            </div>
                           </div>
                         </div>
 
-                        <div className="mb-2">
-                          <h3 className="font-bold text-gray-900 dark:text-white text-sm mb-0.5 truncate">{member.name}</h3>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-slate-300">
-                              {member.role || 'Member'}
-                            </span>
-                            <p className="text-[10px] text-gray-400 dark:text-slate-500 truncate">{member.email}</p>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center justify-between text-xs font-semibold text-gray-600 dark:text-slate-400 mb-3">
-                          <span>{memberPending} Active</span>
-                          <span>{memberCompleted} Done</span>
-                        </div>
-
-                        <div className="space-y-1 mb-4">
-                          <div className="flex justify-between text-[10px] font-bold text-gray-400 dark:text-slate-500">
-                            <span>Completion</span>
-                            <span>{memberRate}%</span>
-                          </div>
-                          <div className="w-full bg-gray-100 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
-                            <div className="bg-blue-600 h-full rounded-full transition-all" style={{ width: `${memberRate}%` }}></div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="pt-2 border-t border-gray-100 dark:border-slate-700/60 flex items-center justify-between gap-2">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedTeamMember(member.name);
-                          }}
-                          className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
-                        >
-                          {isSelected ? '✓ Filtering' : 'Filter Tasks'}
-                        </button>
-                        {member.status === 'Invited' ? (
+                        <div className="pt-2 border-t border-gray-100 dark:border-slate-700/60 flex items-center justify-between gap-2">
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleRemoveTeamMember(member.id, member.name, member.email);
+                              setSelectedTeamMember(member.name);
                             }}
-                            className="text-[11px] px-2.5 py-1 text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/50 rounded-lg font-bold hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
+                            className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
                           >
-                            Cancel Invite
+                            {isSelected ? '✓ Filtering' : 'Filter Tasks'}
                           </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setPrefilledDate('');
-                              setPrefilledProject('Team Workspace');
-                              setEditingTask({ assignee: member.name, project: 'Team Workspace', priority: 'Medium' });
-                              setFormInstanceKey(prev => prev + 1);
-                              setIsFormOpen(true);
-                            }}
-                            className="text-[11px] px-2.5 py-1 bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-slate-200 rounded-lg font-bold hover:bg-blue-50 dark:hover:bg-slate-600 hover:text-blue-600 transition-colors"
-                          >
-                            + Assign Task
-                          </button>
-                        )}
+                          {member.status === 'Invited' ? (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleRemoveTeamMember(member.id, member.name, member.email);
+                              }}
+                              className="text-[11px] px-2.5 py-1 text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/50 rounded-lg font-bold hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
+                            >
+                              Cancel Invite
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setPrefilledDate('');
+                                setPrefilledProject('Team Workspace');
+                                setEditingTask({ assignee: member.name, project: 'Team Workspace', priority: 'Medium' });
+                                setFormInstanceKey(prev => prev + 1);
+                                setIsFormOpen(true);
+                              }}
+                              className="text-[11px] px-2.5 py-1 bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-slate-200 rounded-lg font-bold hover:bg-blue-50 dark:hover:bg-slate-600 hover:text-blue-600 transition-colors"
+                            >
+                              + Assign Task
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
 
               {/* Filtered Team Tasks Workspace */}
               <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm space-y-4">
@@ -2655,7 +2808,7 @@ export default function Dashboard() {
                   },
                   {
                     key: 'rewardStreakXP',
-                    title: 'Gamification & Daily XP Engine',
+                    title: 'Daily Progress & Streak Engine',
                     desc: 'Award 20 XP on every task completed, elevate rank badges, and track unbroken daily streaks.',
                     icon: Flame,
                     color: 'text-orange-500'
@@ -2776,7 +2929,7 @@ export default function Dashboard() {
               </div>
 
               {/* Quick Capture Input */}
-              <div className={`relative flex flex-col sm:flex-row items-stretch sm:items-center bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-2xl p-1.5 md:p-2 focus-within:ring-2 focus-within:ring-blue-500 shadow-sm gap-2 sm:gap-0 ${isQuickPriorityOpen ? 'z-40' : 'z-30'}`}>
+              <div className={`relative flex flex-col sm:flex-row items-stretch sm:items-center bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-2xl p-1.5 md:p-2 focus-within:ring-2 focus-within:ring-blue-500 shadow-sm gap-2 sm:gap-0 ${isQuickPriorityOpen ? 'z-[100]' : 'z-20'}`}>
                 <div className="flex items-center flex-1 px-2 sm:px-0">
                   <Plus size={20} className="text-gray-400 hidden sm:block mx-2 shrink-0" />
                   <input

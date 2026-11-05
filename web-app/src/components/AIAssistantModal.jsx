@@ -1,140 +1,18 @@
 import { useState } from 'react';
-import { Sparkles, X, Wand2, Calendar, CheckCircle2, Zap, RefreshCw } from 'lucide-react';
+import { Sparkles, X, CheckCircle2, Zap } from 'lucide-react';
 
 export default function AIAssistantModal({
   onClose,
   tasks = [],
-  user,
   isApex = false,
-  onOpenApexModal,
-  onAddTask,
-  onRescheduleOverdue,
-  showToast
+  onRescheduleOverdue
 }) {
   const [activeTab, setActiveTab] = useState('generator'); // generator | planner | coach
-  const [promptInput, setPromptInput] = useState('');
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [generatedTask, setGeneratedTask] = useState(null);
 
   const todayStr = new Date().toISOString().split('T')[0];
   const overdueTasks = tasks.filter(t => t.status !== 'Completed' && t.deadline && t.deadline < todayStr);
 
-  const todayUsageKey = `tb_ai_usage_${todayStr}_${user?.isGuest ? 'guest' : (user?.uid || 'guest')}`;
-  const getDailyUsage = () => {
-    try {
-      return parseInt(localStorage.getItem(todayUsageKey) || '0', 10);
-    } catch {
-      return 0;
-    }
-  };
-  const [dailyUsage, setDailyUsage] = useState(getDailyUsage);
-
-  const incrementDailyUsage = () => {
-    try {
-      const next = dailyUsage + 1;
-      localStorage.setItem(todayUsageKey, next.toString());
-      setDailyUsage(next);
-    } catch {
-      /* ignore */
-    }
-  };
-
-  // Natural Language Task Creator parser
-  const handleGenerateFromPrompt = (e) => {
-    e.preventDefault();
-    if (!promptInput.trim()) return;
-
-    if (!isApex && dailyUsage >= 3) {
-      showToast?.("Daily AI quota reached (3/3 used). Upgrade to Apex Prestige for unlimited Gemini AI breakdowns!", "warning");
-      onOpenApexModal?.();
-      return;
-    }
-
-    setIsGenerating(true);
-
-    setTimeout(() => {
-      incrementDailyUsage();
-      const text = promptInput.trim();
-      const lower = text.toLowerCase();
-
-      // Extract priority
-      let priority = 'Medium';
-      if (lower.includes('urgent') || lower.includes('asap') || lower.includes('critical')) priority = 'Urgent';
-      else if (lower.includes('high') || lower.includes('important')) priority = 'High';
-      else if (lower.includes('low') || lower.includes('someday')) priority = 'Low';
-
-      // Extract deadline
-      let deadline = todayStr;
-      if (lower.includes('tomorrow')) {
-        const d = new Date();
-        d.setDate(d.getDate() + 1);
-        deadline = d.toISOString().split('T')[0];
-      } else if (lower.includes('friday')) {
-        const d = new Date();
-        const day = d.getDay();
-        const diff = (5 - day + 7) % 7 || 7;
-        d.setDate(d.getDate() + diff);
-        deadline = d.toISOString().split('T')[0];
-      }
-
-      // Extract category
-      let category = 'Work';
-      if (lower.includes('study') || lower.includes('exam') || lower.includes('learn')) category = 'Study';
-      else if (lower.includes('personal') || lower.includes('gym') || lower.includes('health') || lower.includes('buy')) category = 'Personal';
-
-      // Generate actionable checklist
-      let subtasks = [
-        "- [ ] Initial research and requirement check",
-        "- [ ] Draft execution plan and resources",
-        "- [ ] Implement core action items",
-        "- [ ] Review and verify final delivery"
-      ];
-
-      if (lower.includes('meeting') || lower.includes('call') || lower.includes('sync')) {
-        subtasks = [
-          "- [ ] Prepare agenda & talking points",
-          "- [ ] Invite stakeholders & test link",
-          "- [ ] Lead discussion and document decisions",
-          "- [ ] Send follow-up summary and action items"
-        ];
-      } else if (lower.includes('code') || lower.includes('bug') || lower.includes('deploy') || lower.includes('app')) {
-        subtasks = [
-          "- [ ] Reproduce issue or inspect requirements",
-          "- [ ] Write unit & integration tests",
-          "- [ ] Implement solution & code review",
-          "- [ ] Deploy to staging and verify"
-        ];
-      }
-
-      const newTask = {
-        title: text.length > 50 ? text.substring(0, 50) + '...' : text,
-        description: `🤖 AI Action Plan:\n${subtasks.join('\n')}`,
-        priority,
-        category,
-        deadline,
-        project: 'General Workspace',
-        status: 'To Do',
-        pinned: false,
-        recurrence: 'None',
-        comments: []
-      };
-
-      setGeneratedTask(newTask);
-      setIsGenerating(false);
-      showToast?.("AI Task Structured Successfully!", "success");
-    }, 700);
-  };
-
-  const handleAcceptGeneratedTask = () => {
-    if (!generatedTask) return;
-    onAddTask(generatedTask);
-    showToast?.("Task added to your workspace!", "success");
-    setGeneratedTask(null);
-    setPromptInput('');
-    onClose();
-  };
-
-  // AI Priority Coach logic: identifies highest leverage task
+  // Priority Coach logic: identifies highest leverage task from genuine user tasks
   const urgentBottleneck = tasks.find(t => t.status !== 'Completed' && t.priority === 'Urgent')
     || tasks.find(t => t.status !== 'Completed' && t.deadline && t.deadline <= todayStr)
     || tasks.find(t => t.status !== 'Completed');
@@ -156,11 +34,11 @@ export default function AIAssistantModal({
                 <p className="text-xs text-gray-400 dark:text-slate-500">Autonomous planning and prioritization engine</p>
                 {isApex ? (
                   <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-amber-400/20 text-amber-500 border border-amber-400/30 flex items-center gap-0.5">
-                    <Sparkles size={10} /> Apex Unlimited
+                    <Sparkles size={10} /> Apex Prestige
                   </span>
                 ) : (
                   <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300">
-                    Daily Quota: {Math.max(0, 3 - dailyUsage)}/3
+                    Core Plan
                   </span>
                 )}
               </div>
@@ -208,75 +86,33 @@ export default function AIAssistantModal({
           </button>
         </div>
 
-        {/* Tab 1: Natural Language Task Generator */}
+        {/* Tab 1: Natural Language Task Generator (Coming Soon) */}
         {activeTab === 'generator' && (
-          <div className="space-y-4 overflow-y-auto pr-1 flex-1 hide-scrollbar">
-            <form onSubmit={handleGenerateFromPrompt} className="space-y-3">
-              <label className="block text-xs font-bold text-gray-700 dark:text-slate-300">
-                Type what you need in plain English:
-              </label>
-              <textarea
-                rows={3}
-                required
-                placeholder="e.g. Schedule team retro by Friday with agenda, feedback forms and invite review"
-                value={promptInput}
-                onChange={(e) => setPromptInput(e.target.value)}
-                className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-2xl text-xs sm:text-sm outline-none focus:ring-2 focus:ring-purple-500/40 dark:text-white"
-              />
-              <button
-                type="submit"
-                disabled={isGenerating || !promptInput.trim()}
-                className="w-full py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-2xl font-bold text-xs sm:text-sm shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                {isGenerating ? <RefreshCw size={16} className="animate-spin" /> : <Wand2 size={16} />}
-                Generate Structured Task with Subtasks
-              </button>
-            </form>
-
-            {generatedTask && (
-              <div className="p-5 rounded-2xl bg-purple-50/50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800/50 space-y-3 animate-in zoom-in-95">
-                <div className="flex justify-between items-start gap-2">
-                  <div>
-                    <span className="text-[10px] font-black uppercase text-purple-600 dark:text-purple-400 tracking-wider">
-                      Generated Task Preview
-                    </span>
-                    <h4 className="font-extrabold text-base text-gray-900 dark:text-white mt-1">
-                      {generatedTask.title}
-                    </h4>
-                  </div>
-                  <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-purple-100 text-purple-700 dark:bg-purple-900/60 dark:text-purple-300">
-                    {generatedTask.priority}
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-slate-400 font-semibold">
-                  <span className="flex items-center gap-1"><Calendar size={12} /> Due: {generatedTask.deadline}</span>
-                  <span>•</span>
-                  <span>Tag: {generatedTask.category}</span>
-                </div>
-
-                <pre className="text-xs font-mono p-3 bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800 text-gray-700 dark:text-slate-300 whitespace-pre-wrap">
-                  {generatedTask.description}
-                </pre>
-
-                <div className="flex justify-end gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setGeneratedTask(null)}
-                    className="px-4 py-2 text-xs font-bold text-gray-500 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-xl"
-                  >
-                    Discard
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleAcceptGeneratedTask}
-                    className="px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold shadow-md transition-all flex items-center gap-1.5"
-                  >
-                    <CheckCircle2 size={14} /> Add to Workspace
-                  </button>
-                </div>
+          <div className="space-y-5 overflow-y-auto pr-1 flex-1 hide-scrollbar flex flex-col items-center justify-center py-6 text-center animate-in fade-in">
+            <div className="w-16 h-16 rounded-3xl bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-300 flex items-center justify-center shadow-inner mb-1">
+              <Sparkles size={32} />
+            </div>
+            <div className="max-w-md space-y-2">
+              <span className="px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-wider bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300">
+                Coming Soon
+              </span>
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white">
+                Autonomous Natural Language Planner
+              </h3>
+              <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400 leading-relaxed">
+                Direct integration with high-precision productivity AI models is underway. You will soon be able to dictate tasks, break projects into actionable checklists, and plan full sprints with one sentence.
+              </p>
+            </div>
+            <div className="p-4 bg-gray-50 dark:bg-slate-900/60 rounded-2xl border border-gray-100 dark:border-slate-800 text-left max-w-md w-full space-y-2">
+              <div className="flex items-center gap-2 text-xs font-bold text-gray-700 dark:text-slate-300">
+                <CheckCircle2 size={14} className="text-purple-500" /> Upcoming Capabilities:
               </div>
-            )}
+              <ul className="text-xs text-gray-500 dark:text-slate-400 space-y-1.5 pl-5 list-disc">
+                <li>Automated step-by-step subtask breakdown</li>
+                <li>Intelligent deadline & priority estimation</li>
+                <li>Seamless team and workspace routing</li>
+              </ul>
+            </div>
           </div>
         )}
 

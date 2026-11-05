@@ -131,8 +131,8 @@ export default function TeamInviteModal({
             type="button"
             onClick={() => setActiveTab('invite')}
             className={`pb-3 text-xs sm:text-sm font-extrabold border-b-2 transition-all flex items-center gap-1.5 ${activeTab === 'invite'
-                ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-gray-400 hover:text-gray-600 dark:hover:text-slate-300'
+              ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+              : 'border-transparent text-gray-400 hover:text-gray-600 dark:hover:text-slate-300'
               }`}
           >
             <Share2 size={14} /> Invite Teammates
@@ -141,8 +141,8 @@ export default function TeamInviteModal({
             type="button"
             onClick={() => setActiveTab('join')}
             className={`pb-3 text-xs sm:text-sm font-extrabold border-b-2 transition-all flex items-center gap-1.5 ${activeTab === 'join'
-                ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-gray-400 hover:text-gray-600 dark:hover:text-slate-300'
+              ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+              : 'border-transparent text-gray-400 hover:text-gray-600 dark:hover:text-slate-300'
               }`}
           >
             <ArrowRight size={14} /> Join Another Team
@@ -155,8 +155,8 @@ export default function TeamInviteModal({
             <div className="p-3.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-2xl flex items-start gap-2.5 text-xs text-amber-800 dark:text-amber-200">
               <Lock size={15} className="shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
               <div>
-                <p className="font-bold">You are in Local Guest Mode</p>
-                <p className="text-[11px] opacity-90 mt-0.5">Teammates can only connect to registered cloud workspaces. Sign in with a free account to activate live team collaboration and cross-device sync.</p>
+                <p className="font-bold">You are in Guest Mode</p>
+                <p className="text-[11px] opacity-90 mt-0.5">Teammates can only connect to online workspaces. Sign in with a free account to activate live team collaboration and cross-device sync.</p>
               </div>
             </div>
           )}
@@ -204,8 +204,8 @@ export default function TeamInviteModal({
                     type="button"
                     onClick={handleCopyLink}
                     className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 shrink-0 ${copiedLink
-                        ? 'bg-emerald-600 text-white shadow-sm'
-                        : 'bg-blue-600 hover:bg-blue-700 text-white shadow-sm active:scale-95'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'bg-blue-600 hover:bg-blue-700 text-white shadow-sm active:scale-95'
                       }`}
                   >
                     {copiedLink ? <Check size={13} /> : <Copy size={13} />}
@@ -323,10 +323,10 @@ export default function TeamInviteModal({
                   Join a Teammate's Workspace or Project
                 </h3>
                 <p className="text-xs text-gray-500 dark:text-slate-400 mt-1 max-w-sm mx-auto leading-relaxed">
-                  Enter any Firebase-validated Team Code (<span className="font-mono font-bold text-blue-600 dark:text-blue-400">TB-XXXX-XXXX</span>), Project Code (<span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">PRJ-XXXX-XXXX</span>), or paste an invite link.
+                  Enter your Team Code (<span className="font-mono font-bold text-blue-600 dark:text-blue-400">TB-XXXX-XXXX</span>), Project Code (<span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">PRJ-XXXX-XXXX</span>), or paste an invite link.
                 </p>
                 <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[10px] font-bold mt-2">
-                  <ShieldCheck size={11} className="text-emerald-600" /> Validated in Real-Time by Firebase
+                  <ShieldCheck size={11} className="text-emerald-600" /> Instant Real-Time Verification
                 </div>
               </div>
 
@@ -352,7 +352,7 @@ export default function TeamInviteModal({
                 >
                   {isJoining ? (
                     <span className="flex items-center gap-2">
-                      <RotateCw size={14} className="animate-spin" /> Validating code in Firebase cloud...
+                      <RotateCw size={14} className="animate-spin" /> Verifying team code...
                     </span>
                   ) : (
                     <>
