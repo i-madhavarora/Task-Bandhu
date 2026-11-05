@@ -1,21 +1,42 @@
 import React, { useState } from 'react';
-import { X, Calendar, Tag, AlertCircle, AlignLeft, Sparkles, ChevronDown, Check, Paperclip, MessageSquare, Send, Repeat } from 'lucide-react';
+import { X, Calendar, Tag, AlertCircle, AlignLeft, Sparkles, ChevronDown, Check, Paperclip, MessageSquare, Send, Repeat, Clock } from 'lucide-react';
 import { collection, addDoc, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 
-const CustomDropdown = ({ options, value, onChange }) => {
+const CustomDropdown = ({ options, value, onChange, onOpenChange }) => {
   const [isOpen, setIsOpen] = useState(false);
+  
+  const handleToggle = (e) => {
+    e.stopPropagation();
+    const nextState = !isOpen;
+    setIsOpen(nextState);
+    if (onOpenChange) onOpenChange(nextState);
+  };
+
+  const handleSelect = (opt, e) => {
+    e.stopPropagation();
+    onChange(opt);
+    setIsOpen(false);
+    if (onOpenChange) onOpenChange(false);
+  };
+
+  const handleClose = (e) => {
+    e.stopPropagation();
+    setIsOpen(false);
+    if (onOpenChange) onOpenChange(false);
+  };
+
   return (
     <div className="relative">
-      <button type="button" onClick={() => setIsOpen(!isOpen)} className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-left text-gray-800 dark:text-white font-medium flex justify-between items-center outline-none focus:ring-2 focus:ring-blue-500/40">
+      <button type="button" onClick={handleToggle} className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-left text-gray-800 dark:text-white font-medium flex justify-between items-center outline-none focus:ring-2 focus:ring-blue-500/40">
         {value} <ChevronDown size={16} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
       {isOpen && (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)}></div>
-          <div className="absolute top-full left-0 mt-2 w-full bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 rounded-xl shadow-xl z-50 overflow-hidden">
+          <div className="fixed inset-0 z-[90]" onClick={handleClose}></div>
+          <div className="absolute top-full left-0 mt-2 w-full bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 rounded-xl shadow-2xl z-[100] overflow-hidden">
             {options.map(opt => (
-              <button key={opt} type="button" onClick={() => { onChange(opt); setIsOpen(false); }} className="w-full text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-200 text-sm font-medium flex justify-between items-center transition-colors">
+              <button key={opt} type="button" onClick={(e) => handleSelect(opt, e)} className="w-full text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-200 text-sm font-medium flex justify-between items-center transition-colors">
                 {opt} {value === opt && <Check size={16} className="text-blue-600" />}
               </button>
             ))}
@@ -32,7 +53,7 @@ export default function TaskForm({ onClose, taskToEdit, user, showToast, prefill
   const [newComment, setNewComment] = useState('');
   
   const [task, setTask] = useState(taskToEdit || {
-    title: '', description: '', priority: 'Medium', category: 'Work', deadline: prefilledDate || '', status: 'To Do', pinned: false, comments: [], recurrence: 'None'
+    title: '', description: '', priority: 'Medium', category: 'Work', deadline: prefilledDate || '', startTime: '', endTime: '', attachmentLink: '', status: 'To Do', pinned: false, comments: [], recurrence: 'None'
   });
 
   const handleAIBreakdown = () => {
@@ -59,31 +80,37 @@ export default function TaskForm({ onClose, taskToEdit, user, showToast, prefill
     e.preventDefault();
     if (!task.title || isSubmitting || !user) return;
     setIsSubmitting(true);
+    
     try {
+      // Data Sanitizer: Strip ID and undefined fields to prevent Firebase crashes
+      const { id, ...cleanTask } = task;
+      const finalPayload = Object.fromEntries(Object.entries(cleanTask).filter(([_, v]) => v !== undefined));
+
       if (taskToEdit) {
-        await updateDoc(doc(db, 'users', user.uid, 'tasks', taskToEdit.id), { ...task });
-        showToast("Task updated.", "success");
+        await updateDoc(doc(db, 'users', user.uid, 'tasks', taskToEdit.id), finalPayload);
+        showToast("Task updated perfectly.", "success");
       } else {
-        await addDoc(collection(db, 'users', user.uid, 'tasks'), { ...task, createdAt: new Date().toISOString() });
+        await addDoc(collection(db, 'users', user.uid, 'tasks'), { ...finalPayload, createdAt: new Date().toISOString() });
         showToast("New task created.", "success");
       }
       onClose();
     } catch (error) {
-      showToast("Failed to save task.", "error");
+      console.error(error);
+      showToast("Failed to save task: " + error.message, "error");
       setIsSubmitting(false);
     }
   };
 
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 z-[200] animate-in fade-in">
-      <div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-2xl shadow-2xl border border-gray-100 dark:border-slate-700 overflow-visible flex flex-col max-h-[90vh] transition-colors">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-3xl shadow-2xl border border-gray-100 dark:border-slate-700 overflow-visible flex flex-col max-h-[90vh] transition-colors">
         <div className="px-6 py-4 border-b border-gray-100 dark:border-slate-800 flex justify-between items-center bg-gray-50/50 dark:bg-slate-800/50 shrink-0 rounded-t-2xl">
           <h2 className="text-xl font-bold text-gray-800 dark:text-white">{taskToEdit ? 'Edit Task' : 'Create New Task'}</h2>
           <button onClick={onClose} className="p-2 text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-full"><X size={20} /></button>
         </div>
         
         <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
-          <form id="taskForm" onSubmit={handleSubmit} className="p-6 space-y-5 overflow-y-auto flex-1 md:border-r border-gray-100 dark:border-slate-800">
+          <form id="taskForm" onSubmit={handleSubmit} className="p-6 space-y-5 overflow-y-auto flex-1 md:border-r border-gray-100 dark:border-slate-800 hide-scrollbar">
             <div>
               <label className="block text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5">Task Title</label>
               <input type="text" required className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-800 dark:text-white focus:ring-2 focus:ring-blue-500/40 outline-none font-medium" placeholder="What needs to be done?" value={task.title} onChange={(e) => setTask({...task, title: e.target.value})} />
@@ -96,18 +123,24 @@ export default function TaskForm({ onClose, taskToEdit, user, showToast, prefill
               <textarea className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-800 dark:text-white focus:ring-2 focus:ring-blue-500/40 outline-none min-h-[120px] font-mono text-sm" placeholder="Type - [ ] for checklists..." value={task.description} onChange={(e) => setTask({...task, description: e.target.value})} />
             </div>
             
-            <div className="grid grid-cols-2 gap-5 relative z-30">
+            <div className="grid grid-cols-2 gap-5 relative z-40">
               <div><label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5"><AlertCircle size={16}/> Priority</label><CustomDropdown options={['Low', 'Medium', 'High', 'Urgent']} value={task.priority} onChange={(val) => setTask({...task, priority: val})} /></div>
               <div><label className="block text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5">Status</label><CustomDropdown options={['To Do', 'In Progress', 'Review', 'Completed']} value={task.status} onChange={(val) => setTask({...task, status: val})} /></div>
             </div>
-            <div className="grid grid-cols-2 gap-5 relative z-20">
-              <div><label className="block text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5">Category</label><input type="text" className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-800 dark:text-white outline-none" placeholder="e.g. Work" value={task.category} onChange={(e) => setTask({...task, category: e.target.value})} /></div>
-              <div><label className="block text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5">Deadline</label><input type="date" className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-800 dark:text-white outline-none" value={task.deadline} onChange={(e) => setTask({...task, deadline: e.target.value})} /></div>
-            </div>
             
+            <div className="grid grid-cols-2 gap-5 relative z-30">
+              <div><label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5"><Tag size={16}/> Tags/Category</label><input type="text" className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-800 dark:text-white outline-none" placeholder="e.g. Work, Urgent" value={task.category} onChange={(e) => setTask({...task, category: e.target.value})} /></div>
+              <div><label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5"><Calendar size={16}/> Deadline</label><input type="date" className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-800 dark:text-white outline-none cursor-pointer" value={task.deadline} onChange={(e) => setTask({...task, deadline: e.target.value})} /></div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-5 relative z-20">
+              <div><label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5"><Clock size={16}/> Start Time</label><input type="time" className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-800 dark:text-white outline-none cursor-pointer" value={task.startTime || ''} onChange={(e) => setTask({...task, startTime: e.target.value})} /></div>
+              <div><label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5"><Clock size={16}/> End Time</label><input type="time" className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-800 dark:text-white outline-none cursor-pointer" value={task.endTime || ''} onChange={(e) => setTask({...task, endTime: e.target.value})} /></div>
+            </div>
+
             <div className="grid grid-cols-2 gap-5 relative z-10">
               <div><label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5"><Repeat size={16}/> Recurrence</label><CustomDropdown options={['None', 'Daily', 'Weekly', 'Monthly']} value={task.recurrence || 'None'} onChange={(val) => setTask({...task, recurrence: val})} /></div>
-              <div><label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5"><Paperclip size={16}/> Attachments</label><button type="button" onClick={() => showToast("Attachment upload requires Firebase Storage setup.", "info")} className="w-full border-2 border-dashed border-gray-200 dark:border-slate-700 rounded-xl py-2.5 text-center text-sm font-medium text-gray-500 dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">Upload</button></div>
+              <div><label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5"><Paperclip size={16}/> Cloud Link</label><input type="url" className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-800 dark:text-white outline-none" placeholder="https://docs.google.com/..." value={task.attachmentLink || ''} onChange={(e) => setTask({...task, attachmentLink: e.target.value})} /></div>
             </div>
           </form>
 
@@ -129,7 +162,7 @@ export default function TaskForm({ onClose, taskToEdit, user, showToast, prefill
               )}
             </div>
             <div className="flex gap-2">
-              <input type="text" placeholder="Write a comment..." className="flex-1 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg px-3 py-2 text-xs outline-none dark:text-white" value={newComment} onChange={(e) => setNewComment(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddComment()} />
+              <input type="text" placeholder="Add a comment..." className="flex-1 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg px-3 py-2 text-xs outline-none dark:text-white" value={newComment} onChange={(e) => setNewComment(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddComment()} />
               <button type="button" onClick={handleAddComment} className="bg-blue-600 text-white p-2 rounded-lg hover:bg-blue-700"><Send size={14}/></button>
             </div>
           </div>

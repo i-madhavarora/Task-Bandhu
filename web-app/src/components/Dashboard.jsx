@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Clock, CheckCircle2, AlertOctagon, ListTodo, Calendar as CalendarIcon, Tag, Trash2, Filter, ChevronDown, Check, Zap, Flame, Timer, Play, Pause, Square, Send, Search, Edit2, LogOut, Kanban, List as ListIcon, GripVertical, Pin, PinOff, DownloadCloud, UploadCloud, Wand2, Volume2, VolumeX, AlertTriangle, Info, WifiOff, Sun, Moon, Loader2, Presentation, Copy, Repeat } from 'lucide-react';
+import { Plus, Clock, CheckCircle2, AlertOctagon, ListTodo, Calendar as CalendarIcon, Tag, Trash2, Filter, ChevronDown, Check, Zap, Flame, Timer, Play, Pause, Square, Send, Search, Edit2, LogOut, Kanban, List as ListIcon, GripVertical, Pin, PinOff, DownloadCloud, UploadCloud, Wand2, Volume2, VolumeX, AlertTriangle, Info, WifiOff, Sun, Moon, Loader2, Presentation, Copy, Repeat, Link as LinkIcon, Eraser } from 'lucide-react';
 import { collection, onSnapshot, query, doc, deleteDoc, updateDoc, addDoc } from 'firebase/firestore';
 import { signInWithPopup, onAuthStateChanged, signOut } from 'firebase/auth';
 import { db, auth, googleProvider } from '../firebase';
@@ -17,19 +17,30 @@ const playSound = (type = 'pop') => {
   } catch (e) {}
 };
 
-const CustomDropdown = ({ options, value, onChange, className }) => {
+const CustomDropdown = ({ options, value, onChange, className, onOpenChange }) => {
   const [isOpen, setIsOpen] = useState(false);
+  
+  const handleToggle = (e) => {
+    e.stopPropagation(); const nextState = !isOpen; setIsOpen(nextState); if (onOpenChange) onOpenChange(nextState);
+  };
+  const handleSelect = (opt, e) => {
+    e.stopPropagation(); onChange(opt); setIsOpen(false); if (onOpenChange) onOpenChange(false);
+  };
+  const handleClose = (e) => {
+    e.stopPropagation(); setIsOpen(false); if (onOpenChange) onOpenChange(false);
+  };
+
   return (
-    <div className={`relative ${isOpen ? 'z-[100]' : 'z-10'} ${className}`}>
-      <button type="button" onClick={(e) => { e.stopPropagation(); setIsOpen(!isOpen); }} className="w-full bg-white dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-1.5 text-xs md:text-sm font-bold text-gray-700 dark:text-slate-200 flex justify-between items-center outline-none shadow-sm hover:bg-gray-50 dark:hover:bg-slate-600 transition-colors">
+    <div className={`relative ${className}`}>
+      <button type="button" onClick={handleToggle} className="w-full bg-white dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-lg px-3 py-1.5 text-xs md:text-sm font-bold text-gray-700 dark:text-slate-200 flex justify-between items-center outline-none shadow-sm hover:bg-gray-50 dark:hover:bg-slate-600 transition-colors">
         {value} <ChevronDown size={14} className={`ml-2 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
       {isOpen && (
         <>
-          <div className="fixed inset-0 z-[90]" onClick={(e) => { e.stopPropagation(); setIsOpen(false); }}></div>
+          <div className="fixed inset-0 z-[90]" onClick={handleClose}></div>
           <div className="absolute top-full right-0 mt-1 min-w-[120px] w-full bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 rounded-xl shadow-2xl z-[100] overflow-y-auto max-h-60 hide-scrollbar">
             {options.map(opt => (
-              <button key={opt} type="button" onClick={(e) => { e.stopPropagation(); onChange(opt); setIsOpen(false); }} className="w-full text-left px-3 py-2.5 hover:bg-blue-50 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-200 text-xs font-bold flex justify-between items-center">
+              <button key={opt} type="button" onClick={(e) => handleSelect(opt, e)} className="w-full text-left px-3 py-2.5 hover:bg-blue-50 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-200 text-xs font-bold flex justify-between items-center">
                 {opt} {value === opt && <Check size={14} className="text-blue-600" />}
               </button>
             ))}
@@ -56,7 +67,6 @@ export default function Dashboard() {
   
   const [filter, setFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
-  const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [viewMode, setViewMode] = useState('list');
   
   const [quickTaskTitle, setQuickTaskTitle] = useState('');
@@ -152,24 +162,28 @@ export default function Dashboard() {
     }
   };
 
-  const handleUpdateStatus = async (id, newStatus, taskObj) => {
-    const isNowCompleted = newStatus === 'Completed';
-    
-    // Auto-generate next task if recurring
-    if (isNowCompleted && taskObj.recurrence && taskObj.recurrence !== 'None') {
-      let nextDeadline = new Date(taskObj.deadline || todayStr);
-      if (taskObj.recurrence === 'Daily') nextDeadline.setDate(nextDeadline.getDate() + 1);
-      else if (taskObj.recurrence === 'Weekly') nextDeadline.setDate(nextDeadline.getDate() + 7);
-      else if (taskObj.recurrence === 'Monthly') nextDeadline.setMonth(nextDeadline.getMonth() + 1);
-      
-      await addDoc(collection(db, 'users', user.uid, 'tasks'), {
-        ...taskObj, deadline: nextDeadline.toISOString().split('T')[0], status: 'To Do', createdAt: new Date().toISOString()
-      });
-      showToast(`Recurring task generated for ${nextDeadline.toISOString().split('T')[0]}`, 'info');
-    }
+  const stopNoiseSafe = () => { if (isNoisePlaying) { noiseNodeRef.current?.stop(); setIsNoisePlaying(false); } };
 
-    await updateDoc(doc(db, 'users', user.uid, 'tasks', id), { status: newStatus, completedAt: isNowCompleted ? new Date().toISOString() : null });
-    playSound(isNowCompleted ? 'success' : 'pop');
+  const handleUpdateStatus = async (id, newStatus, taskObj) => {
+    try {
+      const isNowCompleted = newStatus === 'Completed';
+      if (isNowCompleted && taskObj.recurrence && taskObj.recurrence !== 'None') {
+        let nextDeadline = new Date(taskObj.deadline || todayStr);
+        if (taskObj.recurrence === 'Daily') nextDeadline.setDate(nextDeadline.getDate() + 1);
+        else if (taskObj.recurrence === 'Weekly') nextDeadline.setDate(nextDeadline.getDate() + 7);
+        else if (taskObj.recurrence === 'Monthly') nextDeadline.setMonth(nextDeadline.getMonth() + 1);
+        
+        const { id: _, ...cleanTask } = taskObj;
+        await addDoc(collection(db, 'users', user.uid, 'tasks'), {
+          ...cleanTask, deadline: nextDeadline.toISOString().split('T')[0], status: 'To Do', createdAt: new Date().toISOString()
+        });
+        showToast(`Recurring task generated for ${nextDeadline.toISOString().split('T')[0]}`, 'info');
+      }
+      await updateDoc(doc(db, 'users', user.uid, 'tasks', id), { status: newStatus, completedAt: isNowCompleted ? new Date().toISOString() : null });
+      playSound(isNowCompleted ? 'success' : 'pop');
+    } catch (err) {
+      showToast("Failed to update status", "error");
+    }
   };
 
   const toggleSubtask = async (e, task, index) => {
@@ -183,15 +197,38 @@ export default function Dashboard() {
 
   const handleDelete = (id) => confirmAction("Delete this task permanently?", async () => await deleteDoc(doc(db, 'users', user.uid, 'tasks', id)));
   
+  const handleBulkClear = () => {
+    const completedTasks = tasks.filter(t => t.status === 'Completed');
+    if (completedTasks.length === 0) return showToast("No completed tasks to clear.", "info");
+    confirmAction(`Permanently delete all ${completedTasks.length} completed tasks?`, async () => {
+      for (const t of completedTasks) await deleteDoc(doc(db, 'users', user.uid, 'tasks', t.id));
+      showToast("Completed tasks cleared.", "success");
+    });
+  };
+
   const handleDuplicate = async (task) => {
-    await addDoc(collection(db, 'users', user.uid, 'tasks'), { ...task, title: `${task.title} (Copy)`, createdAt: new Date().toISOString() });
-    showToast("Task duplicated!", "success");
+    try {
+      const { id, ...cleanTask } = task;
+      // Strip undefined fields to prevent silent NoSQL crashes
+      const sanitized = Object.fromEntries(Object.entries(cleanTask).filter(([_, v]) => v !== undefined));
+      sanitized.pinned = false; // Prevent auto-hitting the 3-pin limit
+      
+      await addDoc(collection(db, 'users', user.uid, 'tasks'), { ...sanitized, title: `${task.title} (Copy)`, createdAt: new Date().toISOString() });
+      showToast("Task duplicated!", "success");
+    } catch (err) {
+      showToast("Failed to duplicate task.", "error");
+    }
   };
 
   const handleTogglePin = async (task) => {
-    if (!task.pinned && tasks.filter(t => t.pinned).length >= 3) return showToast("You can only pin up to 3 tasks.", "warning");
-    await updateDoc(doc(db, 'users', user.uid, 'tasks', task.id), { pinned: !task.pinned });
+    try {
+      if (!task.pinned && tasks.filter(t => t.pinned).length >= 3) return showToast("You can only pin up to 3 tasks.", "warning");
+      await updateDoc(doc(db, 'users', user.uid, 'tasks', task.id), { pinned: !task.pinned });
+    } catch (err) {
+      showToast("Failed to pin task.", "error");
+    }
   };
+
   const handleDragStart = (e, taskId) => e.dataTransfer.setData('taskId', taskId);
   const handleDrop = async (e, newStatus) => {
     e.preventDefault(); const taskId = e.dataTransfer.getData('taskId');
@@ -200,7 +237,6 @@ export default function Dashboard() {
       if (taskObj) await handleUpdateStatus(taskId, newStatus, taskObj);
     }
   };
-  
   const submitQuickTask = async () => {
     if (quickTaskTitle.trim()) {
       await addDoc(collection(db, 'users', user.uid, 'tasks'), { title: quickTaskTitle.trim(), description: '', priority: quickPriority, category: 'Inbox', deadline: todayStr, status: 'To Do', createdAt: new Date().toISOString(), pinned: false, recurrence: 'None' });
@@ -266,13 +302,9 @@ export default function Dashboard() {
   const currentLevel = Math.floor(tasks.filter(t => t.status === 'Completed').length / 5) + 1;
   const currentXP = (tasks.filter(t => t.status === 'Completed').length % 5) * 20;
 
-  // Accurate Offline Festival Mapping for 2026/2027
   const getIndianFestivals = (year) => {
     const fixed = { '01-26': 'Republic Day 🇮🇳', '08-15': 'Independence Day 🇮🇳', '10-02': 'Gandhi Jayanti 🕊️', '12-25': 'Christmas 🎄', '01-01': 'New Year ✨' };
-    const lunar = {
-      2026: { '03-03': 'Holi 🎨', '11-08': 'Diwali 🪔', '10-19': 'Dussehra 🏹' },
-      2027: { '03-22': 'Holi 🎨', '10-29': 'Diwali 🪔', '10-09': 'Dussehra 🏹' }
-    };
+    const lunar = { 2026: { '03-03': 'Holi 🎨', '11-08': 'Diwali 🪔', '10-19': 'Dussehra 🏹' }, 2027: { '03-22': 'Holi 🎨', '10-29': 'Diwali 🪔', '10-09': 'Dussehra 🏹' } };
     return { ...fixed, ...(lunar[year] || {}) };
   };
 
@@ -296,9 +328,12 @@ export default function Dashboard() {
   };
 
   const TaskCard = ({ task }) => {
+    const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const isOverdue = task.deadline < todayStr && task.status !== 'Completed' && task.deadline;
+    const tags = task.category ? task.category.split(',').map(t => t.trim()).filter(t => t) : [];
+
     return (
-      <div draggable={viewMode === 'kanban'} onDragStart={(e) => handleDragStart(e, task.id)} className={`p-4 md:p-5 rounded-2xl border flex flex-col transition-all relative z-10 ${viewMode === 'list' ? 'md:flex-row justify-between hover:shadow-md' : 'bg-white dark:bg-slate-800 cursor-grab active:cursor-grabbing gap-3'} ${task.pinned ? 'bg-amber-50/40 dark:bg-amber-900/20 border-amber-200 dark:border-amber-700/50' : 'bg-white dark:bg-slate-800 hover:border-blue-200 dark:hover:border-slate-600 border-gray-100 dark:border-slate-700'}`}>
+      <div draggable={viewMode === 'kanban'} onDragStart={(e) => handleDragStart(e, task.id)} className={`p-4 md:p-5 rounded-2xl border flex flex-col transition-all relative ${isDropdownOpen ? 'z-50' : 'z-10 hover:z-20'} ${viewMode === 'list' ? 'md:flex-row justify-between hover:shadow-md' : 'bg-white dark:bg-slate-800 cursor-grab active:cursor-grabbing gap-3'} ${task.pinned ? 'bg-amber-50/40 dark:bg-amber-900/20 border-amber-200 dark:border-amber-700/50' : 'bg-white dark:bg-slate-800 hover:border-blue-200 dark:hover:border-slate-600 border-gray-100 dark:border-slate-700'}`}>
         {viewMode === 'kanban' && <div className="absolute top-2 right-2 text-gray-300 hover:text-gray-500"><GripVertical size={16}/></div>}
         <div className="flex-1 min-w-0 pr-6 md:pr-0">
           <div className="flex items-center gap-2 mb-2 flex-wrap">
@@ -310,14 +345,18 @@ export default function Dashboard() {
             {task.recurrence && task.recurrence !== 'None' && <span className="text-blue-500 dark:text-blue-400 flex items-center gap-1 text-[10px] font-bold"><Repeat size={10}/> {task.recurrence}</span>}
           </div>
           <div className="mb-3">{renderDescription(task)}</div>
-          <div className="flex flex-wrap items-center gap-3 md:gap-4 text-xs md:text-sm text-gray-500 dark:text-slate-400">
-            {task.category && <div className="flex items-center gap-1"><Tag size={12} className="md:w-3.5 md:h-3.5"/>{task.category}</div>}
-            {task.deadline && <div className="flex items-center gap-1"><CalendarIcon size={12} className="md:w-3.5 md:h-3.5"/>{task.deadline}</div>}
+          
+          <div className="flex flex-wrap items-center gap-2 md:gap-3 text-[10px] md:text-xs text-gray-500 dark:text-slate-400">
+            {tags.map((tag, idx) => (
+              <div key={idx} className="flex items-center gap-1 bg-gray-100 dark:bg-slate-700 px-2 py-1 rounded-md"><Tag size={10}/>{tag}</div>
+            ))}
+            {task.deadline && <div className="flex items-center gap-1 font-semibold"><CalendarIcon size={12}/>{task.deadline} {task.startTime && `(${task.startTime})`}</div>}
+            {task.attachmentLink && <a href={task.attachmentLink} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-blue-500 hover:underline"><LinkIcon size={12}/> Link</a>}
           </div>
         </div>
         <div className={`flex items-center gap-1 md:gap-2 mt-4 md:mt-0 ${viewMode === 'list' ? '' : 'pt-3 mt-1 border-t border-gray-100 dark:border-slate-700 justify-end'}`}>
           <div className="mr-auto md:mr-2">
-            <CustomDropdown options={['To Do', 'In Progress', 'Review', 'Completed']} value={task.status} onChange={(val) => handleUpdateStatus(task.id, val, task)} className="w-32" />
+            <CustomDropdown options={['To Do', 'In Progress', 'Review', 'Completed']} value={task.status} onChange={(val) => handleUpdateStatus(task.id, val, task)} onOpenChange={setIsDropdownOpen} className="w-32" />
           </div>
           <button onClick={() => handleTogglePin(task)} className={`p-1.5 md:p-2 rounded-lg transition-colors ${task.pinned ? 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400' : 'hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-400'}`} title={task.pinned ? "Unpin Task" : "Pin Task"}><PinOff size={16} /></button>
           <button onClick={() => handleDuplicate(task)} className="p-1.5 md:p-2 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/30 text-gray-400 hover:text-purple-500" title="Duplicate Task"><Copy size={16} /></button>
@@ -378,31 +417,29 @@ export default function Dashboard() {
     );
   };
 
-  const renderTimeline = () => {
-    return (
-      <div className="animate-in fade-in overflow-x-auto pb-4 hide-scrollbar">
-        <div className="min-w-[800px]">
-          {['To Do', 'In Progress', 'Review'].map(status => (
-            <div key={status} className="mb-8">
-              <h3 className="text-sm font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-4 border-b border-gray-100 dark:border-slate-700 pb-2">{status}</h3>
-              <div className="space-y-3">
-                {displayTasks.filter(t => t.status === status).map(t => (
-                  <div key={t.id} onClick={() => { setEditingTask(t); setIsFormOpen(true); }} className="flex items-center gap-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-800/50 p-2 rounded-xl transition-colors group">
-                    <div className="w-48 truncate font-bold text-gray-800 dark:text-white text-sm">{t.title}</div>
-                    <div className="flex-1 bg-gray-100 dark:bg-slate-700 rounded-full h-8 relative flex items-center group-hover:ring-2 ring-blue-500/30 transition-all">
-                      <div className={`absolute left-0 h-full rounded-full flex items-center px-4 text-xs font-bold text-white shadow-sm ${t.priority === 'Urgent' ? 'bg-red-500 w-[90%]' : t.priority === 'High' ? 'bg-orange-500 w-[70%]' : 'bg-blue-500 w-[40%]'}`}>
-                        {t.deadline ? `Due: ${t.deadline}` : 'No Deadline'}
-                      </div>
+  const renderTimeline = () => (
+    <div className="animate-in fade-in overflow-x-auto pb-4 hide-scrollbar">
+      <div className="min-w-[800px]">
+        {['To Do', 'In Progress', 'Review'].map(status => (
+          <div key={status} className="mb-8">
+            <h3 className="text-sm font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-4 border-b border-gray-100 dark:border-slate-700 pb-2">{status}</h3>
+            <div className="space-y-3">
+              {displayTasks.filter(t => t.status === status).map(t => (
+                <div key={t.id} onClick={() => { setEditingTask(t); setIsFormOpen(true); }} className="flex items-center gap-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-800/50 p-2 rounded-xl transition-colors group">
+                  <div className="w-48 truncate font-bold text-gray-800 dark:text-white text-sm">{t.title}</div>
+                  <div className="flex-1 bg-gray-100 dark:bg-slate-700 rounded-full h-8 relative flex items-center group-hover:ring-2 ring-blue-500/30 transition-all">
+                    <div className={`absolute left-0 h-full rounded-full flex items-center px-4 text-xs font-bold text-white shadow-sm ${t.priority === 'Urgent' ? 'bg-red-500 w-[90%]' : t.priority === 'High' ? 'bg-orange-500 w-[70%]' : 'bg-blue-500 w-[40%]'}`}>
+                      {t.deadline ? `Due: ${t.deadline} ${t.startTime ? `at ${t.startTime}` : ''}` : 'No Deadline'}
                     </div>
                   </div>
-                ))}
-              </div>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          </div>
+        ))}
       </div>
-    );
-  };
+    </div>
+  );
 
   if (isAuthLoading) return <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center"><Loader2 className="animate-spin text-blue-600 w-12 h-12"/></div>;
   if (!user) return (
@@ -520,6 +557,9 @@ export default function Dashboard() {
                 <Search size={14} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
                 <input type="text" placeholder="Search..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-8 md:pl-9 pr-3 py-2.5 bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl text-xs md:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-full lg:w-48 transition-all lg:focus:w-64 dark:text-white" />
               </div>
+              
+              <button onClick={handleBulkClear} className="bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400 px-3 py-2 rounded-xl text-xs font-bold hover:bg-red-100 dark:hover:bg-red-900/50 flex items-center gap-1 shadow-sm"><Eraser size={14}/> Clear Done</button>
+              
               <div className="flex items-center bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl p-1 shrink-0">
                 <button onClick={() => setViewMode('list')} className={`p-1.5 md:p-2 rounded-lg transition-colors ${viewMode === 'list' ? 'bg-white dark:bg-slate-800 shadow-sm text-blue-600' : 'text-gray-400 dark:text-slate-400'}`} title="List View"><ListIcon size={16}/></button>
                 <button onClick={() => setViewMode('kanban')} className={`p-1.5 md:p-2 rounded-lg transition-colors ${viewMode === 'kanban' ? 'bg-white dark:bg-slate-800 shadow-sm text-blue-600' : 'text-gray-400 dark:text-slate-400'}`} title="Kanban Board"><Kanban size={16}/></button>
@@ -559,7 +599,7 @@ export default function Dashboard() {
       {isFormOpen && <TaskForm taskToEdit={editingTask} onClose={() => { setIsFormOpen(false); setEditingTask(null); }} user={user} showToast={showToast} prefilledDate={prefilledDate} />}
       
       {isFocusModeActive && (
-        <div className="fixed inset-0 bg-slate-900 flex flex-col items-center justify-center p-4 z-[300] overflow-y-auto">
+        <div className="fixed inset-0 bg-slate-900 flex flex-col items-center justify-center p-4 z-[400] overflow-y-auto">
           <div className="text-center w-full max-w-md my-auto relative">
             <button onClick={toggleBrownNoise} className={`absolute -top-12 md:top-0 right-0 p-3 rounded-full transition-all ${isNoisePlaying ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/50' : 'bg-slate-800 text-slate-400 hover:text-white'}`}>
               {isNoisePlaying ? <Volume2 size={24} /> : <VolumeX size={24} />}
@@ -580,9 +620,9 @@ export default function Dashboard() {
               <button onClick={() => { setIsTimerRunning(!isTimerRunning); playSound('start'); }} className={`px-6 md:px-8 py-3 md:py-4 rounded-2xl font-bold text-base md:text-lg transition-all shadow-xl flex items-center gap-2 md:gap-3 ${isTimerRunning ? 'bg-orange-500 text-white' : 'bg-white text-slate-900'}`}>
                 {isTimerRunning ? <><Pause size={20} /> Pause</> : <><Play size={20} /> Start</>}
               </button>
-              <button onClick={() => { setIsTimerRunning(false); setTimeLeft(focusMinutes * 60); playSound('pop'); }} className="bg-slate-800 text-white px-4 md:px-5 py-3 md:py-4 rounded-2xl font-bold hover:bg-slate-700"><Square size={18}/></button>
+              <button onClick={() => { setIsTimerRunning(false); setTimeLeft(focusMinutes * 60); stopNoiseSafe(); playSound('pop'); }} className="bg-slate-800 text-white px-4 md:px-5 py-3 md:py-4 rounded-2xl font-bold hover:bg-slate-700"><Square size={18}/></button>
             </div>
-            <button onClick={() => { setIsFocusModeActive(false); setIsTimerRunning(false); playSound('pop'); }} className="mt-8 md:mt-12 text-slate-400 hover:text-white px-6 py-4 font-semibold text-sm md:text-base">Exit Focus Mode</button>
+            <button onClick={() => { setIsFocusModeActive(false); setIsTimerRunning(false); stopNoiseSafe(); playSound('pop'); }} className="mt-8 md:mt-12 text-slate-400 hover:text-white px-6 py-4 font-semibold text-sm md:text-base">Exit Focus Mode</button>
           </div>
         </div>
       )}
