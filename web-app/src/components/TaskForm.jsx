@@ -3,44 +3,29 @@ import { X, Calendar, Tag, AlertCircle, AlignLeft, Sparkles } from 'lucide-react
 import { collection, addDoc, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 
-export default function TaskForm({ onClose, taskToEdit, user }) {
+export default function TaskForm({ onClose, taskToEdit, user, showToast }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isAIGenerating, setIsAIGenerating] = useState(false);
   
   const [task, setTask] = useState(taskToEdit || {
-    title: '',
-    description: '',
-    priority: 'Medium',
-    category: 'Work',
-    deadline: '',
-    status: 'Pending',
-    pinned: false // New pinned field
+    title: '', description: '', priority: 'Medium', category: 'Work', deadline: '', status: 'Pending', pinned: false
   });
 
-  const todayStr = new Date().toISOString().split('T')[0];
-
   const handleAIBreakdown = () => {
-    if (!task.title) return alert("Please enter a Task Title first.");
+    if (!task.title) return showToast("Please enter a Task Title first.", "warning");
     setIsAIGenerating(true);
     
-    // Smart Contextual AI Simulation
     setTimeout(() => {
       const t = task.title.toLowerCase();
       let steps = "- [ ] Define the end goal\n- [ ] Outline necessary resources\n- [ ] Execute step-by-step\n- [ ] Final review";
       
-      if (t.includes('web') || t.includes('app') || t.includes('code') || t.includes('build')) {
-        steps = "- [ ] Design UI/UX mockups\n- [ ] Setup project & database\n- [ ] Build frontend components\n- [ ] Integrate API/Backend\n- [ ] Test & Deploy";
-      } else if (t.includes('study') || t.includes('exam') || t.includes('learn')) {
-        steps = "- [ ] Gather study materials & syllabus\n- [ ] Review notes & highlight key concepts\n- [ ] Take a practice quiz\n- [ ] Revise weak areas";
-      } else if (t.includes('buy') || t.includes('shop') || t.includes('groceries')) {
-        steps = "- [ ] Check inventory at home\n- [ ] Make a list of needed items\n- [ ] Compare prices/stores\n- [ ] Purchase items";
-      }
+      if (t.includes('web') || t.includes('app') || t.includes('code') || t.includes('build')) steps = "- [ ] Design UI/UX mockups\n- [ ] Setup project & database\n- [ ] Build frontend components\n- [ ] Integrate API/Backend\n- [ ] Test & Deploy";
+      else if (t.includes('study') || t.includes('exam') || t.includes('learn')) steps = "- [ ] Gather study materials & syllabus\n- [ ] Review notes & highlight key concepts\n- [ ] Take a practice quiz\n- [ ] Revise weak areas";
+      else if (t.includes('buy') || t.includes('shop') || t.includes('groceries')) steps = "- [ ] Check inventory at home\n- [ ] Make a list of needed items\n- [ ] Compare prices/stores\n- [ ] Purchase items";
 
-      setTask({
-        ...task,
-        description: `🤖 AI Breakdown for "${task.title}":\n\n${steps}`
-      });
+      setTask({ ...task, description: `🤖 AI Breakdown for "${task.title}":\n\n${steps}` });
       setIsAIGenerating(false);
+      showToast("AI Subtasks Generated!", "success");
     }, 800);
   };
 
@@ -52,16 +37,15 @@ export default function TaskForm({ onClose, taskToEdit, user }) {
     try {
       if (taskToEdit) {
         await updateDoc(doc(db, 'users', user.uid, 'tasks', taskToEdit.id), { ...task });
+        showToast("Task updated perfectly.", "success");
       } else {
-        await addDoc(collection(db, 'users', user.uid, 'tasks'), {
-          ...task,
-          createdAt: new Date().toISOString() 
-        });
+        await addDoc(collection(db, 'users', user.uid, 'tasks'), { ...task, createdAt: new Date().toISOString() });
+        showToast("New task created.", "success");
       }
       onClose();
     } catch (error) {
-      console.error("Error saving task:", error);
-      alert("Failed to save task.");
+      console.error(error);
+      showToast("Failed to save task.", "error");
       setIsSubmitting(false);
     }
   };
@@ -77,39 +61,25 @@ export default function TaskForm({ onClose, taskToEdit, user }) {
         <form onSubmit={handleSubmit} className="p-4 md:p-6 space-y-5 overflow-y-auto flex-1">
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1.5">Task Title</label>
-            <input 
-              type="text" required
-              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-gray-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 font-medium"
-              placeholder="What needs to be done?"
-              value={task.title} onChange={(e) => setTask({...task, title: e.target.value})}
-            />
+            <input type="text" required className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-gray-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 font-medium" placeholder="What needs to be done?" value={task.title} onChange={(e) => setTask({...task, title: e.target.value})} />
           </div>
 
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700"><AlignLeft size={16} className="text-gray-400"/>Notes & Subtasks</label>
-              <button type="button" onClick={handleAIBreakdown} disabled={isAIGenerating} className="text-xs font-bold text-purple-600 bg-purple-50 hover:bg-purple-100 px-3 py-1 rounded-lg flex items-center gap-1 transition-all">
-                <Sparkles size={12} />{isAIGenerating ? 'Thinking...' : 'AI Breakdown'}
-              </button>
+              <button type="button" onClick={handleAIBreakdown} disabled={isAIGenerating} className="text-xs font-bold text-purple-600 bg-purple-50 hover:bg-purple-100 px-3 py-1 rounded-lg flex items-center gap-1 transition-all"><Sparkles size={12} />{isAIGenerating ? 'Thinking...' : 'AI Breakdown'}</button>
             </div>
-            <textarea 
-              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-gray-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 min-h-[120px] font-mono text-sm"
-              placeholder="Add links, subtasks, or notes..." value={task.description} onChange={(e) => setTask({...task, description: e.target.value})}
-            />
+            <textarea className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-gray-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 min-h-[120px] font-mono text-sm" placeholder="Add links, subtasks, or notes..." value={task.description} onChange={(e) => setTask({...task, description: e.target.value})} />
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">
             <div>
               <label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 mb-1.5"><AlertCircle size={16} className="text-gray-400"/> Priority</label>
-              <select className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-gray-800" value={task.priority} onChange={(e) => setTask({...task, priority: e.target.value})}>
-                <option>Low</option><option>Medium</option><option>High</option>
-              </select>
+              <select className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-gray-800" value={task.priority} onChange={(e) => setTask({...task, priority: e.target.value})}><option>Low</option><option>Medium</option><option>High</option></select>
             </div>
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1.5">Status</label>
-              <select className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-gray-800" value={task.status} onChange={(e) => setTask({...task, status: e.target.value})}>
-                <option>Pending</option><option>Completed</option>
-              </select>
+              <select className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-gray-800" value={task.status} onChange={(e) => setTask({...task, status: e.target.value})}><option>Pending</option><option>Completed</option></select>
             </div>
           </div>
 
