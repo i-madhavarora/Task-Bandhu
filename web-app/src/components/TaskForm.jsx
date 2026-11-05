@@ -1,24 +1,51 @@
-import React, { useState, useRef } from 'react';
+import { useState, useRef } from 'react';
 import { X, Calendar, Tag, AlertCircle, AlignLeft, Sparkles, ChevronDown, Check, Paperclip, MessageSquare, Send, Repeat, Clock, Folder, UserPlus, Link as LinkIcon } from 'lucide-react';
 import { collection, addDoc, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 
 const CustomDropdown = ({ options, value, onChange, onOpenChange }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const handleToggle = (e) => { e.stopPropagation(); const next = !isOpen; setIsOpen(next); if (onOpenChange) onOpenChange(next); };
-  const handleSelect = (opt, e) => { e.stopPropagation(); onChange(opt); setIsOpen(false); if (onOpenChange) onOpenChange(false); };
+  const handleToggle = (e) => {
+    e.stopPropagation();
+    const next = !isOpen;
+    setIsOpen(next);
+    onOpenChange?.(next);
+  };
+  const handleSelect = (opt, e) => {
+    e.stopPropagation();
+    onChange(opt);
+    setIsOpen(false);
+    onOpenChange?.(false);
+  };
+  const handleClose = (e) => {
+    e.stopPropagation();
+    setIsOpen(false);
+    onOpenChange?.(false);
+  };
+
   return (
     <div className="relative">
-      <button type="button" onClick={handleToggle} className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-left text-gray-800 dark:text-white font-medium flex justify-between items-center outline-none focus:ring-2 focus:ring-blue-500/40">
-        {value} <ChevronDown size={16} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      <button
+        type="button"
+        onClick={handleToggle}
+        className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-left text-gray-800 dark:text-white font-medium flex justify-between items-center outline-none focus:ring-2 focus:ring-blue-500/40 transition-colors"
+      >
+        <span className="truncate">{value}</span>
+        <ChevronDown size={16} className={`transition-transform shrink-0 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
       {isOpen && (
         <>
-          <div className="fixed inset-0 z-[90]" onClick={() => { setIsOpen(false); if (onOpenChange) onOpenChange(false); }}></div>
-          <div className="absolute top-full left-0 mt-2 w-full bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 rounded-xl shadow-2xl z-[100] overflow-y-auto max-h-48">
+          <div className="fixed inset-0 z-[90]" onClick={handleClose}></div>
+          <div className="absolute top-full left-0 mt-2 w-full bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 rounded-xl shadow-2xl z-[100] overflow-y-auto max-h-48 hide-scrollbar">
             {options.map(opt => (
-              <button key={opt} type="button" onClick={(e) => handleSelect(opt, e)} className="w-full text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-200 text-sm font-medium flex justify-between items-center">
-                {opt} {value === opt && <Check size={16} className="text-blue-600" />}
+              <button
+                key={opt}
+                type="button"
+                onClick={(e) => handleSelect(opt, e)}
+                className="w-full text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-200 text-sm font-medium flex justify-between items-center"
+              >
+                <span>{opt}</span>
+                {value === opt && <Check size={16} className="text-blue-600 shrink-0" />}
               </button>
             ))}
           </div>
@@ -35,14 +62,27 @@ export default function TaskForm({ onClose, taskToEdit, user, showToast, prefill
 
   const fileInputRef = useRef(null);
 
-  const [task, setTask] = useState(taskToEdit || {
-    title: '', description: '', priority: 'Medium', category: 'Work', project: 'General Workspace', assignee: user.displayName || '',
-    deadline: prefilledDate || '', startTime: '', endTime: '', attachmentLink: '', attachmentName: '', status: 'To Do', pinned: false, comments: [], recurrence: 'None'
-  });
+  const [task, setTask] = useState(() => ({
+    title: taskToEdit?.title || '',
+    description: taskToEdit?.description || '',
+    priority: taskToEdit?.priority || 'Medium',
+    category: taskToEdit?.category || 'Work',
+    project: taskToEdit?.project || 'General Workspace',
+    assignee: taskToEdit?.assignee || user?.displayName || '',
+    deadline: taskToEdit?.deadline || prefilledDate || '',
+    startTime: taskToEdit?.startTime || '',
+    endTime: taskToEdit?.endTime || '',
+    attachmentLink: taskToEdit?.attachmentLink || '',
+    attachmentName: taskToEdit?.attachmentName || '',
+    status: taskToEdit?.status || 'To Do',
+    pinned: !!taskToEdit?.pinned,
+    comments: taskToEdit?.comments || [],
+    recurrence: taskToEdit?.recurrence || 'None'
+  }));
 
-  // FREE BASE64 UPLOAD LOGIC
+  // BASE64 UPLOAD LOGIC
   const handleFileUpload = (e) => {
-    const file = e.target.files[0];
+    const file = e.target.files?.[0];
     if (!file) return;
 
     // Firestore has a 1MB limit per document. We limit files to 750KB.
@@ -53,129 +93,321 @@ export default function TaskForm({ onClose, taskToEdit, user, showToast, prefill
 
     const reader = new FileReader();
     reader.onloadend = () => {
-      setTask({ ...task, attachmentLink: reader.result, attachmentName: file.name });
+      setTask(prev => ({ ...prev, attachmentLink: reader.result, attachmentName: file.name }));
       showToast("File attached successfully!", "success");
     };
     reader.readAsDataURL(file);
   };
 
   const handleAIBreakdown = () => {
-    if (!task.title) return showToast("Please enter a Task Title first.", "warning");
+    if (!task.title.trim()) return showToast("Please enter a Task Title first.", "warning");
     setIsAIGenerating(true);
     setTimeout(() => {
       const t = task.title.toLowerCase();
       let steps = "- [ ] Define the end goal\n- [ ] Outline necessary resources\n- [ ] Execute step-by-step\n- [ ] Final review";
-      if (t.includes('web') || t.includes('app') || t.includes('code')) steps = "- [ ] Design UI/UX mockups\n- [ ] Setup project & database\n- [ ] Build frontend components\n- [ ] Test & Deploy";
-      setTask({ ...task, description: `🤖 AI Breakdown for "${task.title}":\n\n${steps}` });
-      setIsAIGenerating(false); showToast("AI Subtasks Generated!", "success");
-    }, 800);
+      if (t.includes('web') || t.includes('app') || t.includes('code') || t.includes('dev')) {
+        steps = "- [ ] Design UI/UX mockups\n- [ ] Setup project & database\n- [ ] Build frontend components\n- [ ] Test & Deploy";
+      } else if (t.includes('write') || t.includes('blog') || t.includes('report') || t.includes('doc')) {
+        steps = "- [ ] Research and outline key sections\n- [ ] Draft initial content\n- [ ] Fact check and edit\n- [ ] Final proofreading and publish";
+      } else if (t.includes('study') || t.includes('exam') || t.includes('learn')) {
+        steps = "- [ ] Gather reference materials\n- [ ] Break chapters into study blocks\n- [ ] Practice flashcards and problems\n- [ ] Mock test and review weak points";
+      }
+      setTask(prev => ({
+        ...prev,
+        description: prev.description
+          ? `${prev.description}\n\n🤖 AI Breakdown:\n${steps}`
+          : `🤖 AI Breakdown for "${prev.title}":\n\n${steps}`
+      }));
+      setIsAIGenerating(false);
+      showToast("AI Subtasks Generated!", "success");
+    }, 600);
   };
 
   const handleAddComment = () => {
     if (!newComment.trim()) return;
-    const commentObj = { text: newComment, date: new Date().toLocaleString(), author: user.displayName || 'User' };
-    setTask({ ...task, comments: [...(task.comments || []), commentObj] });
+    const commentObj = {
+      text: newComment.trim(),
+      date: new Date().toLocaleString(),
+      author: user?.displayName || 'User'
+    };
+    setTask(prev => ({ ...prev, comments: [...(prev.comments || []), commentObj] }));
     setNewComment('');
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!task.title || isSubmitting || !user) return;
+    if (!task.title.trim() || isSubmitting || !user) return;
     setIsSubmitting(true);
     try {
-      const { id, ...cleanTask } = task;
-      const finalPayload = Object.fromEntries(Object.entries(cleanTask).filter(([_, v]) => v !== undefined));
-      if (taskToEdit) { await updateDoc(doc(db, 'users', user.uid, 'tasks', taskToEdit.id), finalPayload); showToast("Task updated.", "success"); }
-      else { await addDoc(collection(db, 'users', user.uid, 'tasks'), { ...finalPayload, createdAt: new Date().toISOString() }); showToast("New task created.", "success"); }
+      const cleanTask = { ...task };
+      delete cleanTask.id;
+      const finalPayload = Object.fromEntries(
+        Object.entries(cleanTask).filter(([, v]) => v !== undefined)
+      );
+
+      if (taskToEdit) {
+        await updateDoc(doc(db, 'users', user.uid, 'tasks', taskToEdit.id), finalPayload);
+        showToast("Task updated.", "success");
+      } else {
+        await addDoc(collection(db, 'users', user.uid, 'tasks'), {
+          ...finalPayload,
+          createdAt: new Date().toISOString()
+        });
+        showToast("New task created.", "success");
+      }
       onClose();
-    } catch (error) { showToast("Failed to save task.", "error"); setIsSubmitting(false); }
+    } catch {
+      showToast("Failed to save task.", "error");
+      setIsSubmitting(false);
+    }
   };
 
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 z-[200] animate-in fade-in">
       <div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-4xl shadow-2xl border border-gray-100 dark:border-slate-700 overflow-hidden flex flex-col max-h-[90vh]">
         <div className="px-6 py-4 border-b border-gray-100 dark:border-slate-800 flex justify-between items-center bg-gray-50/50 dark:bg-slate-800/50">
-          <h2 className="text-xl font-bold text-gray-800 dark:text-white">{taskToEdit ? 'Edit Task' : 'Create New Task'}</h2>
-          <button onClick={onClose} className="p-2 text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-full"><X size={20} /></button>
+          <h2 className="text-xl font-bold text-gray-800 dark:text-white">
+            {taskToEdit ? 'Edit Task' : 'Create New Task'}
+          </h2>
+          <button
+            onClick={onClose}
+            className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-full transition-colors"
+          >
+            <X size={20} />
+          </button>
         </div>
 
         <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
           <form id="taskForm" onSubmit={handleSubmit} className="p-6 space-y-5 overflow-y-auto flex-1 md:border-r border-gray-100 dark:border-slate-800 hide-scrollbar">
 
             <div className="grid grid-cols-2 gap-5 mb-2">
-              <div><label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5"><Folder size={16} /> Project</label><input type="text" className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-gray-800 dark:text-white outline-none" placeholder="Project Name" value={task.project} onChange={(e) => setTask({ ...task, project: e.target.value })} /></div>
-              <div><label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5"><UserPlus size={16} /> Assignee</label><input type="text" className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-gray-800 dark:text-white outline-none" placeholder="Assign to..." value={task.assignee} onChange={(e) => setTask({ ...task, assignee: e.target.value })} /></div>
+              <div>
+                <label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5">
+                  <Folder size={16} /> Project
+                </label>
+                <input
+                  type="text"
+                  className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40"
+                  placeholder="Project Name"
+                  value={task.project}
+                  onChange={(e) => setTask({ ...task, project: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5">
+                  <UserPlus size={16} /> Assignee
+                </label>
+                <input
+                  type="text"
+                  className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40"
+                  placeholder="Assign to..."
+                  value={task.assignee}
+                  onChange={(e) => setTask({ ...task, assignee: e.target.value })}
+                />
+              </div>
             </div>
 
             <div>
               <label className="block text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5">Task Title</label>
-              <input type="text" required className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-800 dark:text-white outline-none font-medium" placeholder="What needs to be done?" value={task.title} onChange={(e) => setTask({ ...task, title: e.target.value })} />
+              <input
+                type="text"
+                required
+                className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-800 dark:text-white outline-none font-medium focus:ring-2 focus:ring-blue-500/40"
+                placeholder="What needs to be done?"
+                value={task.title}
+                onChange={(e) => setTask({ ...task, title: e.target.value })}
+              />
             </div>
 
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300"><AlignLeft size={16} /> Notes & Subtasks</label>
-                <button type="button" onClick={handleAIBreakdown} disabled={isAIGenerating} className="text-xs font-bold text-purple-600 bg-purple-50 dark:bg-purple-900/30 px-3 py-1 rounded-lg flex items-center gap-1"><Sparkles size={12} />AI Breakdown</button>
+                <label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300">
+                  <AlignLeft size={16} /> Notes & Subtasks
+                </label>
+                <button
+                  type="button"
+                  onClick={handleAIBreakdown}
+                  disabled={isAIGenerating}
+                  className="text-xs font-bold text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/30 px-3 py-1.5 rounded-lg flex items-center gap-1 hover:bg-purple-100 dark:hover:bg-purple-900/50 transition-colors"
+                >
+                  <Sparkles size={12} /> AI Breakdown
+                </button>
               </div>
-              <textarea className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-800 dark:text-white outline-none min-h-[100px] font-mono text-sm" placeholder="Type - [ ] for checklists..." value={task.description} onChange={(e) => setTask({ ...task, description: e.target.value })} />
+              <textarea
+                className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-800 dark:text-white outline-none min-h-[100px] font-mono text-sm focus:ring-2 focus:ring-blue-500/40"
+                placeholder="Type - [ ] for checklists..."
+                value={task.description}
+                onChange={(e) => setTask({ ...task, description: e.target.value })}
+              />
             </div>
 
             <div className="grid grid-cols-2 gap-5 relative z-40">
-              <div><label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5"><AlertCircle size={16} /> Priority</label><CustomDropdown options={['Low', 'Medium', 'High', 'Urgent']} value={task.priority} onChange={(val) => setTask({ ...task, priority: val })} /></div>
-              <div><label className="block text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5">Status</label><CustomDropdown options={['To Do', 'In Progress', 'Review', 'Completed']} value={task.status} onChange={(val) => setTask({ ...task, status: val })} /></div>
+              <div>
+                <label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5">
+                  <AlertCircle size={16} /> Priority
+                </label>
+                <CustomDropdown
+                  options={['Low', 'Medium', 'High', 'Urgent']}
+                  value={task.priority}
+                  onChange={(val) => setTask({ ...task, priority: val })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5">Status</label>
+                <CustomDropdown
+                  options={['To Do', 'In Progress', 'Review', 'Completed']}
+                  value={task.status}
+                  onChange={(val) => setTask({ ...task, status: val })}
+                />
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-5 relative z-30">
-              <div><label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5"><Tag size={16} /> Tags/Category</label><input type="text" className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-800 dark:text-white outline-none" placeholder="Work, Urgent" value={task.category} onChange={(e) => setTask({ ...task, category: e.target.value })} /></div>
-              <div><label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5"><Calendar size={16} /> Deadline</label><input type="date" className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-800 dark:text-white outline-none" value={task.deadline} onChange={(e) => setTask({ ...task, deadline: e.target.value })} /></div>
+              <div>
+                <label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5">
+                  <Tag size={16} /> Tags/Category
+                </label>
+                <input
+                  type="text"
+                  className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40"
+                  placeholder="Work, Urgent"
+                  value={task.category}
+                  onChange={(e) => setTask({ ...task, category: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5">
+                  <Calendar size={16} /> Deadline
+                </label>
+                <input
+                  type="date"
+                  className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40"
+                  value={task.deadline}
+                  onChange={(e) => setTask({ ...task, deadline: e.target.value })}
+                />
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-5 relative z-20">
-              <div><label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5"><Clock size={16} /> Start Time</label><input type="time" className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-800 dark:text-white outline-none" value={task.startTime || ''} onChange={(e) => setTask({ ...task, startTime: e.target.value })} /></div>
-              <div><label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5"><Clock size={16} /> End Time</label><input type="time" className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-800 dark:text-white outline-none" value={task.endTime || ''} onChange={(e) => setTask({ ...task, endTime: e.target.value })} /></div>
+              <div>
+                <label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5">
+                  <Clock size={16} /> Start Time
+                </label>
+                <input
+                  type="time"
+                  className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40"
+                  value={task.startTime || ''}
+                  onChange={(e) => setTask({ ...task, startTime: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5">
+                  <Clock size={16} /> End Time
+                </label>
+                <input
+                  type="time"
+                  className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40"
+                  value={task.endTime || ''}
+                  onChange={(e) => setTask({ ...task, endTime: e.target.value })}
+                />
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-5 relative z-10 border-t border-gray-100 dark:border-slate-800 pt-4">
-              <div><label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5"><Repeat size={16} /> Recurrence</label><CustomDropdown options={['None', 'Daily', 'Weekly', 'Monthly']} value={task.recurrence || 'None'} onChange={(val) => setTask({ ...task, recurrence: val })} /></div>
               <div>
-                <label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5"><Paperclip size={16} /> Local File</label>
+                <label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5">
+                  <Repeat size={16} /> Recurrence
+                </label>
+                <CustomDropdown
+                  options={['None', 'Daily', 'Weekly', 'Monthly']}
+                  value={task.recurrence || 'None'}
+                  onChange={(val) => setTask({ ...task, recurrence: val })}
+                />
+              </div>
+              <div>
+                <label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5">
+                  <Paperclip size={16} /> Local File
+                </label>
                 <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
-                <button type="button" onClick={() => fileInputRef.current.click()} className="w-full border-2 border-dashed border-blue-200 dark:border-blue-900/50 bg-blue-50/50 dark:bg-blue-900/10 rounded-xl py-2.5 text-center text-sm font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors flex items-center justify-center gap-2">
-                  {task.attachmentName ? task.attachmentName.substring(0, 15) + '...' : 'Upload (<750KB)'}
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full border-2 border-dashed border-blue-200 dark:border-blue-900/50 bg-blue-50/50 dark:bg-blue-900/10 rounded-xl py-2.5 text-center text-sm font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors flex items-center justify-center gap-2"
+                >
+                  {task.attachmentName ? (task.attachmentName.length > 15 ? task.attachmentName.substring(0, 15) + '...' : task.attachmentName) : 'Upload (<750KB)'}
                 </button>
               </div>
             </div>
 
             <div>
-              <label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5"><LinkIcon size={16} /> Or Cloud Link (G-Drive, Docs)</label>
-              <input type="url" className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-800 dark:text-white outline-none" placeholder="https://..." value={task.attachmentLink || ''} onChange={(e) => setTask({ ...task, attachmentLink: e.target.value })} />
+              <label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5">
+                <LinkIcon size={16} /> Or Cloud Link (G-Drive, Docs)
+              </label>
+              <input
+                type="url"
+                className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40"
+                placeholder="https://..."
+                value={task.attachmentLink || ''}
+                onChange={(e) => setTask({ ...task, attachmentLink: e.target.value })}
+              />
             </div>
           </form>
 
           <div className="w-full md:w-1/3 bg-gray-50/50 dark:bg-slate-800/30 p-6 flex flex-col">
-            <h3 className="text-sm font-bold text-gray-800 dark:text-white mb-4 flex items-center gap-2"><MessageSquare size={16} /> Team Activity</h3>
+            <h3 className="text-sm font-bold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
+              <MessageSquare size={16} /> Team Activity
+            </h3>
             <div className="flex-1 overflow-y-auto space-y-4 pr-2 mb-4 hide-scrollbar">
               {(task.comments || []).length === 0 ? (
                 <p className="text-xs text-gray-400 dark:text-slate-500 text-center mt-10">No discussions yet.</p>
               ) : (
                 (task.comments || []).map((c, i) => (
                   <div key={i} className="bg-white dark:bg-slate-800 p-3 rounded-lg border border-gray-100 dark:border-slate-700 shadow-sm">
-                    <div className="flex justify-between items-center mb-1"><span className="text-[10px] font-bold text-blue-600">{c.author}</span><span className="text-[9px] text-gray-400">{c.date}</span></div>
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400">{c.author}</span>
+                      <span className="text-[9px] text-gray-400">{c.date}</span>
+                    </div>
                     <p className="text-xs text-gray-700 dark:text-slate-300">{c.text}</p>
                   </div>
                 ))
               )}
             </div>
             <div className="flex gap-2">
-              <input type="text" placeholder="Tag team..." className="flex-1 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg px-3 py-2 text-xs outline-none dark:text-white" value={newComment} onChange={(e) => setNewComment(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddComment()} />
-              <button type="button" onClick={handleAddComment} className="bg-blue-600 text-white p-2 rounded-lg hover:bg-blue-700"><Send size={14} /></button>
+              <input
+                type="text"
+                placeholder="Tag team..."
+                className="flex-1 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg px-3 py-2 text-xs outline-none dark:text-white focus:ring-2 focus:ring-blue-500/40"
+                value={newComment}
+                onChange={(e) => setNewComment(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddComment())}
+              />
+              <button
+                type="button"
+                onClick={handleAddComment}
+                className="bg-blue-600 text-white p-2 rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                <Send size={14} />
+              </button>
             </div>
           </div>
         </div>
 
         <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/50">
-          <button type="button" onClick={onClose} className="px-6 py-2.5 text-sm font-bold text-gray-600 dark:text-slate-400 hover:bg-gray-200 dark:hover:bg-slate-700 rounded-xl">Cancel</button>
-          <button type="submit" form="taskForm" disabled={isSubmitting} className="px-6 py-2.5 text-sm font-bold bg-blue-600 text-white rounded-xl hover:bg-blue-700 shadow-lg active:scale-95 transition-all">{isSubmitting ? 'Processing...' : 'Save Task'}</button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-6 py-2.5 text-sm font-bold text-gray-600 dark:text-slate-400 hover:bg-gray-200 dark:hover:bg-slate-700 rounded-xl transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            form="taskForm"
+            disabled={isSubmitting || !task.title.trim()}
+            className="px-6 py-2.5 text-sm font-bold bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg active:scale-95 transition-all"
+          >
+            {isSubmitting ? 'Processing...' : 'Save Task'}
+          </button>
         </div>
       </div>
     </div>
