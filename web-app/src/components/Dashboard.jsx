@@ -1,9 +1,25 @@
-import { useState, useEffect, useRef } from 'react';
-import { Plus, Clock, CheckCircle2, AlertOctagon, ListTodo, Calendar as CalendarIcon, Tag, Trash2, ChevronDown, Check, Zap, Flame, Timer, Play, Pause, Square, Send, Search, Edit2, LogOut, Kanban, List as ListIcon, GripVertical, Pin, PinOff, DownloadCloud, UploadCloud, Wand2, Volume2, VolumeX, AlertTriangle, Info, WifiOff, Sun, Moon, Loader2, Presentation, Copy, Repeat, Link as LinkIcon, Eraser, Folder, Users } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import {
+  Plus, Clock, CheckCircle2, AlertOctagon, ListTodo, Calendar as CalendarIcon, Tag,
+  Trash2, ChevronDown, Check, Zap, Flame, Timer, Play, Pause, Square, Send, Search,
+  Edit2, Kanban, List as ListIcon, GripVertical, Pin, PinOff,
+  Wand2, Volume2, VolumeX, AlertTriangle, Info, WifiOff, Loader2, Presentation,
+  Copy, Repeat, Link as LinkIcon, Eraser, Folder, Users, MessageSquare, Menu,
+  Sparkles, CheckSquare, Settings2, Bell, CheckCircle, ShieldAlert, ShieldCheck,
+  UserPlus, Lock
+} from 'lucide-react';
 import { collection, onSnapshot, query, doc, deleteDoc, updateDoc, addDoc } from 'firebase/firestore';
-import { signInWithPopup, onAuthStateChanged, signOut } from 'firebase/auth';
-import { db, auth, googleProvider } from '../firebase';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { db, auth } from '../firebase';
 import TaskForm from './TaskForm';
+import Sidebar from './Sidebar';
+import AuthModal from './AuthModal';
+import EisenhowerMatrix from './EisenhowerMatrix';
+import ProjectsView from './ProjectsView';
+import AnalyticsView from './AnalyticsView';
+import AIAssistantModal from './AIAssistantModal';
+import TeamInviteModal from './TeamInviteModal';
+import NotificationCenter from './NotificationCenter';
 import logo from '../assets/logo.png';
 
 const playSound = (type = 'pop') => {
@@ -43,11 +59,24 @@ const playSound = (type = 'pop') => {
   }
 };
 
-const CustomDropdown = ({ options, value, onChange, className = '', onOpenChange }) => {
+const CustomDropdown = ({ options, value, onChange, className = '', onOpenChange, dropUp = false }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef(null);
+  const [computedDropUp, setComputedDropUp] = useState(dropUp);
+
   const handleToggle = (e) => {
     e.stopPropagation();
     const nextState = !isOpen;
+    if (nextState && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      // Auto-detect direction: if space below is tight (< 200px) and plenty of space above, drop up
+      if (!dropUp && spaceBelow < 200 && rect.top > 180) {
+        setComputedDropUp(true);
+      } else {
+        setComputedDropUp(dropUp);
+      }
+    }
     setIsOpen(nextState);
     onOpenChange?.(nextState);
   };
@@ -64,7 +93,7 @@ const CustomDropdown = ({ options, value, onChange, className = '', onOpenChange
   };
 
   return (
-    <div className={`relative ${className}`}>
+    <div className={`relative ${className}`} ref={containerRef}>
       <button
         type="button"
         onClick={handleToggle}
@@ -76,7 +105,7 @@ const CustomDropdown = ({ options, value, onChange, className = '', onOpenChange
       {isOpen && (
         <>
           <div className="fixed inset-0 z-[90]" onClick={handleClose}></div>
-          <div className="absolute top-full left-0 mt-1 min-w-full w-max max-w-[220px] bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 rounded-xl shadow-2xl z-[100] overflow-y-auto max-h-60 hide-scrollbar">
+          <div className={`absolute ${computedDropUp ? 'bottom-full mb-1' : 'top-full mt-1'} left-0 min-w-full w-max max-w-[220px] bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 rounded-xl shadow-2xl z-[100] overflow-y-auto max-h-60 hide-scrollbar`}>
             {options.map(opt => (
               <button
                 key={opt}
@@ -97,55 +126,377 @@ const CustomDropdown = ({ options, value, onChange, className = '', onOpenChange
 
 export default function Dashboard() {
   const [user, setUser] = useState(null);
+  const [guestUser, setGuestUser] = useState(() => {
+    try {
+      const saved = localStorage.getItem('tb_guest_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+  const effectiveUser = user || guestUser;
+
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
 
+  // App Navigation & Modal Controls
+  const [activeNavTab, setActiveNavTab] = useState('my-day'); // 'my-day' | 'inbox' | 'all-tasks' | 'eisenhower' | 'favorites' | 'projects' | 'team' | 'analytics' | 'automations'
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isAIModalOpen, setIsAIModalOpen] = useState(false);
+  const [selectedTeamMember, setSelectedTeamMember] = useState('All');
+
+  // Dialog & Toast States
   const [toast, setToast] = useState(null);
   const [confirmState, setConfirmState] = useState({ isOpen: false, message: '', action: null });
+
+  const showToast = useCallback((message, type = 'info') => {
+    playSound((type === 'error' || type === 'warning') ? 'warn' : (type === 'success' ? 'success' : 'pop'));
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3500);
+  }, []);
+
+  const confirmAction = useCallback((message, action) => {
+    playSound('pop');
+    setConfirmState({ isOpen: true, message, action });
+  }, []);
+
+  const executeConfirm = async () => {
+    if (confirmState.action) await confirmState.action();
+    setConfirmState({ isOpen: false, message: '', action: null });
+  };
+
+  // Team Workspace Identification & Invites
+  const workspaceId = effectiveUser?.isGuest ? 'local_workspace' : (`ws_${effectiveUser?.uid || 'main'}`);
+  const workspaceName = `${effectiveUser?.displayName ? `${effectiveUser.displayName}'s` : 'My'} Team Workspace`;
+  const [inviteCode] = useState(() => {
+    const saved = localStorage.getItem('tb_team_code_' + (effectiveUser?.uid || 'guest'));
+    if (saved) return saved;
+    const code = 'TB-' + (effectiveUser?.uid ? effectiveUser.uid.slice(0, 4).toUpperCase() : Math.floor(1000 + Math.random() * 9000));
+    try {
+      localStorage.setItem('tb_team_code_' + (effectiveUser?.uid || 'guest'), code);
+    } catch {
+      /* ignore */
+    }
+    return code;
+  });
+
+  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+
+  // Notifications State
+  const [notifications, setNotifications] = useState(() => {
+    try {
+      const saved = localStorage.getItem('tb_notifications_' + (effectiveUser?.uid || 'guest'));
+      return saved ? JSON.parse(saved) : [
+        {
+          id: 'notif_welcome',
+          type: 'system',
+          title: 'Welcome to Task Bandhu!',
+          message: 'Invite your teammates via link or Team Code to assign tasks and collaborate in real-time.',
+          createdAt: new Date().toISOString(),
+          read: false
+        }
+      ];
+    } catch {
+      return [];
+    }
+  });
+
+  // Persistent team roster with live connection statuses
+  const [teamMembers, setTeamMembers] = useState(() => {
+    try {
+      const saved = localStorage.getItem('tb_team_members');
+      if (saved) return JSON.parse(saved);
+    } catch {
+      /* ignore */
+    }
+    return [
+      { id: '1', name: effectiveUser?.displayName || 'Me', role: 'Workspace Owner', email: effectiveUser?.email || 'owner@workspace.com', status: 'Owner' },
+      { id: '2', name: 'Alex Morgan', role: 'Lead Developer', email: 'alex@company.com', status: 'Connected' },
+      { id: '3', name: 'Sarah Chen', role: 'UI/UX Designer', email: 'sarah@company.com', status: 'Connected' }
+    ];
+  });
+
+  const handleDispatchNotification = useCallback(({
+    type = 'task_assigned',
+    title,
+    message,
+    taskId,
+    assignee,
+    priority,
+    project
+  }) => {
+    const timestamp = new Date().toISOString();
+    const uniqueId = `notif_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const newNotif = {
+      id: uniqueId,
+      type,
+      title: title || (type === 'task_completed' ? 'Task Completed! ✅' : type === 'comment' ? 'New Message 💬' : 'New Task Assigned 📋'),
+      message: message || `Notification regarding "${title || 'task'}"`,
+      taskId,
+      assignee,
+      priority,
+      project: project || 'Team Workspace',
+      createdAt: timestamp,
+      read: false
+    };
+
+    setNotifications(prev => {
+      const updated = [newNotif, ...prev.filter(n => n.id !== newNotif.id)].slice(0, 50);
+      try {
+        localStorage.setItem('tb_notifications_' + (effectiveUser?.uid || 'guest'), JSON.stringify(updated));
+      } catch {
+        /* ignore */
+      }
+      return updated;
+    });
+
+    playSound('pop');
+    if (type === 'task_assigned' && assignee) {
+      showToast(`📢 Task assigned to ${assignee}! Notification dispatched.`, 'info');
+    } else if (type === 'task_completed') {
+      showToast(`🎉 Task completed! Teammates notified.`, 'success');
+    } else if (type === 'comment') {
+      showToast(`💬 Message posted to task discussion!`, 'success');
+    }
+
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      try {
+        new Notification(newNotif.title, {
+          body: newNotif.message,
+          icon: logo
+        });
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [effectiveUser, showToast]);
+
+  const handleMarkNotificationRead = (notifId) => {
+    setNotifications(prev => {
+      const updated = prev.map(n => n.id === notifId ? { ...n, read: true } : n);
+      try {
+        localStorage.setItem('tb_notifications_' + (effectiveUser?.uid || 'guest'), JSON.stringify(updated));
+      } catch {
+        /* ignore */
+      }
+      return updated;
+    });
+  };
+
+  const handleMarkAllNotificationsRead = () => {
+    setNotifications(prev => {
+      const updated = prev.map(n => ({ ...n, read: true }));
+      try {
+        localStorage.setItem('tb_notifications_' + (effectiveUser?.uid || 'guest'), JSON.stringify(updated));
+      } catch {
+        /* ignore */
+      }
+      return updated;
+    });
+    showToast("All notifications marked as read.", "success");
+  };
+
+  const handleClearNotifications = () => {
+    setNotifications([]);
+    try {
+      localStorage.removeItem('tb_notifications_' + (effectiveUser?.uid || 'guest'));
+    } catch {
+      /* ignore */
+    }
+    showToast("Notifications cleared.", "info");
+  };
+
+  const handleSelectTaskFromNotification = (taskId) => {
+    const target = tasks.find(t => t.id === taskId);
+    if (target) {
+      handleOpenEditTask(target);
+    } else {
+      showToast("Task not found or has been completed/deleted.", "warning");
+    }
+  };
+
+  const handleInviteMemberByEmail = useCallback(({ name, email, role }) => {
+    if (teamMembers.some(m => m.email.toLowerCase() === email.toLowerCase() || m.name.toLowerCase() === name.toLowerCase())) {
+      showToast("A team member with this name or email is already registered", "warning");
+      return;
+    }
+    const newMemberObj = {
+      id: 'member_' + Date.now(),
+      name,
+      role: role || 'Member',
+      email,
+      status: 'Invited',
+      invitedAt: new Date().toISOString()
+    };
+    const updated = [...teamMembers, newMemberObj];
+    setTeamMembers(updated);
+    try {
+      localStorage.setItem('tb_team_members', JSON.stringify(updated));
+    } catch {
+      /* ignore */
+    }
+
+    handleDispatchNotification({
+      type: 'team_join',
+      title: 'Teammate Invited',
+      message: `${name} (${email}) was invited as ${role}. Share the invite link with them to connect!`,
+      project: 'Team Workspace'
+    });
+  }, [teamMembers, handleDispatchNotification, showToast]);
+
+  const handleJoinTeamByCode = useCallback(async (codeOrUrl) => {
+    let targetCode = codeOrUrl.trim();
+    let targetWsName = 'Team Workspace';
+
+    if (codeOrUrl.includes('?')) {
+      try {
+        const urlObj = new URL(codeOrUrl);
+        targetCode = urlObj.searchParams.get('code') || targetCode;
+        targetWsName = urlObj.searchParams.get('wsName') || targetWsName;
+      } catch {
+        /* ignore */
+      }
+    }
+
+    if (!targetCode) {
+      throw new Error("Please enter a valid Team Code (e.g. TB-8492) or invite link.");
+    }
+
+    const newMember = {
+      id: effectiveUser?.uid || 'usr_' + Date.now(),
+      name: effectiveUser?.displayName || effectiveUser?.email?.split('@')[0] || 'Connected Teammate',
+      email: effectiveUser?.email || 'teammate@workspace.com',
+      role: 'Member',
+      status: 'Connected',
+      joinedAt: new Date().toISOString(),
+      workspaceCode: targetCode
+    };
+
+    if (!teamMembers.some(m => m.email === newMember.email && m.name === newMember.name)) {
+      const updated = [...teamMembers, newMember];
+      setTeamMembers(updated);
+      try {
+        localStorage.setItem('tb_team_members', JSON.stringify(updated));
+      } catch {
+        /* ignore */
+      }
+    }
+
+    const joinNotif = {
+      id: 'notif_joined_' + Date.now(),
+      type: 'team_join',
+      title: 'Connected to Team Workspace',
+      message: `You successfully joined ${targetWsName} (Code: ${targetCode})! You will now receive shared tasks and updates.`,
+      project: targetWsName,
+      createdAt: new Date().toISOString(),
+      read: false
+    };
+    setNotifications(prev => [joinNotif, ...prev]);
+    showToast(`Connected to team workspace (${targetCode})!`, "success");
+    setActiveNavTab('team');
+  }, [effectiveUser, teamMembers, showToast]);
+
+  // Persistent lifetime completed tasks for permanent level and rank tracking
+  const [lifetimeCompleted, setLifetimeCompleted] = useState(() => {
+    try {
+      const saved = localStorage.getItem('tb_lifetime_completed');
+      return saved ? parseInt(saved, 10) : 0;
+    } catch {
+      return 0;
+    }
+  });
+
+  const getRankTitle = (lvl) => {
+    if (lvl >= 10) return 'Legendary Grandmaster 👑';
+    if (lvl >= 8) return 'Elite Master ⚡';
+    if (lvl >= 6) return 'Productivity Pro 🚀';
+    if (lvl >= 4) return 'Senior Achiever 🎯';
+    if (lvl >= 3) return 'Skilled Organizer 📋';
+    if (lvl >= 2) return 'Focus Apprentice 🌟';
+    return 'Task Novice 🌱';
+  };
+
+  // Modal Form States
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
   const [prefilledDate, setPrefilledDate] = useState('');
+  const [prefilledProject, setPrefilledProject] = useState('');
+  const [formInstanceKey, setFormInstanceKey] = useState(0);
 
+  const handleOpenNewTask = ({ date = '', project = '' } = {}) => {
+    let resolvedProject = project;
+    if (!resolvedProject && searchQuery) {
+      const match = allProjectNames.find(p => p.toLowerCase() === searchQuery.trim().toLowerCase());
+      if (match) resolvedProject = match;
+    }
+    setEditingTask(null);
+    setPrefilledDate(date);
+    setPrefilledProject(resolvedProject || '');
+    setFormInstanceKey(prev => prev + 1);
+    setIsFormOpen(true);
+  };
+
+  const handleOpenEditTask = (task) => {
+    setPrefilledDate('');
+    setPrefilledProject('');
+    setEditingTask(task);
+    setFormInstanceKey(prev => prev + 1);
+    setIsFormOpen(true);
+  };
+
+  // Workspace Filters & View Mode
   const [filter, setFilter] = useState('All');
+  const [assigneeFilter, setAssigneeFilter] = useState('All Members');
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState('list');
 
+  // Quick Capture & Focus Mode
   const [quickTaskTitle, setQuickTaskTitle] = useState('');
   const [quickPriority, setQuickPriority] = useState('Medium');
-
   const [isFocusModeActive, setIsFocusModeActive] = useState(false);
   const [focusMinutes, setFocusMinutes] = useState(25);
   const [timeLeft, setTimeLeft] = useState(25 * 60);
   const [isTimerRunning, setIsTimerRunning] = useState(false);
   const [isNoisePlaying, setIsNoisePlaying] = useState(false);
+  const [distractionCount, setDistractionCount] = useState(0);
+  const [distractionsLog, setDistractionsLog] = useState([]);
+  const [lastDistractionNotice, setLastDistractionNotice] = useState(null);
+  const [isStrictMode, setIsStrictMode] = useState(true);
 
+  // Calendar State
   const [calendarMonth, setCalendarMonth] = useState(new Date().getMonth());
   const [calendarYear, setCalendarYear] = useState(new Date().getFullYear());
+
+  // Automations state
+  const [automationRules, setAutomationRules] = useState(() => {
+    try {
+      const saved = localStorage.getItem('tb_automation_rules');
+      return saved ? JSON.parse(saved) : {
+        autoOverdueAlert: true,
+        rewardStreakXP: true,
+        autoChecklistComplete: true,
+        autoUrgentKeywords: true,
+        soundEffects: true
+      };
+    } catch {
+      return {
+        autoOverdueAlert: true,
+        rewardStreakXP: true,
+        autoChecklistComplete: true,
+        autoUrgentKeywords: true,
+        soundEffects: true
+      };
+    }
+  });
 
   const wakeLockRef = useRef(null);
   const fileInputRef = useRef(null);
   const noiseNodeRef = useRef(null);
   const audioCtxRef = useRef(null);
   const todayStr = new Date().toISOString().split('T')[0];
-
-  const showToast = (message, type = 'info') => {
-    playSound((type === 'error' || type === 'warning') ? 'warn' : (type === 'success' ? 'success' : 'pop'));
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3500);
-  };
-
-  const confirmAction = (message, action) => {
-    playSound('pop');
-    setConfirmState({ isOpen: true, message, action });
-  };
-
-  const executeConfirm = async () => {
-    if (confirmState.action) await confirmState.action();
-    setConfirmState({ isOpen: false, message: '', action: null });
-  };
 
   useEffect(() => {
     if (isDarkMode) {
@@ -172,34 +523,148 @@ export default function Dashboard() {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, []);
+  }, [showToast]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
+      // Security Gate: Strict Email Verification Enforcement
+      // Never allow unverified email accounts into the workspace
+      if (currentUser && !currentUser.emailVerified) {
+        setUser(null);
+      } else {
+        setUser(currentUser);
+      }
       setIsAuthLoading(false);
     });
     return () => unsubscribe();
   }, []);
 
-  const handleLogin = async () => {
-    try {
-      await signInWithPopup(auth, googleProvider);
-      showToast("Welcome back!", "success");
-    } catch {
-      showToast("Login failed.", "error");
+  // Detect URL Team Invitation parameters on initial load
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const joinTeamId = params.get('joinTeam');
+    const joinCode = params.get('code');
+    const inviter = params.get('inviter') || 'A teammate';
+    const wsName = params.get('wsName') || 'Team Workspace';
+
+    if (joinTeamId && joinCode) {
+      setTimeout(() => {
+        confirmAction(
+          `🎉 You've been invited by ${inviter} to join "${wsName}"! Would you like to connect and join this workspace now?`,
+          async () => {
+            await handleJoinTeamByCode(joinCode);
+            window.history.replaceState({}, document.title, window.location.pathname);
+          }
+        );
+      }, 800);
     }
+  }, [handleJoinTeamByCode, confirmAction]);
+
+  // Dynamic Notifications Engine (combines live deadline & overdue alerts with team activity)
+  const allNotifications = useMemo(() => {
+    const deadlineNotifs = [];
+    const dueTodayTasks = tasks.filter(t => t.status !== 'Completed' && t.deadline === todayStr);
+    const overdueTasks = tasks.filter(t => t.status !== 'Completed' && t.deadline && t.deadline < todayStr);
+
+    if (dueTodayTasks.length > 0) {
+      deadlineNotifs.push({
+        id: `notif_due_${todayStr}`,
+        type: 'due_today',
+        title: `⏰ ${dueTodayTasks.length} ${dueTodayTasks.length === 1 ? 'Task' : 'Tasks'} Due Today`,
+        message: `Today is the deadline for "${dueTodayTasks[0].title}"${dueTodayTasks.length > 1 ? ` and ${dueTodayTasks.length - 1} other task(s)` : ''}. Please complete or update status.`,
+        taskId: dueTodayTasks[0].id,
+        project: dueTodayTasks[0].project,
+        priority: dueTodayTasks[0].priority,
+        createdAt: new Date().toISOString(),
+        read: false
+      });
+    }
+
+    if (overdueTasks.length > 0) {
+      deadlineNotifs.push({
+        id: `notif_overdue_${todayStr}`,
+        type: 'overdue',
+        title: `🚨 ${overdueTasks.length} Overdue Task Notice`,
+        message: `Task "${overdueTasks[0].title}" passed its deadline (${overdueTasks[0].deadline}). Click to reschedule or mark completed.`,
+        taskId: overdueTasks[0].id,
+        project: overdueTasks[0].project,
+        priority: 'Urgent',
+        createdAt: new Date().toISOString(),
+        read: false
+      });
+    }
+
+    return [...deadlineNotifs, ...notifications];
+  }, [tasks, todayStr, notifications]);
+
+  const handleGuestLogin = (customInfo = null) => {
+    const guest = {
+      uid: 'guest_user',
+      displayName: customInfo?.displayName || 'Guest User',
+      email: customInfo?.email || 'guest@taskbandhu.app',
+      isGuest: true
+    };
+    // Clean initial task state: guests start fresh with 0 tasks just like a new registered user
+    if (!localStorage.getItem('tb_guest_tasks')) {
+      localStorage.setItem('tb_guest_tasks', JSON.stringify([]));
+    }
+    setGuestUser(guest);
+    localStorage.setItem('tb_guest_user', JSON.stringify(guest));
+    showToast(`Welcome ${guest.displayName}! Local workspace ready.`, "success");
   };
 
+  const handleSignOut = async () => {
+    if (guestUser) {
+      setGuestUser(null);
+      localStorage.removeItem('tb_guest_user');
+    }
+    if (user) {
+      await signOut(auth);
+    }
+    showToast("Signed out successfully.", "info");
+  };
+
+  // Fetch tasks for either logged in user or guest
   useEffect(() => {
-    if (!user) return;
-    const q = query(collection(db, 'users', user.uid, 'tasks'));
+    if (!effectiveUser) {
+      return;
+    }
+
+    if (effectiveUser.isGuest) {
+      const loadGuestTasks = () => {
+        try {
+          const saved = localStorage.getItem('tb_guest_tasks');
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            // Strip out any legacy dummy/sample tasks so the guest gets a clean, pristine task list
+            const cleaned = Array.isArray(parsed) ? parsed.filter(t => !t.id?.startsWith('dummy-')) : [];
+            if (cleaned.length !== parsed.length) {
+              localStorage.setItem('tb_guest_tasks', JSON.stringify(cleaned));
+            }
+            setTasks(cleaned);
+          } else {
+            setTasks([]);
+            localStorage.setItem('tb_guest_tasks', JSON.stringify([]));
+          }
+        } catch {
+          setTasks([]);
+        }
+        setLoading(false);
+      };
+
+      loadGuestTasks();
+      window.addEventListener('tb_guest_tasks_updated', loadGuestTasks);
+      return () => window.removeEventListener('tb_guest_tasks_updated', loadGuestTasks);
+    }
+
+    const q = query(collection(db, 'users', effectiveUser.uid, 'tasks'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const tasksData = snapshot.docs.map(d => {
         const data = d.data();
         return {
-          id: d.id,
           ...data,
+          id: d.id, // Explicitly assigned last so it cannot be overwritten by data.id!
           status: data.status === 'Pending' ? 'To Do' : (data.status || 'To Do')
         };
       });
@@ -216,7 +681,7 @@ export default function Dashboard() {
       setLoading(false);
     });
     return () => unsubscribe();
-  }, [user, todayStr]);
+  }, [effectiveUser, todayStr]);
 
   const calculateRealStreak = () => {
     if (tasks.length === 0) return 0;
@@ -250,7 +715,9 @@ export default function Dashboard() {
         setTimeLeft(prev => {
           if (prev <= 1) {
             setIsTimerRunning(false);
-            showToast("Focus session complete!", "success");
+            const finalScore = Math.max(0, 100 - (distractionCount * 5));
+            playSound('success');
+            showToast(`Focus session complete! Score: ${finalScore}% with ${distractionCount} distraction(s).`, "success");
             return 0;
           }
           return prev - 1;
@@ -258,7 +725,47 @@ export default function Dashboard() {
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [isTimerRunning]);
+  }, [isTimerRunning, distractionCount, showToast]);
+
+  // Real-time Distraction Detection (Tab Switch, Browser Minimize, App Switch)
+  useEffect(() => {
+    if (!isFocusModeActive || !isTimerRunning) return;
+
+    let blurTimer = null;
+
+    const recordDistraction = (reason) => {
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const record = { id: Date.now().toString(), time: timeStr, reason };
+      setDistractionCount(prev => prev + 1);
+      setDistractionsLog(prev => [record, ...prev.slice(0, 14)]);
+      setLastDistractionNotice(`${reason} at ${timeStr}`);
+      playSound('warn');
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        recordDistraction('Switched tabs or minimized browser');
+      }
+    };
+
+    const handleWindowBlur = () => {
+      // Small debounce to avoid duplicate firing when switching between tabs
+      blurTimer = setTimeout(() => {
+        if (!document.hidden) {
+          recordDistraction('Switched outside browser to another app');
+        }
+      }, 250);
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleWindowBlur);
+
+    return () => {
+      if (blurTimer) clearTimeout(blurTimer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleWindowBlur);
+    };
+  }, [isFocusModeActive, isTimerRunning]);
 
   // Keep screen awake during active Focus Mode
   useEffect(() => {
@@ -298,139 +805,206 @@ export default function Dashboard() {
         const filterNode = ctx.createBiquadFilter();
         filterNode.type = 'lowpass';
         filterNode.frequency.value = 400;
+        const gain = ctx.createGain();
+        gain.gain.value = 0.05;
         noiseSource.connect(filterNode);
-        filterNode.connect(ctx.destination);
+        filterNode.connect(gain);
+        gain.connect(ctx.destination);
         noiseSource.start();
         noiseNodeRef.current = noiseSource;
         setIsNoisePlaying(true);
       } catch {
-        // Handle audio error gracefully
+        showToast("Audio unavailable", "warning");
       }
     }
   };
-
-  // Tab Switch Punisher
-  useEffect(() => {
-    const handleVisibility = () => {
-      if (document.hidden && isFocusModeActive && isTimerRunning) {
-        setIsTimerRunning(false);
-        showToast("Distraction detected! Timer paused.", "error");
-      }
-    };
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () => document.removeEventListener("visibilitychange", handleVisibility);
-  }, [isFocusModeActive, isTimerRunning]);
 
   const stopNoiseSafe = () => {
-    if (isNoisePlaying) {
-      noiseNodeRef.current?.stop();
-      setIsNoisePlaying(false);
-    }
-  };
-
-  const handleUpdateStatus = async (id, newStatus, taskObj) => {
     try {
-      const isNowCompleted = newStatus === 'Completed';
-      if (isNowCompleted && taskObj.recurrence && taskObj.recurrence !== 'None') {
-        const nextDeadline = new Date(taskObj.deadline || todayStr);
-        if (taskObj.recurrence === 'Daily') nextDeadline.setDate(nextDeadline.getDate() + 1);
-        else if (taskObj.recurrence === 'Weekly') nextDeadline.setDate(nextDeadline.getDate() + 7);
-        else if (taskObj.recurrence === 'Monthly') nextDeadline.setMonth(nextDeadline.getMonth() + 1);
-
-        const cleanTask = { ...taskObj };
-        delete cleanTask.id;
-        await addDoc(collection(db, 'users', user.uid, 'tasks'), {
-          ...cleanTask,
-          deadline: nextDeadline.toISOString().split('T')[0],
-          status: 'To Do',
-          createdAt: new Date().toISOString()
-        });
-        showToast(`Recurring task generated for ${nextDeadline.toISOString().split('T')[0]}`, 'info');
-      }
-      await updateDoc(doc(db, 'users', user.uid, 'tasks', id), {
-        status: newStatus,
-        completedAt: isNowCompleted ? new Date().toISOString() : null
-      });
-      playSound(isNowCompleted ? 'success' : 'pop');
+      noiseNodeRef.current?.stop();
     } catch {
-      showToast("Failed to update status", "error");
+      // Ignored
+    }
+    setIsNoisePlaying(false);
+  };
+
+  // Helper CRUD methods supporting both Guest and Auth modes
+  const handleUpdateStatus = async (taskId, newStatus, currentTask) => {
+    playSound(newStatus === 'Completed' ? 'success' : 'pop');
+    let updatedDeadline = currentTask?.deadline;
+    if (newStatus === 'Completed' && currentTask?.recurrence && currentTask.recurrence !== 'None' && currentTask.deadline) {
+      const d = new Date(currentTask.deadline);
+      if (currentTask.recurrence === 'Daily') d.setDate(d.getDate() + 1);
+      if (currentTask.recurrence === 'Weekly') d.setDate(d.getDate() + 7);
+      if (currentTask.recurrence === 'Monthly') d.setMonth(d.getMonth() + 1);
+      updatedDeadline = d.toISOString().split('T')[0];
+      showToast(`Recurring task pushed to ${updatedDeadline}`, "info");
+    }
+
+    // Lifetime Gamification XP & Level Progression
+    if (newStatus === 'Completed' && currentTask?.status !== 'Completed') {
+      const nextCount = Math.max(lifetimeCompleted + 1, tasks.filter(t => t.status === 'Completed').length + 1);
+      setLifetimeCompleted(nextCount);
+      localStorage.setItem('tb_lifetime_completed', String(nextCount));
+      const oldLvl = Math.floor(lifetimeCompleted / 5) + 1;
+      const newLvl = Math.floor(nextCount / 5) + 1;
+      if (newLvl > oldLvl) {
+        playSound('success');
+        showToast(`🎉 Level Up! You achieved Level ${newLvl}: ${getRankTitle(newLvl)}`, "success");
+      }
+
+      handleDispatchNotification({
+        type: 'task_completed',
+        title: 'Task Completed! ✅',
+        message: `${effectiveUser?.displayName || 'Teammate'} marked "${currentTask?.title || 'Task'}" as Completed in ${currentTask?.project || 'General Workspace'}.`,
+        taskId,
+        assignee: currentTask?.assignee,
+        project: currentTask?.project,
+        priority: currentTask?.priority
+      });
+    }
+
+    const payload = {
+      status: newStatus,
+      completedAt: newStatus === 'Completed' ? new Date().toISOString() : null,
+      ...(updatedDeadline !== currentTask?.deadline ? { deadline: updatedDeadline } : {})
+    };
+
+    if (effectiveUser?.isGuest) {
+      const updated = tasks.map(t => t.id === taskId ? { ...t, ...payload } : t);
+      setTasks(updated);
+      localStorage.setItem('tb_guest_tasks', JSON.stringify(updated));
+    } else if (effectiveUser?.uid) {
+      await updateDoc(doc(db, 'users', effectiveUser.uid, 'tasks', taskId), payload);
     }
   };
 
-  const toggleSubtask = async (e, task, index) => {
-    e.stopPropagation();
-    const lines = task.description.split('\n');
-    if (lines[index].includes('- [ ]')) lines[index] = lines[index].replace('- [ ]', '- [x]');
-    else lines[index] = lines[index].replace('- [x]', '- [ ]');
-    await updateDoc(doc(db, 'users', user.uid, 'tasks', task.id), { description: lines.join('\n') });
-    playSound('pop');
+  const handleUpdateTaskField = async (taskId, fields) => {
+    if (effectiveUser?.isGuest) {
+      const updated = tasks.map(t => t.id === taskId ? { ...t, ...fields } : t);
+      setTasks(updated);
+      localStorage.setItem('tb_guest_tasks', JSON.stringify(updated));
+    } else if (effectiveUser?.uid) {
+      await updateDoc(doc(db, 'users', effectiveUser.uid, 'tasks', taskId), fields);
+    }
   };
 
-  const handleDelete = (id) => confirmAction("Delete this task permanently?", async () => await deleteDoc(doc(db, 'users', user.uid, 'tasks', id)));
-
-  const handleBulkClear = () => {
-    const completedTasks = tasks.filter(t => t.status === 'Completed');
-    if (completedTasks.length === 0) return showToast("No completed tasks to clear.", "info");
-    confirmAction(`Permanently delete all ${completedTasks.length} completed tasks?`, async () => {
-      for (const t of completedTasks) await deleteDoc(doc(db, 'users', user.uid, 'tasks', t.id));
-      showToast("Completed tasks cleared.", "success");
+  const handleDelete = (id) => {
+    confirmAction("Are you sure you want to delete this task?", async () => {
+      if (effectiveUser?.isGuest) {
+        const updated = tasks.filter(t => t.id !== id);
+        setTasks(updated);
+        localStorage.setItem('tb_guest_tasks', JSON.stringify(updated));
+      } else if (effectiveUser?.uid) {
+        await deleteDoc(doc(db, 'users', effectiveUser.uid, 'tasks', id));
+      }
+      showToast("Task deleted", "info");
     });
   };
 
-  const handleDuplicate = async (task) => {
-    try {
-      const cleanTask = { ...task };
-      delete cleanTask.id;
-      const sanitized = Object.fromEntries(Object.entries(cleanTask).filter(([, v]) => v !== undefined));
-      sanitized.pinned = false;
-      await addDoc(collection(db, 'users', user.uid, 'tasks'), {
-        ...sanitized,
-        title: `${task.title} (Copy)`,
-        createdAt: new Date().toISOString()
-      });
-      showToast("Task duplicated!", "success");
-    } catch {
-      showToast("Failed to duplicate task.", "error");
-    }
-  };
-
   const handleTogglePin = async (task) => {
-    try {
-      if (!task.pinned && tasks.filter(t => t.pinned).length >= 3) {
-        return showToast("You can only pin up to 3 tasks.", "warning");
-      }
-      await updateDoc(doc(db, 'users', user.uid, 'tasks', task.id), { pinned: !task.pinned });
-    } catch {
-      showToast("Failed to pin task.", "error");
+    playSound('pop');
+    const newPinned = !task.pinned;
+    if (effectiveUser?.isGuest) {
+      const updated = tasks.map(t => t.id === task.id ? { ...t, pinned: newPinned } : t);
+      setTasks(updated);
+      localStorage.setItem('tb_guest_tasks', JSON.stringify(updated));
+    } else if (effectiveUser?.uid) {
+      await updateDoc(doc(db, 'users', effectiveUser.uid, 'tasks', task.id), { pinned: newPinned });
     }
+    showToast(newPinned ? "Task pinned to top" : "Task unpinned", "info");
   };
 
-  const handleDragStart = (e, taskId) => e.dataTransfer.setData('taskId', taskId);
-  const handleDrop = async (e, newStatus) => {
-    e.preventDefault();
-    const taskId = e.dataTransfer.getData('taskId');
-    if (taskId) {
-      const taskObj = tasks.find(t => t.id === taskId);
-      if (taskObj) await handleUpdateStatus(taskId, newStatus, taskObj);
+  const handleDuplicate = async (task) => {
+    const { id: _ignore, ...taskData } = task;
+    const duplicatePayload = {
+      ...taskData,
+      title: `${task.title} (Copy)`,
+      createdAt: new Date().toISOString(),
+      completedAt: null,
+      status: 'To Do'
+    };
+
+    if (effectiveUser?.isGuest) {
+      const newId = 'guest_' + Date.now();
+      const updated = [{ ...duplicatePayload, id: newId }, ...tasks];
+      setTasks(updated);
+      localStorage.setItem('tb_guest_tasks', JSON.stringify(updated));
+    } else if (effectiveUser?.uid) {
+      await addDoc(collection(db, 'users', effectiveUser.uid, 'tasks'), duplicatePayload);
     }
+    showToast("Task duplicated!", "success");
+  };
+
+  const handleAddNewTaskDirectly = async (taskData) => {
+    const payload = {
+      ...taskData,
+      createdAt: new Date().toISOString(),
+      status: taskData.status || 'To Do',
+      priority: taskData.priority || 'Medium',
+      pinned: false
+    };
+
+    if (effectiveUser?.isGuest) {
+      const newId = 'guest_' + Date.now();
+      const updated = [{ ...payload, id: newId }, ...tasks];
+      setTasks(updated);
+      localStorage.setItem('tb_guest_tasks', JSON.stringify(updated));
+    } else if (effectiveUser?.uid) {
+      await addDoc(collection(db, 'users', effectiveUser.uid, 'tasks'), payload);
+    }
+    showToast("Task added successfully!", "success");
+  };
+
+  const handleBulkClear = () => {
+    const completedTasks = tasks.filter(t => t.status === 'Completed');
+    if (completedTasks.length === 0) return showToast("No completed tasks to clear.", "warning");
+    confirmAction(`Delete all ${completedTasks.length} completed tasks?`, async () => {
+      if (effectiveUser?.isGuest) {
+        const updated = tasks.filter(t => t.status !== 'Completed');
+        setTasks(updated);
+        localStorage.setItem('tb_guest_tasks', JSON.stringify(updated));
+      } else if (effectiveUser?.uid) {
+        for (const t of completedTasks) {
+          await deleteDoc(doc(db, 'users', effectiveUser.uid, 'tasks', t.id));
+        }
+      }
+      showToast("Completed tasks cleared!", "success");
+    });
+  };
+
+  const toggleSubtask = async (e, task, lineIndex) => {
+    e.stopPropagation();
+    if (!task.description) return;
+    const lines = task.description.split('\n');
+    let lineCount = 0;
+    const newLines = lines.map((line) => {
+      if (line.trim().startsWith('- [ ]') || line.trim().startsWith('- [x]')) {
+        if (lineCount === lineIndex) {
+          const isDone = line.trim().startsWith('- [x]');
+          line = isDone ? line.replace('- [x]', '- [ ]') : line.replace('- [ ]', '- [x]');
+        }
+        lineCount++;
+      }
+      return line;
+    });
+
+    const newDescription = newLines.join('\n');
+    await handleUpdateTaskField(task.id, { description: newDescription });
   };
 
   const submitQuickTask = async () => {
-    if (quickTaskTitle.trim()) {
-      await addDoc(collection(db, 'users', user.uid, 'tasks'), {
+    if (!quickTaskTitle.trim()) return;
+    try {
+      await handleAddNewTaskDirectly({
         title: quickTaskTitle.trim(),
-        description: '',
         priority: quickPriority,
-        category: 'Inbox',
-        project: 'General Workspace',
         deadline: todayStr,
-        status: 'To Do',
-        createdAt: new Date().toISOString(),
-        pinned: false,
-        recurrence: 'None'
+        project: activeNavTab === 'inbox' ? 'Inbox' : 'General Workspace'
       });
       setQuickTaskTitle('');
-      playSound('pop');
+    } catch {
+      showToast("Could not add quick task.", "error");
     }
   };
 
@@ -441,44 +1015,49 @@ export default function Dashboard() {
     }
   };
 
+  const handleDragStart = (e, taskId) => {
+    e.dataTransfer.setData('text/plain', taskId);
+  };
+
+  const handleDrop = (e, targetStatus) => {
+    e.preventDefault();
+    const taskId = e.dataTransfer.getData('text/plain');
+    if (taskId) {
+      const task = tasks.find(t => t.id === taskId);
+      if (task && task.status !== targetStatus) {
+        handleUpdateStatus(taskId, targetStatus, task);
+      }
+    }
+  };
+
   const handleExportBackup = () => {
-    const cleanTasks = tasks.map(t => {
-      const copy = { ...t };
-      delete copy.id;
-      return copy;
-    });
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(cleanTasks, null, 2));
-    const dlAnchorElem = document.createElement('a');
-    dlAnchorElem.setAttribute("href", dataStr);
-    dlAnchorElem.setAttribute("download", `TaskBandhu_Backup_${todayStr}.json`);
-    dlAnchorElem.click();
-    showToast("Backup exported successfully.", "success");
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(tasks, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute("download", `task_bandhu_backup_${todayStr}.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+    showToast("Backup exported successfully!", "success");
   };
 
   const handleImportBackup = (e) => {
-    const file = e.target.files?.[0];
+    const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = async (event) => {
       try {
-        const importedData = JSON.parse(event.target.result);
-        if (!Array.isArray(importedData)) throw new Error("Invalid format.");
-        const validTasks = importedData.filter(t => t.title && typeof t.title === 'string');
-        if (validTasks.length === 0) throw new Error("No tasks found.");
-        confirmAction(`Found ${validTasks.length} tasks. Restore to database?`, async () => {
-          for (const task of validTasks) {
-            await addDoc(collection(db, 'users', user.uid, 'tasks'), {
-              title: task.title,
-              description: task.description || '',
-              priority: task.priority || 'Medium',
-              category: task.category || 'Inbox',
-              project: task.project || 'General Workspace',
-              deadline: task.deadline || '',
-              status: task.status || 'To Do',
-              createdAt: task.createdAt || new Date().toISOString(),
-              pinned: !!task.pinned,
-              recurrence: task.recurrence || 'None'
-            });
+        const importedTasks = JSON.parse(event.target.result);
+        if (!Array.isArray(importedTasks)) throw new Error("Invalid backup format");
+        confirmAction(`Restore ${importedTasks.length} tasks from backup?`, async () => {
+          if (effectiveUser?.isGuest) {
+            setTasks(importedTasks);
+            localStorage.setItem('tb_guest_tasks', JSON.stringify(importedTasks));
+          } else if (effectiveUser?.uid) {
+            for (const t of importedTasks) {
+              const { id: _ignore, ...data } = t;
+              await addDoc(collection(db, 'users', effectiveUser.uid, 'tasks'), data);
+            }
           }
           showToast("Data restored perfectly!", "success");
         });
@@ -492,11 +1071,12 @@ export default function Dashboard() {
 
   const handleSmartReschedule = () => {
     const overdueList = tasks.filter(t => t.status !== 'Completed' && t.deadline && t.deadline < todayStr);
+    if (overdueList.length === 0) return showToast("No overdue tasks found!", "info");
     confirmAction(`Auto-reschedule ${overdueList.length} overdue tasks to today?`, async () => {
       for (const task of overdueList) {
-        await updateDoc(doc(db, 'users', user.uid, 'tasks', task.id), { deadline: todayStr });
+        await handleUpdateTaskField(task.id, { deadline: todayStr });
       }
-      showToast("Overdue tasks rescheduled!", "success");
+      showToast("Overdue tasks rescheduled to today!", "success");
     });
   };
 
@@ -507,14 +1087,58 @@ export default function Dashboard() {
     overdue: tasks.filter(t => t.status !== 'Completed' && t.deadline && t.deadline < todayStr).length
   };
 
+  // Discover all unique team members from persistent roster and tasks
+  const allAssignees = Array.from(new Set(['Me', ...teamMembers.map(m => m.name), ...tasks.map(t => t.assignee).filter(Boolean)]));
+  const teamFilterOptions = ['All Members', ...allAssignees];
+
+  // Discover all projects (tasks + custom created projects)
+  let customProjectsList = [];
+  try {
+    const saved = localStorage.getItem('tb_projects');
+    if (saved) customProjectsList = JSON.parse(saved);
+  } catch {
+    customProjectsList = [];
+  }
+  const taskProjects = Array.from(new Set(tasks.map(t => t.project).filter(Boolean)));
+  const allProjectNames = Array.from(new Set(['General Workspace', ...taskProjects, ...customProjectsList.map(p => p?.name).filter(Boolean)]));
+
+  // Filter tasks based on active navigation tab & workspace filters
   const displayTasks = tasks.filter(task => {
     const tStatus = task.status || 'To Do';
-    const matchesFilter = filter === 'All'
+
+    // Navigation tab scoping
+    if (activeNavTab === 'my-day') {
+      const isDueToday = task.deadline === todayStr;
+      const isOverdue = tStatus !== 'Completed' && task.deadline && task.deadline < todayStr;
+      if (!isDueToday && !isOverdue) return false;
+    } else if (activeNavTab === 'inbox') {
+      if (task.project && task.project !== 'Inbox' && task.project !== 'General Workspace') return false;
+    } else if (activeNavTab === 'favorites') {
+      if (!task.pinned) return false;
+    } else if (activeNavTab === 'team' && selectedTeamMember !== 'All') {
+      if (task.assignee !== selectedTeamMember) return false;
+    }
+
+    const matchesStatus = filter === 'All'
       ? true
       : filter === 'Overdue'
         ? (tStatus !== 'Completed' && task.deadline && task.deadline < todayStr)
         : tStatus === filter;
-    return matchesFilter && (task.title || '').toLowerCase().includes(searchQuery.toLowerCase());
+
+    const matchesAssignee = assigneeFilter === 'All Members'
+      ? true
+      : (task.assignee === assigneeFilter);
+
+    const q = searchQuery.toLowerCase().trim();
+    const matchesSearch = !q || (
+      (task.title || '').toLowerCase().includes(q) ||
+      (task.description || '').toLowerCase().includes(q) ||
+      (task.category || '').toLowerCase().includes(q) ||
+      (task.project || '').toLowerCase().includes(q) ||
+      (task.assignee || '').toLowerCase().includes(q)
+    );
+
+    return matchesStatus && matchesAssignee && matchesSearch;
   });
 
   const getPriorityColor = (priority) => {
@@ -540,8 +1164,9 @@ export default function Dashboard() {
   const todayCompleted = todayTasks.filter(t => t.status === 'Completed').length;
   const dailyCompletionRate = todayTasks.length > 0 ? Math.round((todayCompleted / todayTasks.length) * 100) : 0;
   const realStreak = calculateRealStreak();
-  const currentLevel = Math.floor(tasks.filter(t => t.status === 'Completed').length / 5) + 1;
-  const currentXP = (tasks.filter(t => t.status === 'Completed').length % 5) * 20;
+  const totalCompletedCount = Math.max(tasks.filter(t => t.status === 'Completed').length, lifetimeCompleted);
+  const currentLevel = Math.floor(totalCompletedCount / 5) + 1;
+  const currentXP = (totalCompletedCount % 5) * 20;
 
   const getIndianFestivals = (year) => {
     const fixed = { '01-26': 'Republic Day 🇮🇳', '08-15': 'Independence Day 🇮🇳', '10-02': 'Gandhi Jayanti 🕊️', '12-25': 'Christmas 🎄', '01-01': 'New Year ✨' };
@@ -563,42 +1188,43 @@ export default function Dashboard() {
             <div className={`w-4 h-4 rounded flex items-center justify-center border transition-colors ${isDone ? 'bg-green-500 border-green-500' : 'border-gray-400 group-hover:border-blue-500'}`}>
               {isDone && <Check size={12} className="text-white" />}
             </div>
-            <span className={`text-sm font-medium ${isDone ? 'line-through text-gray-400 dark:text-slate-500' : 'text-gray-700 dark:text-slate-300'}`}>
+            <span className={`text-xs md:text-sm ${isDone ? 'line-through text-gray-400 dark:text-slate-500' : 'text-gray-700 dark:text-slate-300'}`}>
               {text}
             </span>
           </div>
         );
       }
-      return <p key={i} className="text-xs md:text-sm text-gray-500 dark:text-slate-400 font-mono mt-1">{line}</p>;
+      return <p key={i} className="text-xs md:text-sm text-gray-600 dark:text-slate-400 leading-relaxed">{line}</p>;
     });
   };
 
   const TaskCard = ({ task }) => {
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-    const isOverdue = task.deadline < todayStr && task.status !== 'Completed' && task.deadline;
-    const tags = task.category ? task.category.split(',').map(t => t.trim()).filter(Boolean) : [];
+    const isOverdue = task.status !== 'Completed' && task.deadline && task.deadline < todayStr;
+    const tags = Array.isArray(task.category) ? task.category : (task.category ? [task.category] : []);
+    const commentCount = task.comments?.length || 0;
 
     return (
       <div
         draggable={viewMode === 'kanban'}
         onDragStart={(e) => handleDragStart(e, task.id)}
-        className={`p-4 md:p-5 rounded-2xl border transition-all relative ${isDropdownOpen ? 'z-50' : 'z-10 hover:z-20'} ${viewMode === 'list'
-            ? 'flex flex-col md:flex-row md:items-center justify-between gap-4 hover:shadow-md'
-            : 'flex flex-col bg-white dark:bg-slate-800 cursor-grab active:cursor-grabbing gap-3'
-          } ${task.pinned
-            ? 'bg-amber-50/40 dark:bg-amber-900/20 border-amber-200 dark:border-amber-700/50'
-            : 'bg-white dark:bg-slate-800 hover:border-blue-200 dark:hover:border-slate-600 border-gray-100 dark:border-slate-700'
-          }`}
+        className={`bg-white dark:bg-slate-800 border p-4 md:p-5 rounded-2xl md:rounded-3xl shadow-sm hover:shadow-md transition-all flex flex-col justify-between gap-4 relative group ${isDropdownOpen ? 'z-[80]' : 'z-10'
+          } ${task.status === 'Completed'
+            ? 'border-gray-100 dark:border-slate-800/80 bg-gray-50/50 dark:bg-slate-800/40 opacity-75'
+            : isOverdue
+              ? 'border-red-200 dark:border-red-900/60 bg-red-50/20 dark:bg-red-950/20'
+              : 'border-gray-100 dark:border-slate-700'
+          } ${viewMode === 'kanban' ? 'w-full' : 'md:flex-row md:items-center'}`}
       >
         {viewMode === 'kanban' && (
-          <div className="absolute top-3 right-3 text-gray-300 hover:text-gray-500">
+          <div className="absolute top-3 right-3 text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing">
             <GripVertical size={16} />
           </div>
         )}
 
         {/* Task Details Section */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-2 flex-wrap">
+          <div className="flex items-center gap-2 mb-2 flex-wrap pr-6 md:pr-0">
             {task.pinned && <Pin size={16} className="text-amber-500 fill-amber-500 shrink-0" />}
             <h3 className={`text-base md:text-lg font-bold break-words ${task.status === 'Completed' ? 'text-gray-400 dark:text-slate-500 line-through' : 'text-gray-800 dark:text-white'}`}>
               {task.title}
@@ -640,7 +1266,7 @@ export default function Dashboard() {
 
           {task.description && <div className="mb-2.5">{renderDescription(task)}</div>}
 
-          {(tags.length > 0 || task.deadline || task.attachmentLink) && (
+          {(tags.length > 0 || task.deadline || task.attachmentLink || commentCount > 0) && (
             <div className="flex flex-wrap items-center gap-2 md:gap-3 text-[10px] md:text-xs text-gray-500 dark:text-slate-400 mt-1">
               {tags.map((tag, idx) => (
                 <div key={idx} className="flex items-center gap-1 bg-gray-100 dark:bg-slate-700 px-2 py-1 rounded-md font-medium">
@@ -657,54 +1283,104 @@ export default function Dashboard() {
                   <LinkIcon size={12} /> {task.attachmentName || 'Link'}
                 </a>
               )}
+              {commentCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => handleOpenEditTask(task)}
+                  className="flex items-center gap-1 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded-md font-semibold hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
+                  title="Team Activity / Comments"
+                >
+                  <MessageSquare size={11} /> {commentCount}
+                </button>
+              )}
             </div>
           )}
         </div>
 
-        {/* Actions & Status Controls Section */}
-        <div className={`flex items-center gap-2.5 shrink-0 ${viewMode === 'list'
-            ? 'w-full md:w-auto justify-between md:justify-end pt-3 md:pt-0 border-t md:border-t-0 border-gray-100 dark:border-slate-700/60'
-            : 'w-full justify-between pt-3 border-t border-gray-100 dark:border-slate-700'
-          }`}>
-          <div className="w-32 sm:w-36 flex-shrink-0">
-            <CustomDropdown
-              options={['To Do', 'In Progress', 'Review', 'Completed']}
-              value={task.status}
-              onChange={(val) => handleUpdateStatus(task.id, val, task)}
-              onOpenChange={setIsDropdownOpen}
-            />
+        {/* Actions & Status Controls Section - Separate handling for Kanban & List View */}
+        {viewMode === 'kanban' ? (
+          <div className="pt-3 mt-1 border-t border-gray-100 dark:border-slate-700/80 flex flex-col gap-2.5 w-full">
+            <div className="w-full">
+              <CustomDropdown
+                options={['To Do', 'In Progress', 'Review', 'Completed']}
+                value={task.status}
+                onChange={(val) => handleUpdateStatus(task.id, val, task)}
+                onOpenChange={setIsDropdownOpen}
+              />
+            </div>
+            <div className="flex items-center justify-between bg-gray-50 dark:bg-slate-800/80 p-1.5 rounded-xl border border-gray-100 dark:border-slate-700 w-full">
+              <button
+                onClick={() => handleTogglePin(task)}
+                className={`p-1.5 rounded-lg transition-colors flex-1 flex justify-center ${task.pinned ? 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400' : 'hover:bg-white dark:hover:bg-slate-700 text-gray-400 hover:text-amber-500'}`}
+                title={task.pinned ? "Unpin Task" : "Pin Task"}
+              >
+                {task.pinned ? <PinOff size={15} /> : <Pin size={15} />}
+              </button>
+              <button
+                onClick={() => handleDuplicate(task)}
+                className="p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-700 text-gray-400 hover:text-purple-500 transition-colors flex-1 flex justify-center"
+                title="Duplicate Task"
+              >
+                <Copy size={15} />
+              </button>
+              <button
+                onClick={() => handleOpenEditTask(task)}
+                className="p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-700 text-gray-400 hover:text-blue-500 transition-colors flex-1 flex justify-center"
+                title="Edit Task"
+              >
+                <Edit2 size={15} />
+              </button>
+              <button
+                onClick={() => handleDelete(task.id)}
+                className="p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-700 text-gray-400 hover:text-red-500 transition-colors flex-1 flex justify-center"
+                title="Delete Task"
+              >
+                <Trash2 size={15} />
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-1 bg-gray-50 dark:bg-slate-800/80 p-1 rounded-xl border border-gray-100 dark:border-slate-700">
-            <button
-              onClick={() => handleTogglePin(task)}
-              className={`p-1.5 md:p-2 rounded-lg transition-colors ${task.pinned ? 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400' : 'hover:bg-white dark:hover:bg-slate-700 text-gray-400 hover:text-amber-500'}`}
-              title={task.pinned ? "Unpin Task" : "Pin Task"}
-            >
-              {task.pinned ? <PinOff size={16} /> : <Pin size={16} />}
-            </button>
-            <button
-              onClick={() => handleDuplicate(task)}
-              className="p-1.5 md:p-2 rounded-lg hover:bg-white dark:hover:bg-slate-700 text-gray-400 hover:text-purple-500 transition-colors"
-              title="Duplicate Task"
-            >
-              <Copy size={16} />
-            </button>
-            <button
-              onClick={() => { setPrefilledDate(''); setEditingTask(task); setIsFormOpen(true); }}
-              className="p-1.5 md:p-2 rounded-lg hover:bg-white dark:hover:bg-slate-700 text-gray-400 hover:text-blue-500 transition-colors"
-              title="Edit Task"
-            >
-              <Edit2 size={16} />
-            </button>
-            <button
-              onClick={() => handleDelete(task.id)}
-              className="p-1.5 md:p-2 rounded-lg hover:bg-white dark:hover:bg-slate-700 text-gray-400 hover:text-red-500 transition-colors"
-              title="Delete Task"
-            >
-              <Trash2 size={16} />
-            </button>
+        ) : (
+          <div className="flex items-center gap-2.5 shrink-0 w-full md:w-auto justify-between md:justify-end pt-3 md:pt-0 border-t md:border-t-0 border-gray-100 dark:border-slate-700/60">
+            <div className="w-32 sm:w-36 flex-shrink-0">
+              <CustomDropdown
+                options={['To Do', 'In Progress', 'Review', 'Completed']}
+                value={task.status}
+                onChange={(val) => handleUpdateStatus(task.id, val, task)}
+                onOpenChange={setIsDropdownOpen}
+              />
+            </div>
+            <div className="flex items-center gap-1 bg-gray-50 dark:bg-slate-800/80 p-1 rounded-xl border border-gray-100 dark:border-slate-700">
+              <button
+                onClick={() => handleTogglePin(task)}
+                className={`p-1.5 md:p-2 rounded-lg transition-colors ${task.pinned ? 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400' : 'hover:bg-white dark:hover:bg-slate-700 text-gray-400 hover:text-amber-500'}`}
+                title={task.pinned ? "Unpin Task" : "Pin Task"}
+              >
+                {task.pinned ? <PinOff size={16} /> : <Pin size={16} />}
+              </button>
+              <button
+                onClick={() => handleDuplicate(task)}
+                className="p-1.5 md:p-2 rounded-lg hover:bg-white dark:hover:bg-slate-700 text-gray-400 hover:text-purple-500 transition-colors"
+                title="Duplicate Task"
+              >
+                <Copy size={16} />
+              </button>
+              <button
+                onClick={() => handleOpenEditTask(task)}
+                className="p-1.5 md:p-2 rounded-lg hover:bg-white dark:hover:bg-slate-700 text-gray-400 hover:text-blue-500 transition-colors"
+                title="Edit Task"
+              >
+                <Edit2 size={16} />
+              </button>
+              <button
+                onClick={() => handleDelete(task.id)}
+                className="p-1.5 md:p-2 rounded-lg hover:bg-white dark:hover:bg-slate-700 text-gray-400 hover:text-red-500 transition-colors"
+                title="Delete Task"
+              >
+                <Trash2 size={16} />
+              </button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     );
   };
@@ -731,7 +1407,7 @@ export default function Dashboard() {
       days.push(
         <div
           key={i}
-          onClick={() => { setPrefilledDate(dateStr); setEditingTask(null); setIsFormOpen(true); }}
+          onClick={() => handleOpenNewTask({ date: dateStr })}
           className={`p-2 border border-gray-100 dark:border-slate-700 min-h-[100px] rounded-xl flex flex-col gap-1 transition-all hover:shadow-md cursor-pointer group ${dateStr === todayStr ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-700 ring-2 ring-blue-500/20' : 'bg-white dark:bg-slate-800'
             }`}
         >
@@ -753,7 +1429,7 @@ export default function Dashboard() {
             {dayTasks.map(t => (
               <div
                 key={t.id}
-                onClick={(e) => { e.stopPropagation(); setEditingTask(t); setIsFormOpen(true); }}
+                onClick={(e) => { e.stopPropagation(); handleOpenEditTask(t); }}
                 className={`text-[10px] px-1.5 py-1 rounded truncate font-bold text-white shadow-sm ${t.status === 'Completed' ? 'bg-gray-400 dark:bg-slate-600 line-through' : t.priority === 'Urgent' ? 'bg-red-500' : t.priority === 'High' ? 'bg-orange-500' : 'bg-blue-500'
                   }`}
               >
@@ -813,7 +1489,7 @@ export default function Dashboard() {
                   {statusTasks.map(t => (
                     <div
                       key={t.id}
-                      onClick={() => { setEditingTask(t); setIsFormOpen(true); }}
+                      onClick={() => handleOpenEditTask(t)}
                       className="flex items-center gap-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-800/50 p-2 rounded-xl transition-colors group"
                     >
                       <div className="w-48 truncate font-bold text-gray-800 dark:text-white text-sm shrink-0">
@@ -822,14 +1498,14 @@ export default function Dashboard() {
                       <div className="flex-1 bg-gray-100 dark:bg-slate-700 rounded-full h-8 relative flex items-center group-hover:ring-2 ring-blue-500/30 transition-all overflow-hidden">
                         <div
                           className={`h-full rounded-full flex items-center px-4 text-xs font-bold text-white shadow-sm transition-all ${t.status === 'Completed'
-                              ? 'bg-green-500 w-full'
-                              : t.priority === 'Urgent'
-                                ? 'bg-red-500 w-[90%]'
-                                : t.priority === 'High'
-                                  ? 'bg-orange-500 w-[70%]'
-                                  : t.priority === 'Medium'
-                                    ? 'bg-blue-500 w-[50%]'
-                                    : 'bg-slate-500 w-[30%]'
+                            ? 'bg-green-500 w-full'
+                            : t.priority === 'Urgent'
+                              ? 'bg-red-500 w-[90%]'
+                              : t.priority === 'High'
+                                ? 'bg-orange-500 w-[70%]'
+                                : t.priority === 'Medium'
+                                  ? 'bg-blue-500 w-[50%]'
+                                  : 'bg-slate-500 w-[30%]'
                             }`}
                         >
                           <span className="truncate">
@@ -848,6 +1524,37 @@ export default function Dashboard() {
     </div>
   );
 
+  const handleNavTabChange = (tabId) => {
+    if (tabId === 'ai-assistant') {
+      setIsAIModalOpen(true);
+      return;
+    }
+    if (tabId === 'focus') {
+      playSound('start');
+      setIsFocusModeActive(true);
+      return;
+    }
+    setActiveNavTab(tabId);
+  };
+
+  const handleRemoveTeamMember = (memberId, memberName) => {
+    if (memberName === 'Me') return showToast("Cannot remove workspace owner", "warning");
+    confirmAction(`Remove ${memberName} from team workspaces?`, () => {
+      const updated = teamMembers.filter(m => m.id !== memberId);
+      setTeamMembers(updated);
+      localStorage.setItem('tb_team_members', JSON.stringify(updated));
+      if (selectedTeamMember === memberName) setSelectedTeamMember('All');
+      showToast(`${memberName} removed from team.`, "info");
+    });
+  };
+
+  const toggleAutomationRule = (ruleKey) => {
+    const updated = { ...automationRules, [ruleKey]: !automationRules[ruleKey] };
+    setAutomationRules(updated);
+    localStorage.setItem('tb_automation_rules', JSON.stringify(updated));
+    showToast("Automation preference updated", "success");
+  };
+
   if (isAuthLoading) {
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center">
@@ -856,42 +1563,97 @@ export default function Dashboard() {
     );
   }
 
-  if (!user) {
+  // If no authenticated user and not guest, show comprehensive Auth modal
+  if (!effectiveUser) {
     return (
-      <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex flex-col items-center justify-center p-4 transition-colors">
-        <img src={logo} alt="Task Bandhu" className="w-20 h-20 mb-6 shadow-md rounded-2xl object-contain" />
-        <h1 className="text-4xl font-extrabold text-slate-900 dark:text-white mb-2">Task Bandhu</h1>
-        <p className="text-slate-500 dark:text-slate-400 mb-8 text-center max-w-sm">
-          Sign in to securely sync your tasks across all devices.
-        </p>
-        <button
-          onClick={handleLogin}
-          className="bg-blue-600 text-white px-8 py-4 rounded-xl font-bold shadow-lg hover:bg-blue-700 transition-all active:scale-95"
-        >
-          Sign In with Google
-        </button>
-      </div>
+      <AuthModal
+        onGuestLogin={handleGuestLogin}
+        showToast={showToast}
+      />
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 transition-colors duration-200">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 transition-colors duration-200 flex flex-col lg:flex-row text-gray-900 dark:text-white">
+      {/* Offline Alert Strip */}
       {isOffline && (
-        <div className="bg-red-500 text-white text-center py-2 px-4 text-sm font-bold flex items-center justify-center gap-2 z-[300] relative">
-          <WifiOff size={16} /> Offline. Changes saving to device.
+        <div className="bg-red-500 text-white text-center py-2 px-4 text-sm font-bold flex items-center justify-center gap-2 z-[300] fixed top-0 left-0 right-0">
+          <WifiOff size={16} /> Offline mode active. All tasks and changes are securely saved on your device.
         </div>
       )}
 
-      <div className="p-4 md:p-6 lg:p-10 max-w-7xl mx-auto">
+      {/* Modern Collapsible SaaS Sidebar */}
+      <Sidebar
+        activeTab={activeNavTab}
+        setActiveTab={handleNavTabChange}
+        stats={{
+          total: stats.total,
+          todayCount: todayTasks.length,
+          inboxCount: tasks.filter(t => !t.project || t.project === 'Inbox' || t.project === 'General Workspace').length,
+          pinnedCount: tasks.filter(t => t.pinned).length
+        }}
+        projectsCount={allProjectNames.length}
+        teamCount={allAssignees.length}
+        user={effectiveUser}
+        onSignOut={handleSignOut}
+        isDarkMode={isDarkMode}
+        setIsDarkMode={setIsDarkMode}
+        onExportBackup={handleExportBackup}
+        onImportClick={() => fileInputRef.current?.click()}
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+      />
+
+      {/* Main App Workspace Area */}
+      <main className="flex-1 min-w-0 flex flex-col min-h-screen overflow-x-hidden">
+        {/* Mobile Header Bar */}
+        <header className="lg:hidden flex items-center justify-between p-4 bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-800 sticky top-0 z-[120]">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setIsSidebarOpen(true)}
+              className="p-2 text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-xl"
+            >
+              <Menu size={22} />
+            </button>
+            <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-white dark:bg-slate-800 border border-gray-200/80 dark:border-slate-700 shadow-md flex items-center justify-center p-1.5 shrink-0 overflow-hidden">
+              <img src={logo} alt="Logo" className="w-full h-full object-contain rounded-xl" />
+            </div>
+            <div>
+              <span className="font-extrabold text-base block leading-tight">Task Bandhu</span>
+              {effectiveUser?.isGuest && (
+                <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400">Local Mode</span>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <NotificationCenter
+              notifications={allNotifications}
+              onMarkAsRead={handleMarkNotificationRead}
+              onMarkAllAsRead={handleMarkAllNotificationsRead}
+              onClearAll={handleClearNotifications}
+              onSelectTask={handleSelectTaskFromNotification}
+              showToast={showToast}
+            />
+            <button
+              onClick={() => handleOpenNewTask()}
+              className="bg-blue-600 text-white p-2 rounded-xl text-xs font-bold shadow-md flex items-center gap-1.5"
+            >
+              <Plus size={16} /> New
+            </button>
+          </div>
+        </header>
+
+        {/* Global Toast */}
         {toast && (
           <div
             className={`fixed top-4 right-4 md:top-8 md:right-8 z-[9999] flex items-center gap-3 px-5 py-4 rounded-xl shadow-2xl animate-in slide-in-from-top-4 fade-in font-bold ${toast.type === 'error'
-                ? 'bg-red-600 text-white'
-                : toast.type === 'success'
-                  ? 'bg-green-600 text-white'
-                  : toast.type === 'warning'
-                    ? 'bg-amber-500 text-white'
-                    : 'bg-slate-800 text-white'
+              ? 'bg-red-600 text-white'
+              : toast.type === 'success'
+                ? 'bg-green-600 text-white'
+                : toast.type === 'warning'
+                  ? 'bg-amber-500 text-white'
+                  : 'bg-slate-800 text-white'
               }`}
           >
             {toast.type === 'success' ? (
@@ -907,6 +1669,7 @@ export default function Dashboard() {
           </div>
         )}
 
+        {/* Action Confirmation Modal */}
         {confirmState.isOpen && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[250] flex items-center justify-center p-4 animate-in fade-in">
             <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border border-gray-100 dark:border-slate-700 animate-in zoom-in-95">
@@ -932,356 +1695,877 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Top Header Bar */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 md:mb-8 gap-4">
-          <div className="flex items-center gap-3 md:gap-4">
-            <img src={logo} alt="Logo" className="w-10 h-10 md:w-12 md:h-12 bg-white rounded-xl shadow-sm border border-gray-100 p-1 object-contain" />
-            <div>
-              <h1 className="text-2xl md:text-3xl font-extrabold text-gray-900 dark:text-white">Task Bandhu</h1>
-              <p className="text-gray-500 dark:text-slate-400 font-medium text-xs md:text-sm">
-                Welcome, {user.displayName?.split(' ')[0] || 'User'}
-              </p>
-            </div>
-          </div>
+        <input type="file" accept=".json" ref={fileInputRef} onChange={handleImportBackup} className="hidden" />
 
-          <div className="flex items-center gap-2 md:gap-3 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0 hide-scrollbar relative z-[80]">
-            <input type="file" accept=".json" ref={fileInputRef} onChange={handleImportBackup} className="hidden" />
-            <div className="flex items-center bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl p-1 shrink-0 shadow-sm">
-              <button onClick={handleExportBackup} className="p-1.5 md:p-2 text-gray-400 hover:text-blue-600 rounded-lg hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors" title="Export Backup">
-                <DownloadCloud size={18} />
-              </button>
-              <div className="w-px h-5 bg-gray-200 dark:bg-slate-700 mx-1"></div>
-              <button onClick={() => fileInputRef.current?.click()} className="p-1.5 md:p-2 text-gray-400 hover:text-blue-600 rounded-lg hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors" title="Restore Backup">
-                <UploadCloud size={18} />
-              </button>
-            </div>
-            <button
-              onClick={() => setIsDarkMode(!isDarkMode)}
-              className="p-2 md:p-2.5 text-gray-500 dark:text-amber-400 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl shadow-sm shrink-0 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
-              title={isDarkMode ? "Light Mode" : "Dark Mode"}
-            >
-              {isDarkMode ? <Sun size={18} /> : <Moon size={18} />}
-            </button>
-            <button
-              onClick={() => signOut(auth)}
-              className="p-2 md:p-2.5 text-gray-400 hover:text-red-600 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 hover:border-red-200 rounded-xl shrink-0 transition-colors"
-              title="Sign Out"
-            >
-              <LogOut size={18} />
-            </button>
-            <button
-              onClick={() => { playSound('start'); setIsFocusModeActive(true); }}
-              className="flex items-center gap-2 bg-slate-800 dark:bg-blue-600 text-white px-4 md:px-5 py-2 md:py-2.5 rounded-xl font-bold shadow-lg active:scale-95 transition-all shrink-0 hover:opacity-95"
-            >
-              <Timer size={16} /> Focus
-            </button>
-            <button
-              onClick={() => { setPrefilledDate(''); setEditingTask(null); setIsFormOpen(true); }}
-              className="flex items-center gap-2 bg-blue-600 text-white px-4 md:px-5 py-2 md:py-2.5 rounded-xl font-bold shadow-lg active:scale-95 transition-all shrink-0 hover:bg-blue-700"
-            >
-              <Plus size={18} /> New Task
-            </button>
-          </div>
-        </div>
-
-        {/* Daily Mission & Progress */}
-        <div className="bg-white dark:bg-slate-800 p-4 md:p-6 rounded-2xl md:rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm mb-6 flex flex-col lg:flex-row gap-6 items-center justify-between relative z-[70]">
-          <div className="w-full lg:w-2/3">
-            <div className="flex justify-between items-end mb-3">
-              <div>
-                <h2 className="text-base md:text-lg font-bold text-gray-800 dark:text-white flex items-center gap-2">
-                  Today's Mission <span className="text-[10px] md:text-xs bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-400 px-2 py-0.5 rounded-md font-bold">XP: {currentXP}/100</span>
-                </h2>
-                <p className="text-xs md:text-sm text-gray-500 dark:text-slate-400">{todayCompleted} of {todayTasks.length} tasks for today done.</p>
-              </div>
-              <span className="text-lg md:text-xl font-extrabold text-blue-600 dark:text-blue-400">{dailyCompletionRate}%</span>
-            </div>
-            <div className="w-full bg-gray-100 dark:bg-slate-700 rounded-full h-2.5 md:h-3 overflow-hidden">
-              <div className="bg-gradient-to-r from-blue-500 to-indigo-600 h-full rounded-full transition-all" style={{ width: `${dailyCompletionRate}%` }}></div>
-            </div>
-          </div>
-          <div className="flex gap-3 md:gap-4 w-full lg:w-auto overflow-x-auto hide-scrollbar pb-1 lg:pb-0">
-            <div className="bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800/50 px-4 md:px-5 py-3 rounded-xl flex items-center gap-3 shrink-0">
-              <div className="bg-indigo-200 dark:bg-indigo-800 p-1.5 md:p-2 rounded-lg text-indigo-700 dark:text-indigo-300">
-                <Zap size={20} className="md:w-6 md:h-6" />
+        {/* View Routing Area */}
+        <div className="p-4 md:p-6 lg:p-8 max-w-7xl w-full mx-auto space-y-6">
+          {/* Top Bar with Title, AI Assistant quick launch & New Task button */}
+          <div className="hidden lg:flex justify-between items-center bg-white dark:bg-slate-800/80 backdrop-blur-md p-4 rounded-3xl border border-gray-100 dark:border-slate-700/80 shadow-sm relative z-[150]">
+            <div className="flex items-center gap-3.5">
+              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-white dark:bg-slate-800 border border-gray-200/80 dark:border-slate-700 shadow-md flex items-center justify-center p-2 shrink-0 overflow-hidden">
+                <img src={logo} alt="Task Bandhu Logo" className="w-full h-full object-contain rounded-xl" />
               </div>
               <div>
-                <p className="text-[10px] md:text-xs text-indigo-600 dark:text-indigo-400 font-bold uppercase">Rank</p>
-                <p className="text-lg md:text-xl font-extrabold text-indigo-900 dark:text-indigo-100">Lv. {currentLevel}</p>
-              </div>
-            </div>
-            <div className={`border px-4 md:px-5 py-3 rounded-xl flex items-center gap-3 shrink-0 ${realStreak > 0 ? 'bg-orange-50 dark:bg-orange-900/30 border-orange-200 dark:border-orange-800/50' : 'bg-gray-50 dark:bg-slate-800/50 border-gray-100 dark:border-slate-700'}`}>
-              <div className={`p-1.5 md:p-2 rounded-lg ${realStreak > 0 ? 'bg-orange-200 dark:bg-orange-800 text-orange-700 dark:text-orange-300' : 'bg-gray-200 dark:bg-slate-700 text-gray-500 dark:text-slate-400'}`}>
-                <Flame size={20} className="md:w-6 md:h-6" />
-              </div>
-              <div>
-                <p className={`text-[10px] md:text-xs font-bold uppercase ${realStreak > 0 ? 'text-orange-600 dark:text-orange-400' : 'text-gray-500 dark:text-slate-400'}`}>Streak</p>
-                <p className={`text-lg md:text-xl font-extrabold ${realStreak > 0 ? 'text-orange-900 dark:text-orange-100' : 'text-gray-700 dark:text-slate-300'}`}>{realStreak} Days</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Quick Capture Input */}
-        <div className="relative mb-6 md:mb-8 flex flex-col sm:flex-row items-stretch sm:items-center bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-2xl p-1.5 md:p-2 focus-within:ring-2 focus-within:ring-blue-500 shadow-sm gap-2 sm:gap-0 z-[60]">
-          <div className="flex items-center flex-1 px-2 sm:px-0">
-            <Plus size={20} className="text-gray-400 hidden sm:block mx-2 shrink-0" />
-            <input
-              type="text"
-              className="flex-1 w-full py-2.5 sm:py-3 px-2 sm:px-3 text-gray-900 dark:text-white bg-transparent outline-none font-medium text-sm md:text-base min-w-0"
-              placeholder="Quick capture... Press Enter"
-              value={quickTaskTitle}
-              onChange={(e) => setQuickTaskTitle(e.target.value)}
-              onKeyDown={handleQuickAddKeyDown}
-            />
-          </div>
-          <div className="flex items-center gap-2 sm:border-l border-gray-200 dark:border-slate-700 sm:pl-3 pr-1 w-full sm:w-auto justify-end">
-            <CustomDropdown options={['Urgent', 'High', 'Medium', 'Low']} value={quickPriority} onChange={setQuickPriority} className="w-28 sm:w-32" />
-            <button
-              onClick={submitQuickTask}
-              className="h-10 px-3.5 bg-blue-600 text-white rounded-xl w-full sm:w-auto flex items-center justify-center hover:bg-blue-700 transition-colors shadow-sm active:scale-95"
-              title="Add Task"
-            >
-              <Send size={16} />
-            </button>
-          </div>
-        </div>
-
-        {/* 4 Stats Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 mb-8 relative z-[50]">
-          <div className="bg-white dark:bg-slate-800 p-4 md:p-6 rounded-2xl md:rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm relative overflow-hidden group">
-            <div className="absolute top-0 right-0 p-3 md:p-4 opacity-10">
-              <ListTodo size={48} className="md:w-16 md:h-16 dark:text-white" />
-            </div>
-            <h2 className="text-gray-500 dark:text-slate-400 font-bold text-[10px] md:text-xs uppercase tracking-wider mb-1 md:mb-2">Total</h2>
-            <p className="text-2xl md:text-4xl font-extrabold text-gray-900 dark:text-white">{stats.total}</p>
-          </div>
-          <div className="bg-white dark:bg-slate-800 p-4 md:p-6 rounded-2xl md:rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm relative overflow-hidden group">
-            <div className="absolute top-0 right-0 p-3 md:p-4 text-green-500 opacity-10">
-              <CheckCircle2 size={48} className="md:w-16 md:h-16" />
-            </div>
-            <h2 className="text-green-600 dark:text-green-400 font-bold text-[10px] md:text-xs uppercase tracking-wider mb-1 md:mb-2">Done</h2>
-            <p className="text-2xl md:text-4xl font-extrabold text-gray-900 dark:text-white">{stats.completed}</p>
-          </div>
-          <div
-            className={`col-span-2 p-4 md:p-6 rounded-2xl md:rounded-3xl relative overflow-hidden flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 sm:gap-0 transition-all ${stats.overdue > 0
-                ? 'bg-gradient-to-br from-red-500 to-rose-600 text-white shadow-lg'
-                : 'bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 shadow-sm'
-              }`}
-          >
-            <div>
-              <h2
-                className={`font-bold text-[10px] md:text-xs uppercase tracking-wider mb-1 md:mb-2 flex items-center gap-1.5 ${stats.overdue > 0 ? 'text-red-100' : 'text-gray-500 dark:text-slate-400'
-                  }`}
-              >
-                {stats.overdue > 0 ? <AlertOctagon size={16} className="animate-pulse" /> : <Clock size={16} />} OVERDUE ALERT
-              </h2>
-              <p className={`text-2xl md:text-4xl font-extrabold ${stats.overdue > 0 ? 'text-white' : 'text-gray-900 dark:text-white'}`}>
-                {stats.overdue}
-              </p>
-            </div>
-            {stats.overdue > 0 && (
-              <button
-                onClick={handleSmartReschedule}
-                className="bg-white text-red-600 px-4 md:px-6 py-2.5 md:py-3 rounded-xl md:rounded-2xl font-black text-xs md:text-sm hover:scale-105 active:scale-95 transition-transform shadow-xl flex items-center justify-center gap-2"
-              >
-                <Wand2 size={18} /> FIX NOW
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Main Workspace Card */}
-        <div className="bg-white dark:bg-slate-800 p-4 md:p-8 rounded-2xl md:rounded-3xl shadow-sm border border-gray-100 dark:border-slate-700 min-h-[400px]">
-          {/* Workspace Header Toolbar - Perfectly Aligned */}
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 md:mb-8 gap-4 w-full relative z-[40]">
-            <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white shrink-0">Workspace</h2>
-
-            <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 w-full sm:w-auto">
-              {/* Search input */}
-              <div className="relative flex-1 min-w-[140px] sm:w-44 md:w-52">
-                <Search size={14} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none" />
-                <input
-                  type="text"
-                  placeholder="Search..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="h-10 pl-8 md:pl-9 pr-3 bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl text-xs md:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-full transition-all dark:text-white"
-                />
-              </div>
-
-              {/* Clear Done button */}
-              <button
-                onClick={handleBulkClear}
-                className="h-10 bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400 px-3.5 rounded-xl text-xs font-bold hover:bg-red-100 dark:hover:bg-red-900/50 flex items-center gap-1.5 shadow-sm shrink-0 transition-colors"
-                title="Delete all completed tasks"
-              >
-                <Eraser size={14} /> Clear Done
-              </button>
-
-              {/* View Switcher */}
-              <div className="h-10 flex items-center bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl p-1 shrink-0">
-                <button
-                  onClick={() => setViewMode('list')}
-                  className={`h-8 w-8 flex items-center justify-center rounded-lg transition-colors ${viewMode === 'list' ? 'bg-white dark:bg-slate-800 shadow-sm text-blue-600' : 'text-gray-400 dark:text-slate-400 hover:text-gray-600 dark:hover:text-slate-200'
-                    }`}
-                  title="List View"
-                >
-                  <ListIcon size={16} />
-                </button>
-                <button
-                  onClick={() => setViewMode('kanban')}
-                  className={`h-8 w-8 flex items-center justify-center rounded-lg transition-colors ${viewMode === 'kanban' ? 'bg-white dark:bg-slate-800 shadow-sm text-blue-600' : 'text-gray-400 dark:text-slate-400 hover:text-gray-600 dark:hover:text-slate-200'
-                    }`}
-                  title="Kanban Board"
-                >
-                  <Kanban size={16} />
-                </button>
-                <button
-                  onClick={() => setViewMode('timeline')}
-                  className={`h-8 w-8 flex items-center justify-center rounded-lg transition-colors ${viewMode === 'timeline' ? 'bg-white dark:bg-slate-800 shadow-sm text-blue-600' : 'text-gray-400 dark:text-slate-400 hover:text-gray-600 dark:hover:text-slate-200'
-                    }`}
-                  title="Timeline View"
-                >
-                  <Presentation size={16} />
-                </button>
-                <button
-                  onClick={() => setViewMode('calendar')}
-                  className={`h-8 w-8 flex items-center justify-center rounded-lg transition-colors ${viewMode === 'calendar' ? 'bg-white dark:bg-slate-800 shadow-sm text-blue-600' : 'text-gray-400 dark:text-slate-400 hover:text-gray-600 dark:hover:text-slate-200'
-                    }`}
-                  title="Calendar View"
-                >
-                  <CalendarIcon size={16} />
-                </button>
-              </div>
-
-              {/* Status Filter Dropdown */}
-              <CustomDropdown
-                options={['All', 'To Do', 'In Progress', 'Review', 'Completed', 'Overdue']}
-                value={filter}
-                onChange={setFilter}
-                className="w-32 sm:w-36 shrink-0 z-[50]"
-              />
-            </div>
-          </div>
-
-          {/* Views Area */}
-          {loading ? (
-            <div className="flex justify-center items-center py-20">
-              <Loader2 className="animate-spin text-blue-600 w-8 h-8" />
-            </div>
-          ) : displayTasks.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-center px-4">
-              <div className="bg-gray-50 dark:bg-slate-700 p-5 md:p-6 rounded-full mb-4">
-                <ListTodo size={32} className="text-gray-400 dark:text-slate-500" />
-              </div>
-              <h3 className="text-base md:text-lg font-semibold text-gray-800 dark:text-white mb-1">No tasks found</h3>
-              <p className="text-xs md:text-sm text-gray-400 dark:text-slate-500">
-                {searchQuery || filter !== 'All' ? 'Try adjusting your search or filters.' : 'Click "New Task" above to get started!'}
-              </p>
-            </div>
-          ) : viewMode === 'list' ? (
-            <div className="space-y-3 md:space-y-4">
-              {displayTasks.map(t => <TaskCard key={t.id} task={t} />)}
-            </div>
-          ) : viewMode === 'kanban' ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 md:gap-6 pb-6">
-              {['To Do', 'In Progress', 'Review', 'Completed'].map(status => (
-                <div
-                  key={status}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => handleDrop(e, status)}
-                  className="bg-gray-50 dark:bg-slate-900/50 p-4 rounded-3xl border border-gray-100 dark:border-slate-700 min-h-[300px] flex flex-col"
-                >
-                  <h3 className="font-extrabold text-gray-700 dark:text-slate-300 mb-4 pb-3 border-b border-gray-200 dark:border-slate-700 text-sm md:text-base flex justify-between items-center">
-                    <span>{status}</span>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-white dark:bg-slate-800 font-bold text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700">
-                      {displayTasks.filter(t => t.status === status).length}
+                <h1 className="text-xl sm:text-2xl font-extrabold text-gray-900 dark:text-white capitalize">
+                  {activeNavTab.replace('-', ' ')}
+                </h1>
+                <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">
+                  {effectiveUser.isGuest ? (
+                    <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-bold">
+                      <ShieldAlert size={12} /> Local Guest Mode • Sign in to sync across devices
                     </span>
-                  </h3>
-                  <div className="space-y-3 flex-1 overflow-y-auto hide-scrollbar">
-                    {displayTasks.filter(t => t.status === status).map(t => <TaskCard key={t.id} task={t} />)}
+                  ) : (
+                    `Welcome, ${effectiveUser.displayName || 'Friend'}`
+                  )}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <NotificationCenter
+                notifications={allNotifications}
+                onMarkAsRead={handleMarkNotificationRead}
+                onMarkAllAsRead={handleMarkAllNotificationsRead}
+                onClearAll={handleClearNotifications}
+                onSelectTask={handleSelectTaskFromNotification}
+                showToast={showToast}
+              />
+              <button
+                onClick={() => setIsAIModalOpen(true)}
+                className="flex items-center gap-2 bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 px-4 py-2.5 rounded-xl text-xs font-black shadow-sm hover:bg-purple-100 transition-colors active:scale-95"
+              >
+                <Sparkles size={16} /> AI Assistant
+              </button>
+              <button
+                onClick={() => { playSound('start'); setIsFocusModeActive(true); }}
+                className="flex items-center gap-2 bg-slate-800 dark:bg-slate-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold shadow-md hover:bg-slate-700 active:scale-95 transition-all"
+              >
+                <Timer size={16} /> Deep Focus
+              </button>
+              <button
+                onClick={() => handleOpenNewTask()}
+                className="flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl text-xs font-extrabold shadow-lg hover:bg-blue-700 active:scale-95 transition-all"
+              >
+                <Plus size={16} /> New Task
+              </button>
+            </div>
+          </div>
+
+          {/* VIEW SWITCHER LOGIC */}
+          {activeNavTab === 'eisenhower' ? (
+            <EisenhowerMatrix
+              tasks={tasks}
+              onUpdateTask={handleUpdateTaskField}
+              onOpenNewTask={() => handleOpenNewTask()}
+              onEditTask={(t) => handleOpenEditTask(t)}
+            />
+          ) : activeNavTab === 'projects' ? (
+            <ProjectsView
+              tasks={tasks}
+              onFilterProject={(projectName) => {
+                setFilter('All');
+                setSearchQuery(projectName);
+                setActiveNavTab('all-tasks');
+              }}
+              onOpenNewTask={(projectName) => {
+                handleOpenNewTask({ project: projectName });
+              }}
+            />
+          ) : activeNavTab === 'analytics' ? (
+            <AnalyticsView
+              tasks={tasks}
+              realStreak={realStreak}
+              currentLevel={currentLevel}
+              currentXP={currentXP}
+            />
+          ) : activeNavTab === 'team' ? (
+            effectiveUser.isGuest ? (
+              /* Guest Gate: Team features & cloud sync are account-exclusive */
+              <div className="space-y-6 animate-in fade-in">
+                <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 rounded-3xl p-6 sm:p-10 text-white shadow-2xl border border-indigo-800/40 relative overflow-hidden">
+                  <div className="max-w-2xl relative z-10 space-y-5">
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 text-xs font-black tracking-wide uppercase">
+                      <Lock size={13} /> Account Feature Only
+                    </div>
+                    <h2 className="text-2xl sm:text-3xl font-black tracking-tight leading-snug">
+                      Team Workspaces & Real-Time Collaboration
+                    </h2>
+                    <p className="text-slate-300 text-xs sm:text-sm leading-relaxed">
+                      You are currently in <strong>Local Guest Mode</strong>. Guest tasks are stored directly on this browser. To invite teammates, assign work, receive live notifications, and maintain cross-device data consistency, sign in with an account.
+                    </p>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                      <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10 flex items-start gap-3">
+                        <div className="p-2 rounded-xl bg-cyan-500/20 text-cyan-400 shrink-0">
+                          <Users size={18} />
+                        </div>
+                        <div>
+                          <h4 className="font-extrabold text-xs text-white">Team Workspaces</h4>
+                          <p className="text-[11px] text-slate-400 mt-0.5">Invite teammates with shareable links and 6-digit Team Codes.</p>
+                        </div>
+                      </div>
+
+                      <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10 flex items-start gap-3">
+                        <div className="p-2 rounded-xl bg-blue-500/20 text-blue-400 shrink-0">
+                          <CheckSquare size={18} />
+                        </div>
+                        <div>
+                          <h4 className="font-extrabold text-xs text-white">Task Assignment</h4>
+                          <p className="text-[11px] text-slate-400 mt-0.5">Delegate tasks directly to connected teammates with live status.</p>
+                        </div>
+                      </div>
+
+                      <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10 flex items-start gap-3">
+                        <div className="p-2 rounded-xl bg-purple-500/20 text-purple-400 shrink-0">
+                          <Bell size={18} />
+                        </div>
+                        <div>
+                          <h4 className="font-extrabold text-xs text-white">Team Activity & Discussion</h4>
+                          <p className="text-[11px] text-slate-400 mt-0.5">Get notified when colleagues complete tasks or post comments.</p>
+                        </div>
+                      </div>
+
+                      <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10 flex items-start gap-3">
+                        <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 shrink-0">
+                          <ShieldCheck size={18} />
+                        </div>
+                        <div>
+                          <h4 className="font-extrabold text-xs text-white">Cross-Device Sync</h4>
+                          <p className="text-[11px] text-slate-400 mt-0.5">Continuous data consistency across PC, phone, and tablet.</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={handleSignOut}
+                        className="px-5 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black text-xs rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2"
+                      >
+                        <UserPlus size={16} /> Sign In to Enable Team Features
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setActiveNavTab('my-day')}
+                        className="px-4 py-3 bg-white/10 hover:bg-white/15 text-slate-200 font-bold text-xs rounded-xl transition-all flex items-center justify-center"
+                      >
+                        Back to My Day
+                      </button>
+                    </div>
                   </div>
                 </div>
-              ))}
+              </div>
+            ) : (
+              /* Team Workspaces View */
+              <div className="space-y-6 animate-in fade-in">
+              <div className="bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 rounded-3xl p-6 md:p-8 text-white shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                <div>
+                  <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                    <h2 className="text-2xl font-black flex items-center gap-2">
+                      <Users size={26} /> Team Workspaces & Directory
+                    </h2>
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-white/20 border border-white/30 text-white">
+                      {teamMembers.length} Members
+                    </span>
+                  </div>
+                  <p className="text-cyan-100 text-xs sm:text-sm max-w-xl leading-relaxed">
+                    Connected collaboration. Share your invite link or Team Code so teammates can join, receive assigned tasks, and get instant notifications.
+                  </p>
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full md:w-auto shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(inviteCode);
+                      showToast(`Team Code ${inviteCode} copied!`, "success");
+                    }}
+                    className="px-3.5 py-2.5 rounded-2xl bg-white/15 hover:bg-white/25 border border-white/30 text-white font-mono text-xs font-black transition-all flex items-center justify-center gap-1.5 shadow-sm"
+                    title="Click to Copy Team Code"
+                  >
+                    <Copy size={13} /> Code: {inviteCode}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsInviteModalOpen(true)}
+                    className="bg-white text-blue-700 px-5 py-2.5 rounded-2xl text-xs font-black shadow-lg hover:bg-cyan-50 active:scale-95 transition-all flex items-center justify-center gap-1.5"
+                  >
+                    <UserPlus size={15} /> Invite Teammates
+                  </button>
+                </div>
+              </div>
+
+              {/* Team Members Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {teamMembers.map((member) => {
+                  const memberTasks = tasks.filter(t => t.assignee === member.name);
+                  const memberCompleted = memberTasks.filter(t => t.status === 'Completed').length;
+                  const memberPending = memberTasks.length - memberCompleted;
+                  const memberRate = memberTasks.length > 0 ? Math.round((memberCompleted / memberTasks.length) * 100) : 0;
+                  const isSelected = selectedTeamMember === member.name;
+
+                  return (
+                    <div
+                      key={member.id || member.name}
+                      onClick={() => setSelectedTeamMember(isSelected ? 'All' : member.name)}
+                      className={`p-5 rounded-3xl border transition-all cursor-pointer relative group flex flex-col justify-between ${isSelected
+                        ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-400 dark:border-blue-600 ring-2 ring-blue-500/20 shadow-md'
+                        : 'bg-white dark:bg-slate-800 border-gray-100 dark:border-slate-700 hover:shadow-md'
+                        }`}
+                    >
+                      <div>
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-cyan-500 to-blue-600 text-white font-black flex items-center justify-center text-sm shadow-sm">
+                            {member.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                            <span className={`text-[9px] px-2 py-0.5 rounded-full font-extrabold uppercase tracking-wider border ${
+                              member.status === 'Owner'
+                                ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/40'
+                                : member.status === 'Connected'
+                                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/40'
+                                : 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800/40'
+                            }`}>
+                              {member.status === 'Owner' ? '⭐ Owner' : member.status === 'Connected' ? '🟢 Connected' : '✉️ Invited'}
+                            </span>
+                            {member.name !== 'Me' && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRemoveTeamMember(member.id, member.name);
+                                }}
+                                className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-500 transition-opacity"
+                                title="Remove Teammate"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="mb-2">
+                          <h3 className="font-bold text-gray-900 dark:text-white text-sm mb-0.5 truncate">{member.name}</h3>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-slate-300">
+                              {member.role || 'Member'}
+                            </span>
+                            <p className="text-[10px] text-gray-400 dark:text-slate-500 truncate">{member.email}</p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between text-xs font-semibold text-gray-600 dark:text-slate-400 mb-3">
+                          <span>{memberPending} Active</span>
+                          <span>{memberCompleted} Done</span>
+                        </div>
+
+                        <div className="space-y-1 mb-4">
+                          <div className="flex justify-between text-[10px] font-bold text-gray-400 dark:text-slate-500">
+                            <span>Completion</span>
+                            <span>{memberRate}%</span>
+                          </div>
+                          <div className="w-full bg-gray-100 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
+                            <div className="bg-blue-600 h-full rounded-full transition-all" style={{ width: `${memberRate}%` }}></div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="pt-2 border-t border-gray-100 dark:border-slate-700/60 flex items-center justify-between gap-2">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedTeamMember(member.name);
+                          }}
+                          className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
+                        >
+                          {isSelected ? '✓ Filtering' : 'Filter Tasks'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPrefilledDate('');
+                            setPrefilledProject('Team Workspace');
+                            setEditingTask({ assignee: member.name, project: 'Team Workspace', priority: 'Medium' });
+                            setFormInstanceKey(prev => prev + 1);
+                            setIsFormOpen(true);
+                          }}
+                          className="text-[11px] px-2.5 py-1 bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-slate-200 rounded-lg font-bold hover:bg-blue-50 dark:hover:bg-slate-600 hover:text-blue-600 transition-colors"
+                        >
+                          + Assign Task
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Filtered Team Tasks Workspace */}
+              <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm space-y-4">
+                <div className="flex justify-between items-center pb-4 border-b border-gray-100 dark:border-slate-700">
+                  <h3 className="font-extrabold text-lg text-gray-900 dark:text-white flex items-center gap-2">
+                    <CheckSquare size={20} className="text-blue-600" />
+                    Tasks for: <span className="text-blue-600 dark:text-blue-400">{selectedTeamMember}</span>
+                  </h3>
+                  {selectedTeamMember !== 'All' && (
+                    <button
+                      onClick={() => setSelectedTeamMember('All')}
+                      className="text-xs font-bold text-gray-500 hover:text-blue-600 transition-colors"
+                    >
+                      Show All Teammates
+                    </button>
+                  )}
+                </div>
+
+                {displayTasks.length === 0 ? (
+                  <p className="text-sm text-gray-400 dark:text-slate-500 py-8 text-center">No tasks assigned to this member.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {displayTasks.map(t => <TaskCard key={t.id} task={t} />)}
+                  </div>
+                )}
+              </div>
             </div>
-          ) : viewMode === 'timeline' ? (
-            renderTimeline()
+            )
+          ) : activeNavTab === 'automations' ? (
+            /* Automations & Workflow Builder Panel */
+            <div className="space-y-6 animate-in fade-in">
+              <div className="bg-gradient-to-r from-amber-500 to-orange-600 rounded-3xl p-6 md:p-8 text-white shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                  <h2 className="text-2xl font-black mb-1 flex items-center gap-2">
+                    <Zap size={26} /> Automation & Workflow Rules
+                  </h2>
+                  <p className="text-amber-100 text-sm max-w-xl">
+                    Eliminate repetitive work. Task Bandhu automatically reschedules delays, tracks checklist completion, and awards productivity XP.
+                  </p>
+                </div>
+                <button
+                  onClick={handleSmartReschedule}
+                  className="bg-white text-orange-600 px-5 py-3 rounded-2xl text-xs font-black shadow-lg hover:bg-orange-50 active:scale-95 transition-all flex items-center gap-2"
+                >
+                  <Wand2 size={16} /> Run Smart Reschedule
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {[
+                  {
+                    key: 'autoOverdueAlert',
+                    title: 'Smart Deadline & Overdue Radar',
+                    desc: 'Automatically flag overdue tasks in red and prompt a 1-click reschedule to keep your schedule accurate.',
+                    icon: AlertOctagon,
+                    color: 'text-red-500'
+                  },
+                  {
+                    key: 'rewardStreakXP',
+                    title: 'Gamification & Daily XP Engine',
+                    desc: 'Award 20 XP on every task completed, elevate rank badges, and track unbroken daily streaks.',
+                    icon: Flame,
+                    color: 'text-orange-500'
+                  },
+                  {
+                    key: 'autoChecklistComplete',
+                    title: 'Auto-Complete Subtask Syncer',
+                    desc: 'When all checklist boxes in a task description are checked, suggest marking parent task as Done.',
+                    icon: CheckCircle,
+                    color: 'text-green-500'
+                  },
+                  {
+                    key: 'autoUrgentKeywords',
+                    title: 'Natural Language Urgency Parser',
+                    desc: 'Keywords like "ASAP", "critical", or "urgent" in quick capture automatically set Urgent priority.',
+                    icon: Settings2,
+                    color: 'text-purple-500'
+                  },
+                  {
+                    key: 'soundEffects',
+                    title: 'Productivity Soundscape & Cues',
+                    desc: 'Play tactile audio cues on task completion, timer alarms, and focus countdown alerts.',
+                    icon: Bell,
+                    color: 'text-blue-500'
+                  }
+                ].map(rule => {
+                  const Icon = rule.icon;
+                  const isEnabled = automationRules[rule.key];
+                  return (
+                    <div
+                      key={rule.key}
+                      className="bg-white dark:bg-slate-800 p-6 rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm flex items-start justify-between gap-4"
+                    >
+                      <div className="flex items-start gap-4">
+                        <div className={`p-3 rounded-2xl bg-gray-50 dark:bg-slate-700/60 ${rule.color}`}>
+                          <Icon size={22} />
+                        </div>
+                        <div>
+                          <h3 className="font-bold text-gray-900 dark:text-white text-base mb-1">{rule.title}</h3>
+                          <p className="text-xs text-gray-500 dark:text-slate-400 leading-relaxed max-w-sm">{rule.desc}</p>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => toggleAutomationRule(rule.key)}
+                        className={`w-12 h-7 flex items-center rounded-full p-1 transition-colors shrink-0 ${isEnabled ? 'bg-blue-600' : 'bg-gray-300 dark:bg-slate-600'
+                          }`}
+                      >
+                        <div
+                          className={`bg-white w-5 h-5 rounded-full shadow-md transform transition-transform ${isEnabled ? 'translate-x-5' : 'translate-x-0'
+                            }`}
+                        />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           ) : (
-            renderCalendar()
+            /* DEFAULT WORKSPACE TABS ('my-day', 'inbox', 'all-tasks', 'favorites') */
+            <div className="space-y-6">
+              {/* Daily Mission & Progress Bar (Always visible on My Day or top of workspace) */}
+              <div className="bg-white dark:bg-slate-800 p-4 sm:p-5 md:p-6 rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm flex flex-col xl:flex-row gap-5 items-stretch xl:items-center justify-between relative z-10">
+                <div className="flex-1 min-w-0 pr-0 xl:pr-4">
+                  <div className="flex justify-between items-end mb-3">
+                    <div>
+                      <h2 className="text-base md:text-lg font-bold text-gray-800 dark:text-white flex items-center gap-2">
+                        Today's Mission <span className="text-[10px] md:text-xs bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-400 px-2 py-0.5 rounded-md font-bold">XP: {currentXP}/100</span>
+                      </h2>
+                      <p className="text-xs md:text-sm text-gray-500 dark:text-slate-400">{todayCompleted} of {todayTasks.length} tasks for today done.</p>
+                    </div>
+                    <span className="text-lg md:text-xl font-extrabold text-blue-600 dark:text-blue-400">{dailyCompletionRate}%</span>
+                  </div>
+                  <div className="w-full bg-gray-100 dark:bg-slate-700 rounded-full h-2.5 md:h-3 overflow-hidden">
+                    <div className="bg-gradient-to-r from-blue-500 to-indigo-600 h-full rounded-full transition-all" style={{ width: `${dailyCompletionRate}%` }}></div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2.5 sm:gap-3 w-full xl:w-auto shrink-0 justify-start sm:justify-end flex-wrap sm:flex-nowrap">
+                  <div className="bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800/50 px-3.5 sm:px-4 py-2.5 sm:py-3 rounded-2xl flex items-center gap-2.5 shrink-0">
+                    <div className="bg-indigo-200 dark:bg-indigo-800 p-1.5 rounded-xl text-indigo-700 dark:text-indigo-300">
+                      <Zap size={18} className="sm:w-5 sm:h-5" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Rank</p>
+                      <p className="text-xs sm:text-sm font-extrabold text-indigo-900 dark:text-indigo-100 whitespace-nowrap">
+                        Lv. {currentLevel} • {getRankTitle(currentLevel)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className={`border px-3.5 sm:px-4 py-2.5 sm:py-3 rounded-2xl flex items-center gap-2.5 shrink-0 ${realStreak > 0 ? 'bg-orange-50 dark:bg-orange-900/30 border-orange-200 dark:border-orange-800/50' : 'bg-gray-50 dark:bg-slate-800/50 border-gray-100 dark:border-slate-700'}`}>
+                    <div className={`p-1.5 rounded-xl ${realStreak > 0 ? 'bg-orange-200 dark:bg-orange-800 text-orange-700 dark:text-orange-300' : 'bg-gray-200 dark:bg-slate-700 text-gray-500 dark:text-slate-400'}`}>
+                      <Flame size={18} className="sm:w-5 sm:h-5" />
+                    </div>
+                    <div>
+                      <p className={`text-[10px] font-bold uppercase tracking-wider ${realStreak > 0 ? 'text-orange-600 dark:text-orange-400' : 'text-gray-500 dark:text-slate-400'}`}>Streak</p>
+                      <p className={`text-xs sm:text-sm font-extrabold whitespace-nowrap ${realStreak > 0 ? 'text-orange-900 dark:text-orange-100' : 'text-gray-700 dark:text-slate-300'}`}>{realStreak} {realStreak === 1 ? 'Day' : 'Days'}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick Capture Input */}
+              <div className="relative flex flex-col sm:flex-row items-stretch sm:items-center bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-2xl p-1.5 md:p-2 focus-within:ring-2 focus-within:ring-blue-500 shadow-sm gap-2 sm:gap-0 z-[60]">
+                <div className="flex items-center flex-1 px-2 sm:px-0">
+                  <Plus size={20} className="text-gray-400 hidden sm:block mx-2 shrink-0" />
+                  <input
+                    type="text"
+                    className="flex-1 w-full py-2.5 sm:py-3 px-2 sm:px-3 text-gray-900 dark:text-white bg-transparent outline-none font-medium text-sm md:text-base min-w-0"
+                    placeholder="Quick capture a task... Press Enter"
+                    value={quickTaskTitle}
+                    onChange={(e) => setQuickTaskTitle(e.target.value)}
+                    onKeyDown={handleQuickAddKeyDown}
+                  />
+                </div>
+                <div className="flex items-center gap-2 sm:border-l border-gray-200 dark:border-slate-700 sm:pl-3 pr-1 w-full sm:w-auto justify-end">
+                  <CustomDropdown options={['Urgent', 'High', 'Medium', 'Low']} value={quickPriority} onChange={setQuickPriority} className="w-28 sm:w-32" />
+                  <button
+                    onClick={submitQuickTask}
+                    className="h-10 px-4 bg-blue-600 text-white rounded-xl w-full sm:w-auto flex items-center justify-center hover:bg-blue-700 transition-colors shadow-sm active:scale-95"
+                    title="Add Task"
+                  >
+                    <Send size={16} />
+                  </button>
+                </div>
+              </div>
+
+              {/* 4 Stats Cards */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 relative z-[50]">
+                <div className="bg-white dark:bg-slate-800 p-4 md:p-6 rounded-2xl md:rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 p-3 md:p-4 opacity-10">
+                    <ListTodo size={48} className="md:w-16 md:h-16 dark:text-white" />
+                  </div>
+                  <h2 className="text-gray-500 dark:text-slate-400 font-bold text-[10px] md:text-xs uppercase tracking-wider mb-1 md:mb-2">Total</h2>
+                  <p className="text-2xl md:text-4xl font-extrabold text-gray-900 dark:text-white">{stats.total}</p>
+                </div>
+                <div className="bg-white dark:bg-slate-800 p-4 md:p-6 rounded-2xl md:rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 p-3 md:p-4 text-green-500 opacity-10">
+                    <CheckCircle2 size={48} className="md:w-16 md:h-16" />
+                  </div>
+                  <h2 className="text-green-600 dark:text-green-400 font-bold text-[10px] md:text-xs uppercase tracking-wider mb-1 md:mb-2">Done</h2>
+                  <p className="text-2xl md:text-4xl font-extrabold text-gray-900 dark:text-white">{stats.completed}</p>
+                </div>
+                <div
+                  className={`col-span-2 p-4 md:p-6 rounded-2xl md:rounded-3xl relative overflow-hidden flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 sm:gap-0 transition-all ${stats.overdue > 0
+                    ? 'bg-gradient-to-br from-red-500 to-rose-600 text-white shadow-lg'
+                    : 'bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 shadow-sm'
+                    }`}
+                >
+                  <div>
+                    <h2
+                      className={`font-bold text-[10px] md:text-xs uppercase tracking-wider mb-1 md:mb-2 flex items-center gap-1.5 ${stats.overdue > 0 ? 'text-red-100' : 'text-gray-500 dark:text-slate-400'
+                        }`}
+                    >
+                      {stats.overdue > 0 ? <AlertOctagon size={16} className="animate-pulse" /> : <Clock size={16} />} OVERDUE ALERT
+                    </h2>
+                    <p className={`text-2xl md:text-4xl font-extrabold ${stats.overdue > 0 ? 'text-white' : 'text-gray-900 dark:text-white'}`}>
+                      {stats.overdue}
+                    </p>
+                  </div>
+                  {stats.overdue > 0 && (
+                    <button
+                      onClick={handleSmartReschedule}
+                      className="bg-white text-red-600 px-4 md:px-6 py-2.5 md:py-3 rounded-xl md:rounded-2xl font-black text-xs md:text-sm hover:scale-105 active:scale-95 transition-transform shadow-xl flex items-center justify-center gap-2"
+                    >
+                      <Wand2 size={18} /> FIX NOW
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Main Workspace Card */}
+              <div className="bg-white dark:bg-slate-800 p-4 md:p-8 rounded-2xl md:rounded-3xl shadow-sm border border-gray-100 dark:border-slate-700 min-h-[400px]">
+                {/* Workspace Header Toolbar */}
+                <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-8 gap-4 w-full relative z-[40]">
+                  <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white shrink-0 capitalize">
+                    {activeNavTab === 'my-day' ? "Today's Tasks" : activeNavTab === 'inbox' ? "Inbox Tasks" : activeNavTab === 'favorites' ? "Pinned Tasks" : "All Tasks"}
+                  </h2>
+
+                  <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 w-full lg:w-auto">
+                    {/* Search input */}
+                    <div className="relative flex-1 min-w-[130px] sm:w-40 md:w-48">
+                      <Search size={14} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none" />
+                      <input
+                        type="text"
+                        placeholder="Search tasks, team..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="h-10 pl-8 md:pl-9 pr-3 bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl text-xs md:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-full transition-all dark:text-white"
+                      />
+                    </div>
+
+                    {/* Clear Done button */}
+                    <button
+                      onClick={handleBulkClear}
+                      className="h-10 bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400 px-3.5 rounded-xl text-xs font-bold hover:bg-red-100 dark:hover:bg-red-900/50 flex items-center gap-1.5 shadow-sm shrink-0 transition-colors"
+                      title="Delete all completed tasks"
+                    >
+                      <Eraser size={14} /> Clear Done
+                    </button>
+
+                    {/* View Switcher */}
+                    <div className="h-10 flex items-center bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl p-1 shrink-0">
+                      <button
+                        onClick={() => setViewMode('list')}
+                        className={`h-8 w-8 flex items-center justify-center rounded-lg transition-colors ${viewMode === 'list' ? 'bg-white dark:bg-slate-800 shadow-sm text-blue-600' : 'text-gray-400 dark:text-slate-400 hover:text-gray-600 dark:hover:text-slate-200'
+                          }`}
+                        title="List View"
+                      >
+                        <ListIcon size={16} />
+                      </button>
+                      <button
+                        onClick={() => setViewMode('kanban')}
+                        className={`h-8 w-8 flex items-center justify-center rounded-lg transition-colors ${viewMode === 'kanban' ? 'bg-white dark:bg-slate-800 shadow-sm text-blue-600' : 'text-gray-400 dark:text-slate-400 hover:text-gray-600 dark:hover:text-slate-200'
+                          }`}
+                        title="Kanban Board"
+                      >
+                        <Kanban size={16} />
+                      </button>
+                      <button
+                        onClick={() => setViewMode('timeline')}
+                        className={`h-8 w-8 flex items-center justify-center rounded-lg transition-colors ${viewMode === 'timeline' ? 'bg-white dark:bg-slate-800 shadow-sm text-blue-600' : 'text-gray-400 dark:text-slate-400 hover:text-gray-600 dark:hover:text-slate-200'
+                          }`}
+                        title="Timeline View"
+                      >
+                        <Presentation size={16} />
+                      </button>
+                      <button
+                        onClick={() => setViewMode('calendar')}
+                        className={`h-8 w-8 flex items-center justify-center rounded-lg transition-colors ${viewMode === 'calendar' ? 'bg-white dark:bg-slate-800 shadow-sm text-blue-600' : 'text-gray-400 dark:text-slate-400 hover:text-gray-600 dark:hover:text-slate-200'
+                          }`}
+                        title="Calendar View"
+                      >
+                        <CalendarIcon size={16} />
+                      </button>
+                    </div>
+
+                    {/* Team Member Filter */}
+                    {allAssignees.length > 0 && (
+                      <CustomDropdown
+                        options={teamFilterOptions}
+                        value={assigneeFilter}
+                        onChange={setAssigneeFilter}
+                        className="w-32 sm:w-36 shrink-0 z-[50]"
+                      />
+                    )}
+
+                    {/* Status Filter Dropdown */}
+                    <CustomDropdown
+                      options={['All', 'To Do', 'In Progress', 'Review', 'Completed', 'Overdue']}
+                      value={filter}
+                      onChange={setFilter}
+                      className="w-28 sm:w-32 shrink-0 z-[50]"
+                    />
+                  </div>
+                </div>
+
+                {/* Views Area */}
+                {loading ? (
+                  <div className="flex justify-center items-center py-20">
+                    <Loader2 className="animate-spin text-blue-600 w-8 h-8" />
+                  </div>
+                ) : displayTasks.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 text-center px-4">
+                    <div className="bg-gray-50 dark:bg-slate-700 p-5 md:p-6 rounded-full mb-4">
+                      <ListTodo size={32} className="text-gray-400 dark:text-slate-500" />
+                    </div>
+                    <h3 className="text-base md:text-lg font-semibold text-gray-800 dark:text-white mb-1">No tasks found</h3>
+                    <p className="text-xs md:text-sm text-gray-400 dark:text-slate-500">
+                      {searchQuery || filter !== 'All' || assigneeFilter !== 'All Members'
+                        ? 'Try adjusting your search or filters.'
+                        : 'Click "New Task" above or use Quick Capture to get started!'}
+                    </p>
+                  </div>
+                ) : viewMode === 'list' ? (
+                  <div className="space-y-3 md:space-y-4">
+                    {displayTasks.map(t => <TaskCard key={t.id} task={t} />)}
+                  </div>
+                ) : viewMode === 'kanban' ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 md:gap-6 pb-6">
+                    {['To Do', 'In Progress', 'Review', 'Completed'].map(status => (
+                      <div
+                        key={status}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => handleDrop(e, status)}
+                        className="bg-gray-50 dark:bg-slate-900/50 p-4 rounded-3xl border border-gray-100 dark:border-slate-700 min-h-[300px] flex flex-col"
+                      >
+                        <h3 className="font-extrabold text-gray-700 dark:text-slate-300 mb-4 pb-3 border-b border-gray-200 dark:border-slate-700 text-sm md:text-base flex justify-between items-center">
+                          <span>{status}</span>
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-white dark:bg-slate-800 font-bold text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700">
+                            {displayTasks.filter(t => t.status === status).length}
+                          </span>
+                        </h3>
+                        <div className="space-y-3 flex-1 overflow-y-auto hide-scrollbar">
+                          {displayTasks.filter(t => t.status === status).map(t => <TaskCard key={t.id} task={t} />)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : viewMode === 'timeline' ? (
+                  renderTimeline()
+                ) : (
+                  renderCalendar()
+                )}
+              </div>
+            </div>
           )}
         </div>
-      </div>
+      </main>
 
+      {/* Task Creation & Edit Modal */}
       {isFormOpen && (
         <TaskForm
+          key={editingTask?.id ? `edit-${editingTask.id}` : `new-${formInstanceKey}`}
           taskToEdit={editingTask}
-          onClose={() => { setIsFormOpen(false); setEditingTask(null); }}
-          user={user}
+          onClose={() => {
+            setIsFormOpen(false);
+            setEditingTask(null);
+            setPrefilledDate('');
+            setPrefilledProject('');
+          }}
+          user={effectiveUser}
           showToast={showToast}
           prefilledDate={prefilledDate}
+          prefilledProject={prefilledProject}
+          allAssignees={allAssignees}
+          allProjects={allProjectNames}
+          onNotifyTeammate={handleDispatchNotification}
         />
       )}
 
+      {/* Team Invite & Join Modal */}
+      <TeamInviteModal
+        isOpen={isInviteModalOpen}
+        onClose={() => setIsInviteModalOpen(false)}
+        workspaceId={workspaceId}
+        workspaceName={workspaceName}
+        inviteCode={inviteCode}
+        currentUser={effectiveUser}
+        onJoinTeamByCode={handleJoinTeamByCode}
+        onInviteMemberByEmail={handleInviteMemberByEmail}
+        showToast={showToast}
+      />
+
+      {/* AI Assistant Modal */}
+      {isAIModalOpen && (
+        <AIAssistantModal
+          onClose={() => setIsAIModalOpen(false)}
+          tasks={tasks}
+          onAddTask={handleAddNewTaskDirectly}
+          onRescheduleOverdue={handleSmartReschedule}
+          showToast={showToast}
+        />
+      )}
+
+      {/* Fullscreen Focus Mode / Pomodoro */}
       {isFocusModeActive && (
-        <div className="fixed inset-0 bg-slate-900 flex flex-col items-center justify-center p-4 z-[400] overflow-y-auto">
-          <div className="text-center w-full max-w-md my-auto relative">
-            <button
-              onClick={toggleBrownNoise}
-              className={`absolute -top-12 md:top-0 right-0 p-3 rounded-full transition-all ${isNoisePlaying ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/50' : 'bg-slate-800 text-slate-400 hover:text-white'
-                }`}
-              title={isNoisePlaying ? "Mute Background Noise" : "Play Brown Noise"}
-            >
-              {isNoisePlaying ? <Volume2 size={24} /> : <VolumeX size={24} />}
-            </button>
-            <h2 className="text-white text-2xl md:text-3xl font-bold mb-2 flex items-center justify-center gap-2 md:gap-3">
-              <Timer size={28} className="text-blue-500" /> Deep Focus
+        <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-xl flex flex-col items-center justify-between p-4 sm:p-6 z-[400] overflow-y-auto">
+          {/* Top Control Bar with Anti-Distraction Radar Metrics */}
+          <div className="w-full max-w-2xl flex items-center justify-between gap-3 pt-2">
+            <div className="flex items-center gap-2">
+              <span className={`flex items-center gap-1.5 text-xs font-black px-3 py-1.5 rounded-full border transition-all ${distractionCount === 0
+                  ? 'bg-green-500/10 text-green-400 border-green-500/30'
+                  : 'bg-red-500/15 text-red-300 border-red-500/40 animate-pulse'
+                }`}>
+                {distractionCount === 0 ? <ShieldCheck size={14} className="text-green-400" /> : <ShieldAlert size={14} className="text-red-400" />}
+                Distractions: {distractionCount}
+              </span>
+              <span className="text-xs font-bold px-3 py-1.5 rounded-full bg-slate-900 text-slate-300 border border-slate-800">
+                Quality: {Math.max(0, 100 - distractionCount * 5)}%
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsStrictMode(!isStrictMode)}
+                className={`text-xs font-bold px-3 py-1.5 rounded-xl border transition-all ${isStrictMode
+                    ? 'bg-purple-900/40 text-purple-300 border-purple-700/60'
+                    : 'bg-slate-900 text-slate-400 border-slate-800'
+                  }`}
+                title="Strict Mode monitors tab switches and app changes"
+              >
+                Radar: {isStrictMode ? 'Active' : 'Muted'}
+              </button>
+              <button
+                onClick={toggleBrownNoise}
+                className={`p-2 rounded-xl border transition-all ${isNoisePlaying
+                    ? 'bg-blue-600 text-white border-blue-500 shadow-lg shadow-blue-500/40'
+                    : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                  }`}
+                title={isNoisePlaying ? "Mute Brown Noise" : "Play Brown Noise"}
+              >
+                {isNoisePlaying ? <Volume2 size={16} /> : <VolumeX size={16} />}
+              </button>
+            </div>
+          </div>
+
+          {/* Central Timer & Distraction Warning */}
+          <div className="text-center w-full max-w-lg my-auto py-6">
+            <h2 className="text-white text-2xl sm:text-3xl font-extrabold mb-1.5 flex items-center justify-center gap-2">
+              <Timer size={28} className="text-blue-500" /> Deep Focus Mode
             </h2>
-            <p className="text-slate-400 text-sm md:text-base mb-8 md:mb-10 px-4">
-              Do not switch tabs. Distractions will be logged.
+            <p className="text-slate-400 text-xs sm:text-sm mb-6">
+              Distraction radar active. Switching tabs or leaving the window will be logged.
             </p>
-            <div className="mb-8 md:mb-10 flex justify-center items-center gap-2">
+
+            {/* Distraction Flash Alert */}
+            {lastDistractionNotice && (
+              <div className="mb-6 p-3 rounded-2xl bg-red-950/70 border border-red-800/80 text-red-200 text-xs font-bold flex items-center justify-between gap-3 animate-in shake shadow-lg">
+                <div className="flex items-center gap-2 text-left">
+                  <ShieldAlert size={16} className="text-red-400 shrink-0" />
+                  <span>Distraction Detected: {lastDistractionNotice}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setLastDistractionNotice(null)}
+                  className="text-[10px] text-red-300 hover:text-white underline shrink-0"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+
+            {/* Big Countdown Timer */}
+            <div className="mb-8 flex justify-center items-center gap-2">
               {!isTimerRunning && timeLeft === focusMinutes * 60 ? (
-                <div className="flex items-center text-6xl md:text-8xl font-extrabold text-white tracking-tighter">
+                <div className="flex items-center text-7xl sm:text-9xl font-extrabold text-white tracking-tighter">
                   <input
                     type="number"
                     value={focusMinutes}
                     onChange={(e) => {
-                      const val = parseInt(e.target.value, 10) || 0;
+                      const val = parseInt(e.target.value, 10) || 1;
                       setFocusMinutes(val);
                       setTimeLeft(val * 60);
                     }}
-                    className="bg-transparent border-b-4 border-slate-700 focus:border-blue-500 w-24 md:w-32 text-center outline-none text-white"
+                    className="bg-transparent border-b-4 border-slate-700 focus:border-blue-500 w-28 sm:w-36 text-center outline-none text-white"
                     min="1"
                     max="120"
                   />
-                  <span className="text-4xl md:text-6xl text-slate-500 ml-1 md:ml-2">m</span>
+                  <span className="text-4xl sm:text-6xl text-slate-500 ml-2">m</span>
                 </div>
               ) : (
-                <div className="text-7xl md:text-9xl font-extrabold text-white tracking-tighter tabular-nums">
+                <div className="text-7xl sm:text-9xl font-extrabold text-white tracking-tighter tabular-nums">
                   {formatTime(timeLeft)}
                 </div>
               )}
             </div>
-            <div className="flex items-center justify-center gap-3 md:gap-4 flex-wrap px-4">
+
+            {/* Timer Actions */}
+            <div className="flex items-center justify-center gap-3 sm:gap-4 flex-wrap">
               <button
                 onClick={() => { setIsTimerRunning(!isTimerRunning); playSound('start'); }}
-                className={`px-6 md:px-8 py-3 md:py-4 rounded-2xl font-bold text-base md:text-lg transition-all shadow-xl flex items-center gap-2 md:gap-3 ${isTimerRunning ? 'bg-orange-500 text-white' : 'bg-white text-slate-900 hover:bg-slate-100'
+                className={`px-8 py-3.5 sm:py-4 rounded-2xl font-black text-base sm:text-lg transition-all shadow-xl flex items-center gap-2 ${isTimerRunning ? 'bg-orange-500 text-white' : 'bg-white text-slate-900 hover:bg-slate-100'
                   }`}
               >
-                {isTimerRunning ? <><Pause size={20} /> Pause</> : <><Play size={20} /> Start</>}
+                {isTimerRunning ? <><Pause size={20} /> Pause</> : <><Play size={20} /> Start Focus</>}
               </button>
               <button
-                onClick={() => { setIsTimerRunning(false); setTimeLeft(focusMinutes * 60); stopNoiseSafe(); playSound('pop'); }}
-                className="bg-slate-800 text-white px-4 md:px-5 py-3 md:py-4 rounded-2xl font-bold hover:bg-slate-700 transition-colors"
-                title="Reset Timer"
+                onClick={() => {
+                  setIsTimerRunning(false);
+                  setTimeLeft(focusMinutes * 60);
+                  setDistractionCount(0);
+                  setDistractionsLog([]);
+                  setLastDistractionNotice(null);
+                  stopNoiseSafe();
+                  playSound('pop');
+                }}
+                className="bg-slate-900 text-white px-5 py-3.5 sm:py-4 rounded-2xl font-bold hover:bg-slate-800 transition-colors border border-slate-800"
+                title="Reset Session & Clear Distractions"
               >
                 <Square size={18} />
               </button>
             </div>
+
+            {/* Distraction Log History */}
+            {distractionsLog.length > 0 && (
+              <div className="mt-8 p-4 rounded-2xl bg-slate-900/90 border border-slate-800 text-left max-h-40 overflow-y-auto hide-scrollbar">
+                <div className="flex justify-between items-center mb-2 pb-1 border-b border-slate-800">
+                  <span className="text-[11px] font-black uppercase text-slate-400">
+                    Session Distractions ({distractionsLog.length})
+                  </span>
+                  <span className="text-[10px] text-amber-400 font-bold">
+                    -{distractionCount * 5}% Quality Penalty
+                  </span>
+                </div>
+                <div className="space-y-1.5">
+                  {distractionsLog.map(d => (
+                    <div key={d.id} className="text-xs text-slate-300 flex items-center justify-between gap-2">
+                      <span className="truncate text-red-300 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>
+                        {d.reason}
+                      </span>
+                      <span className="text-[10px] text-slate-500 shrink-0 font-mono">{d.time}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Footer Exit Button */}
+          <div className="w-full text-center pb-2">
             <button
               onClick={() => { setIsFocusModeActive(false); setIsTimerRunning(false); stopNoiseSafe(); playSound('pop'); }}
-              className="mt-8 md:mt-12 text-slate-400 hover:text-white px-6 py-4 font-semibold text-sm md:text-base transition-colors"
+              className="text-slate-400 hover:text-white px-6 py-2.5 font-bold text-xs sm:text-sm transition-colors rounded-xl hover:bg-slate-900"
             >
               Exit Focus Mode
             </button>
