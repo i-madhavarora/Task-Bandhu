@@ -1,1 +1,8 @@
 @import "tailwindcss";
+
+/* Forces Tailwind v4 to listen to our Dark Mode toggle switch */
+@custom-variant dark (&:is(.dark *));
+
+/* Hide scrollbar for a cleaner SaaS look */
+.hide-scrollbar::-webkit-scrollbar { display: none; }
+.hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
