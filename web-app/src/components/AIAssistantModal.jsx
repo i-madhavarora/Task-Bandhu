@@ -1,7 +1,16 @@
 import { useState } from 'react';
 import { Sparkles, X, Wand2, Calendar, CheckCircle2, Zap, RefreshCw } from 'lucide-react';
 
-export default function AIAssistantModal({ onClose, tasks = [], onAddTask, onRescheduleOverdue, showToast }) {
+export default function AIAssistantModal({
+  onClose,
+  tasks = [],
+  user,
+  isApex = false,
+  onOpenApexModal,
+  onAddTask,
+  onRescheduleOverdue,
+  showToast
+}) {
   const [activeTab, setActiveTab] = useState('generator'); // generator | planner | coach
   const [promptInput, setPromptInput] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -10,13 +19,41 @@ export default function AIAssistantModal({ onClose, tasks = [], onAddTask, onRes
   const todayStr = new Date().toISOString().split('T')[0];
   const overdueTasks = tasks.filter(t => t.status !== 'Completed' && t.deadline && t.deadline < todayStr);
 
+  const todayUsageKey = `tb_ai_usage_${todayStr}_${user?.isGuest ? 'guest' : (user?.uid || 'guest')}`;
+  const getDailyUsage = () => {
+    try {
+      return parseInt(localStorage.getItem(todayUsageKey) || '0', 10);
+    } catch {
+      return 0;
+    }
+  };
+  const [dailyUsage, setDailyUsage] = useState(getDailyUsage);
+
+  const incrementDailyUsage = () => {
+    try {
+      const next = dailyUsage + 1;
+      localStorage.setItem(todayUsageKey, next.toString());
+      setDailyUsage(next);
+    } catch {
+      /* ignore */
+    }
+  };
+
   // Natural Language Task Creator parser
   const handleGenerateFromPrompt = (e) => {
     e.preventDefault();
     if (!promptInput.trim()) return;
+
+    if (!isApex && dailyUsage >= 3) {
+      showToast?.("Daily AI quota reached (3/3 used). Upgrade to Apex Prestige for unlimited Gemini AI breakdowns!", "warning");
+      onOpenApexModal?.();
+      return;
+    }
+
     setIsGenerating(true);
 
     setTimeout(() => {
+      incrementDailyUsage();
       const text = promptInput.trim();
       const lower = text.toLowerCase();
 
@@ -115,7 +152,18 @@ export default function AIAssistantModal({ onClose, tasks = [], onAddTask, onRes
               <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
                 Task Bandhu AI Copilot
               </h2>
-              <p className="text-xs text-gray-400 dark:text-slate-500">Autonomous planning and prioritization engine</p>
+              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                <p className="text-xs text-gray-400 dark:text-slate-500">Autonomous planning and prioritization engine</p>
+                {isApex ? (
+                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-amber-400/20 text-amber-500 border border-amber-400/30 flex items-center gap-0.5">
+                    <Sparkles size={10} /> Apex Unlimited
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300">
+                    Daily Quota: {Math.max(0, 3 - dailyUsage)}/3
+                  </span>
+                )}
+              </div>
             </div>
           </div>
           <button

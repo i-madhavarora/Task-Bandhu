@@ -21,6 +21,8 @@ import AIAssistantModal from './AIAssistantModal';
 import TeamInviteModal from './TeamInviteModal';
 import NotificationCenter from './NotificationCenter';
 import ProfileView from './ProfileView';
+import ApexUpgradeModal from './ApexUpgradeModal';
+import { isApexPlan, PLAN_LIMITS } from '../utils/planLimits';
 import logo from '../assets/logo.png';
 
 const playSound = (type = 'pop') => {
@@ -85,8 +87,8 @@ const CustomDropdown = ({ options, value, onChange, className = '', onOpenChange
     if (nextState && containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
       const spaceBelow = window.innerHeight - rect.bottom;
-      // Auto-detect direction: if space below is tight (< 160px) and plenty of space above, drop up
-      if (!dropUp && spaceBelow < 165 && rect.top > 165) {
+      // Auto-detect direction: if space below is tight (< 185px) and plenty of space above, drop up
+      if (!dropUp && spaceBelow < 185 && rect.top > 185) {
         setComputedDropUp(true);
       } else {
         setComputedDropUp(dropUp);
@@ -320,6 +322,7 @@ export default function Dashboard() {
   });
 
   // User Profile & Account Data (synced to Firestore for signed in users)
+  // Default tier is strictly 'Core' (Free). Upgrades to Apex Prestige are managed via VIP / Checkout.
   const [userProfile, setUserProfile] = useState(() => {
     try {
       const uKey = effectiveUser?.isGuest ? 'guest' : (effectiveUser?.uid || 'guest');
@@ -328,17 +331,39 @@ export default function Dashboard() {
         displayName: effectiveUser?.displayName || '',
         jobTitle: 'Productivity Champion',
         bio: 'Organizing goals, driving deep focus, and managing team projects with Task Bandhu.',
-        plan: 'PRO'
+        plan: 'Core'
       };
     } catch {
       return {
         displayName: effectiveUser?.displayName || '',
         jobTitle: 'Productivity Champion',
         bio: 'Organizing goals, driving deep focus, and managing team projects with Task Bandhu.',
-        plan: 'PRO'
+        plan: 'Core'
       };
     }
   });
+
+  const isApex = isApexPlan(userProfile?.plan);
+  const [isApexUpgradeModalOpen, setIsApexUpgradeModalOpen] = useState(false);
+
+  const handleActivateApex = useCallback(async (tierName = 'Apex') => {
+    const uKey = effectiveUser?.isGuest ? 'guest' : (effectiveUser?.uid || 'guest');
+    setUserProfile(prev => {
+      const updated = { ...prev, plan: tierName };
+      try { localStorage.setItem(`tb_profile_${uKey}`, JSON.stringify(updated)); } catch { /* ignore */ }
+      return updated;
+    });
+    if (effectiveUser && !effectiveUser.isGuest) {
+      try {
+        await setDoc(doc(db, 'users', effectiveUser.uid), {
+          plan: tierName,
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+      } catch (err) {
+        console.warn("Failed to activate Apex in Firestore:", err);
+      }
+    }
+  }, [effectiveUser]);
 
   const handleUpdateProfile = useCallback(async (newProfile) => {
     const uKey = effectiveUser?.isGuest ? 'guest' : (effectiveUser?.uid || 'guest');
@@ -471,16 +496,21 @@ export default function Dashboard() {
     }
   };
 
-  const handleInviteMemberByEmail = useCallback(({ name, email, role }) => {
-    if (teamMembers.some(m => m.email.toLowerCase() === email.toLowerCase() || m.name.toLowerCase() === name.toLowerCase())) {
+  const handleInviteMemberByEmail = useCallback(async ({ name, email, role }) => {
+    if (!isApex && teamMembers.length >= PLAN_LIMITS.CORE.teamMembers) {
+      showToast(`Core Plan Limit: Free tier supports up to ${PLAN_LIMITS.CORE.teamMembers} team members. Upgrade to Apex for unlimited collaboration!`, "warning");
+      setIsApexUpgradeModalOpen(true);
+      return;
+    }
+    if (teamMembers.some(m => m.email?.toLowerCase() === email.toLowerCase() || m.name?.toLowerCase() === name.toLowerCase())) {
       showToast("A team member with this name or email is already registered", "warning");
       return;
     }
     const newMemberObj = {
       id: 'member_' + Date.now(),
-      name,
+      name: name.trim(),
       role: role || 'Member',
-      email,
+      email: email.trim().toLowerCase(),
       status: 'Invited',
       invitedAt: new Date().toISOString()
     };
@@ -493,13 +523,25 @@ export default function Dashboard() {
       /* ignore */
     }
 
+    if (effectiveUser && !effectiveUser.isGuest && workspaceId) {
+      try {
+        const wsRef = doc(db, 'workspaces', workspaceId);
+        await updateDoc(wsRef, {
+          members: updated,
+          updatedAt: new Date().toISOString()
+        });
+      } catch (err) {
+        console.warn("Cloud workspace invite update:", err);
+      }
+    }
+
     handleDispatchNotification({
       type: 'team_join',
       title: 'Teammate Invited',
       message: `${name} (${email}) was invited as ${role}. Share the invite link with them to connect!`,
       project: 'Team Workspace'
     });
-  }, [teamMembers, handleDispatchNotification, showToast, effectiveUser]);
+  }, [teamMembers, handleDispatchNotification, showToast, effectiveUser, workspaceId, isApex]);
 
   const handleJoinTeamByCode = useCallback(async (codeOrUrl) => {
     let targetCode = codeOrUrl.trim();
@@ -559,13 +601,22 @@ export default function Dashboard() {
         const targetWsSnap = await getDoc(targetWsRef);
         if (targetWsSnap.exists()) {
           const currentMembers = targetWsSnap.data().members || [];
-          const isAlreadyMember = currentMembers.some(m => m.email?.toLowerCase() === newMember.email.toLowerCase());
-          if (!isAlreadyMember) {
-            await updateDoc(targetWsRef, {
-              members: [...currentMembers, newMember],
-              updatedAt: new Date().toISOString()
-            });
-          }
+          // Replace any pending invite for this email or name with the real connected member
+          const cleanedMembers = currentMembers.filter(m => {
+            if (m.status === 'Invited' && (
+              (m.email && m.email.toLowerCase() === newMember.email.toLowerCase()) ||
+              (m.name && m.name.toLowerCase() === newMember.name.toLowerCase())
+            )) {
+              return false;
+            }
+            return true;
+          });
+          const isAlreadyMember = cleanedMembers.some(m => m.email?.toLowerCase() === newMember.email.toLowerCase());
+          const finalCloudMembers = isAlreadyMember ? cleanedMembers : [...cleanedMembers, newMember];
+          await updateDoc(targetWsRef, {
+            members: finalCloudMembers,
+            updatedAt: new Date().toISOString()
+          });
         }
       }
 
@@ -786,7 +837,14 @@ export default function Dashboard() {
           try {
             const savedTeam = localStorage.getItem(`tb_team_members_${uKey}`);
             if (savedTeam) {
-              setTeamMembers(JSON.parse(savedTeam));
+              const parsed = JSON.parse(savedTeam);
+              const cleaned = parsed.map(m => {
+                if (m.role === 'Workspace Owner' && currentUser.displayName) {
+                  return { ...m, name: currentUser.displayName, email: currentUser.email || m.email };
+                }
+                return m;
+              });
+              setTeamMembers(cleaned);
             } else {
               const ownerOnly = [
                 { id: '1', name: currentUser.displayName || 'Me', role: 'Workspace Owner', email: currentUser.email || 'owner@workspace.com', status: 'Owner' }
@@ -842,7 +900,7 @@ export default function Dashboard() {
                 email: currentUser.email || '',
                 jobTitle: 'Productivity Champion',
                 bio: 'Organizing goals, driving deep focus, and managing team projects with Task Bandhu.',
-                plan: 'PRO',
+                plan: 'Core',
                 createdAt: new Date().toISOString()
               };
               setDoc(doc(db, 'users', uKey), initP, { merge: true }).catch(() => {});
@@ -1019,6 +1077,104 @@ export default function Dashboard() {
       setTasks([]);
     };
   }, [effectiveUser, todayStr]);
+
+  // Real-time Firestore sync for Team Workspace members
+  useEffect(() => {
+    if (!effectiveUser || effectiveUser.isGuest || !workspaceId) return;
+
+    const wsRef = doc(db, 'workspaces', workspaceId);
+    const unsubscribeWs = onSnapshot(wsRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (Array.isArray(data.members)) {
+          const cloudMembers = data.members;
+          const myEmail = (effectiveUser.email || '').toLowerCase();
+          const myName = (effectiveUser.displayName || 'Me').trim();
+
+          // Connected emails to clean up pending duplicate invites
+          const connectedEmails = new Set(
+            cloudMembers.filter(m => m.status === 'Connected' && m.email).map(m => m.email.toLowerCase())
+          );
+          const connectedNames = new Set(
+            cloudMembers.filter(m => m.status === 'Connected' && m.name).map(m => m.name.toLowerCase())
+          );
+
+          // Purge duplicate pending invites if member has connected
+          const reconciled = cloudMembers.filter(m => {
+            if (m.status === 'Invited') {
+              if (m.email && connectedEmails.has(m.email.toLowerCase())) return false;
+              if (m.name && connectedNames.has(m.name.toLowerCase())) return false;
+            }
+            return true;
+          }).map(m => {
+            if (m.role === 'Workspace Owner' || m.id === effectiveUser.uid || (m.email && m.email.toLowerCase() === myEmail)) {
+              return { ...m, name: myName, email: effectiveUser.email || m.email, role: 'Workspace Owner', status: 'Owner' };
+            }
+            return m;
+          });
+
+          // Ensure owner is present
+          if (!reconciled.some(m => m.status === 'Owner' || m.id === effectiveUser.uid)) {
+            reconciled.unshift({
+              id: effectiveUser.uid,
+              name: myName,
+              role: 'Workspace Owner',
+              email: effectiveUser.email || 'owner@workspace.com',
+              status: 'Owner'
+            });
+          }
+
+          setTeamMembers(reconciled);
+          try {
+            localStorage.setItem(`tb_team_members_${effectiveUser.uid}`, JSON.stringify(reconciled));
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    }, (err) => {
+      console.warn("Real-time workspace sync listener error:", err);
+    });
+
+    return () => unsubscribeWs();
+  }, [effectiveUser, workspaceId]);
+
+  // Real-time Firestore sync for Notifications
+  useEffect(() => {
+    if (!effectiveUser || effectiveUser.isGuest) return;
+
+    const notifColl = collection(db, 'users', effectiveUser.uid, 'notifications');
+    const qNotifs = query(notifColl);
+    const unsubscribeNotifs = onSnapshot(qNotifs, (snapshot) => {
+      const cloudNotifs = snapshot.docs.map(d => ({
+        ...d.data(),
+        id: d.id
+      }));
+      if (cloudNotifs.length > 0) {
+        cloudNotifs.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+        setNotifications(prev => {
+          const seen = new Set();
+          const combined = [];
+          for (const n of [...cloudNotifs, ...prev]) {
+            if (n.id && !seen.has(n.id)) {
+              seen.add(n.id);
+              combined.push(n);
+            }
+          }
+          try {
+            localStorage.setItem(`tb_notifications_${effectiveUser.uid}`, JSON.stringify(combined));
+          } catch {
+            /* ignore */
+          }
+          return combined;
+        });
+      }
+    }, (err) => {
+      console.warn("Real-time notifications sync error:", err);
+    });
+
+    return () => unsubscribeNotifs();
+  }, [effectiveUser]);
 
   const calculateRealStreak = () => {
     if (tasks.length === 0) return 0;
@@ -1243,6 +1399,11 @@ export default function Dashboard() {
   const handleTogglePin = async (task) => {
     playSound('pop');
     const newPinned = !task.pinned;
+    if (newPinned && !isApex && tasks.filter(t => t.pinned).length >= PLAN_LIMITS.CORE.pinnedTasks) {
+      showToast(`Core Plan Limit: You can pin up to ${PLAN_LIMITS.CORE.pinnedTasks} priority tasks. Upgrade to Apex for unlimited pins!`, "warning");
+      setIsApexUpgradeModalOpen(true);
+      return;
+    }
     if (effectiveUser?.isGuest) {
       const updated = tasks.map(t => t.id === task.id ? { ...t, pinned: newPinned } : t);
       setTasks(updated);
@@ -1425,8 +1586,22 @@ export default function Dashboard() {
     overdue: tasks.filter(t => t.status !== 'Completed' && t.deadline && t.deadline < todayStr).length
   };
 
-  // Discover all unique team members from persistent roster and tasks
-  const allAssignees = Array.from(new Set(['Me', ...teamMembers.map(m => m.name), ...tasks.map(t => t.assignee).filter(Boolean)]));
+  // Discover all unique team members exclusively from the genuine team roster
+  const allAssignees = useMemo(() => {
+    const ownerName = (effectiveUser?.displayName || 'Me').trim();
+    // Strictly real team members from the active workspace roster
+    const memberNames = teamMembers.map(m => m.name?.trim()).filter(Boolean);
+    if (!memberNames.some(n => n.toLowerCase() === ownerName.toLowerCase())) {
+      memberNames.unshift(ownerName);
+    }
+    // Filter out redundant 'Me' if the user's real name is present
+    return Array.from(new Set(memberNames)).filter(name => {
+      if (name.toLowerCase() === 'me' && ownerName.toLowerCase() !== 'me') {
+        return false;
+      }
+      return true;
+    });
+  }, [teamMembers, effectiveUser]);
   const teamFilterOptions = ['All Members', ...allAssignees];
 
   // Discover all projects (tasks + custom created projects strictly scoped per user)
@@ -1876,13 +2051,34 @@ export default function Dashboard() {
     setActiveNavTab(tabId);
   };
 
-  const handleRemoveTeamMember = (memberId, memberName) => {
-    if (memberName === 'Me') return showToast("Cannot remove workspace owner", "warning");
-    confirmAction(`Remove ${memberName} from team workspaces?`, () => {
-      const updated = teamMembers.filter(m => m.id !== memberId);
+  const handleRemoveTeamMember = (memberId, memberName, memberEmail) => {
+    if (memberName === 'Me' || memberName === effectiveUser?.displayName) return showToast("Cannot remove workspace owner", "warning");
+    confirmAction(`Remove ${memberName} from team workspace?`, async () => {
+      const updated = teamMembers.filter(m => {
+        if (memberId && m.id === memberId) return false;
+        if (memberEmail && m.email && m.email.toLowerCase() === memberEmail.toLowerCase()) return false;
+        if (memberName && m.name && m.name.toLowerCase() === memberName.toLowerCase()) return false;
+        return true;
+      });
       setTeamMembers(updated);
       const uKey = effectiveUser?.isGuest ? 'guest' : (effectiveUser?.uid || 'guest');
-      localStorage.setItem(`tb_team_members_${uKey}`, JSON.stringify(updated));
+      try {
+        localStorage.setItem(`tb_team_members_${uKey}`, JSON.stringify(updated));
+      } catch {
+        /* ignore */
+      }
+
+      if (effectiveUser && !effectiveUser.isGuest && workspaceId) {
+        try {
+          await updateDoc(doc(db, 'workspaces', workspaceId), {
+            members: updated,
+            updatedAt: new Date().toISOString()
+          });
+        } catch (err) {
+          console.warn("Cloud member removal:", err);
+        }
+      }
+
       if (selectedTeamMember === memberName) setSelectedTeamMember('All');
       showToast(`${memberName} removed from team.`, "info");
     });
@@ -1936,6 +2132,8 @@ export default function Dashboard() {
         projectsCount={allProjectNames.length}
         teamCount={allAssignees.length}
         user={effectiveUser}
+        isApex={isApex}
+        onOpenApexModal={() => setIsApexUpgradeModalOpen(true)}
         onSignOut={handleSignOut}
         isDarkMode={isDarkMode}
         setIsDarkMode={setIsDarkMode}
@@ -1948,7 +2146,7 @@ export default function Dashboard() {
       {/* Main App Workspace Area */}
       <main className="flex-1 min-w-0 flex flex-col min-h-screen overflow-x-hidden">
         {/* Mobile Header Bar */}
-        <header className="lg:hidden flex items-center justify-between p-4 bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-800 sticky top-0 z-[200]">
+        <header className="lg:hidden flex items-center justify-between p-4 bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-800 sticky top-0 z-[100]">
           <div className="flex items-center gap-3">
             <button
               onClick={() => setIsSidebarOpen(true)}
@@ -1961,8 +2159,20 @@ export default function Dashboard() {
             </div>
             <div>
               <span className="font-extrabold text-base block leading-tight">Task Bandhu</span>
-              {effectiveUser?.isGuest && (
+              {effectiveUser?.isGuest ? (
                 <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400">Local Mode</span>
+              ) : isApex ? (
+                <span className="text-[10px] font-black uppercase tracking-wider text-amber-500 dark:text-amber-300 flex items-center gap-0.5">
+                  ✦ Apex
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setIsApexUpgradeModalOpen(true)}
+                  className="text-[10px] font-bold text-slate-500 hover:text-amber-500 flex items-center gap-0.5"
+                >
+                  Core • <span className="font-black text-amber-500">Upgrade ✦</span>
+                </button>
               )}
             </div>
           </div>
@@ -2056,7 +2266,23 @@ export default function Dashboard() {
                       <ShieldAlert size={12} /> Local Guest Mode • Sign in to sync across devices
                     </span>
                   ) : (
-                    `Welcome, ${effectiveUser.displayName || 'Friend'}`
+                    <span className="flex items-center gap-2">
+                      <span>Welcome, {effectiveUser.displayName || 'Friend'}</span>
+                      {isApex ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-amber-400/20 via-violet-500/20 to-purple-500/20 text-amber-300 border border-amber-400/30 shadow-xs">
+                          <Sparkles size={11} className="text-amber-400" /> Apex Prestige
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setIsApexUpgradeModalOpen(true)}
+                          className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-700/80 hover:bg-amber-100 dark:hover:bg-amber-950/40 text-slate-700 dark:text-slate-200 hover:text-amber-600 dark:hover:text-amber-300 transition-all border border-slate-200 dark:border-slate-600 shadow-xs active:scale-95"
+                          title="Upgrade to Task Bandhu Apex"
+                        >
+                          Core Plan • <span className="font-extrabold text-amber-500 flex items-center gap-0.5">Upgrade <Sparkles size={10} /></span>
+                        </button>
+                      )}
+                    </span>
                   )}
                 </p>
               </div>
@@ -2105,6 +2331,8 @@ export default function Dashboard() {
               key={effectiveUser?.uid || 'guest'}
               tasks={tasks}
               user={effectiveUser}
+              isApex={isApex}
+              onOpenApexModal={() => setIsApexUpgradeModalOpen(true)}
               showToast={showToast}
               workspaceId={workspaceId}
               onFilterProject={(projectName) => {
@@ -2210,8 +2438,17 @@ export default function Dashboard() {
                       <Users size={26} /> Team Workspaces & Directory
                     </h2>
                     <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-white/20 border border-white/30 text-white">
-                      {teamMembers.length} Members
+                      {teamMembers.length} {isApex ? 'Members (Apex Unlimited)' : `/${PLAN_LIMITS.CORE.teamMembers} Members (Core)`}
                     </span>
+                    {!isApex && (
+                      <button
+                        type="button"
+                        onClick={() => setIsApexUpgradeModalOpen(true)}
+                        className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-400 text-amber-950 hover:bg-amber-300 shadow-sm transition-all"
+                      >
+                        Upgrade to 50 Members ✦
+                      </button>
+                    )}
                   </div>
                   <p className="text-cyan-100 text-xs sm:text-sm max-w-xl leading-relaxed">
                     Connected collaboration. Share your invite link or Team Code so teammates can join, receive assigned tasks, and get instant notifications.
@@ -2274,12 +2511,12 @@ export default function Dashboard() {
                             }`}>
                               {member.status === 'Owner' ? '⭐ Owner' : member.status === 'Connected' ? '🟢 Connected' : '✉️ Invited'}
                             </span>
-                            {member.name !== 'Me' && (
+                            {member.status !== 'Owner' && member.name !== 'Me' && (
                               <button
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  handleRemoveTeamMember(member.id, member.name);
+                                  handleRemoveTeamMember(member.id, member.name, member.email);
                                 }}
                                 className="p-1 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
                                 title={member.status === 'Invited' ? "Cancel Invite" : "Remove Teammate"}
@@ -2332,7 +2569,7 @@ export default function Dashboard() {
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleRemoveTeamMember(member.id, member.name);
+                              handleRemoveTeamMember(member.id, member.name, member.email);
                             }}
                             className="text-[11px] px-2.5 py-1 text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/50 rounded-lg font-bold hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
                           >
@@ -2492,13 +2729,14 @@ export default function Dashboard() {
               teamMembers={teamMembers}
               onSignOut={handleSignOut}
               onExportBackup={handleExportBackup}
+              onOpenApexModal={() => setIsApexUpgradeModalOpen(true)}
               showToast={showToast}
             />
           ) : (
             /* DEFAULT WORKSPACE TABS ('my-day', 'inbox', 'all-tasks', 'favorites') */
             <div className="space-y-6">
               {/* Daily Mission & Progress Bar (Always visible on My Day or top of workspace) */}
-              <div className="bg-white dark:bg-slate-800 p-4 sm:p-5 md:p-6 rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm flex flex-col xl:flex-row gap-5 items-stretch xl:items-center justify-between relative z-10">
+              <div className="bg-white dark:bg-slate-800 p-4 sm:p-5 md:p-6 rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm flex flex-col xl:flex-row gap-5 items-stretch xl:items-center justify-between">
                 <div className="flex-1 min-w-0 pr-0 xl:pr-4">
                   <div className="flex justify-between items-end mb-3">
                     <div>
@@ -2569,7 +2807,7 @@ export default function Dashboard() {
               </div>
 
               {/* 4 Stats Cards */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 relative z-10">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
                 <div className="bg-white dark:bg-slate-800 p-4 md:p-6 rounded-2xl md:rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm relative overflow-hidden group">
                   <div className="absolute top-0 right-0 p-3 md:p-4 opacity-10">
                     <ListTodo size={48} className="md:w-16 md:h-16 dark:text-white" />
@@ -2763,6 +3001,8 @@ export default function Dashboard() {
             setPrefilledProject('');
           }}
           user={effectiveUser}
+          isApex={isApex}
+          onOpenApexModal={() => setIsApexUpgradeModalOpen(true)}
           showToast={showToast}
           prefilledDate={prefilledDate}
           prefilledProject={prefilledProject}
@@ -2780,6 +3020,9 @@ export default function Dashboard() {
         workspaceName={workspaceName}
         inviteCode={inviteCode}
         currentUser={effectiveUser}
+        isApex={isApex}
+        teamCount={teamMembers.length}
+        onOpenApexModal={() => setIsApexUpgradeModalOpen(true)}
         onJoinTeamByCode={handleJoinTeamByCode}
         onInviteMemberByEmail={handleInviteMemberByEmail}
         showToast={showToast}
@@ -2790,11 +3033,23 @@ export default function Dashboard() {
         <AIAssistantModal
           onClose={() => setIsAIModalOpen(false)}
           tasks={tasks}
+          user={effectiveUser}
+          isApex={isApex}
+          onOpenApexModal={() => setIsApexUpgradeModalOpen(true)}
           onAddTask={handleAddNewTaskDirectly}
           onRescheduleOverdue={handleSmartReschedule}
           showToast={showToast}
         />
       )}
+
+      {/* Apex Prestige Upgrade Modal */}
+      <ApexUpgradeModal
+        isOpen={isApexUpgradeModalOpen}
+        onClose={() => setIsApexUpgradeModalOpen(false)}
+        currentPlan={userProfile?.plan || 'Core'}
+        onActivateApex={handleActivateApex}
+        showToast={showToast}
+      />
 
       {/* Fullscreen Focus Mode / Pomodoro */}
       {isFocusModeActive && (

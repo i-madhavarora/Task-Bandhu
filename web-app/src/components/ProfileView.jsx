@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import {
   User, Mail, ShieldCheck, Zap, Flame, Crown, CheckCircle2,
-  Copy, Edit3, Save,
+  Copy, Edit3, Save, Sparkles,
   Globe, LogOut, DownloadCloud
 } from 'lucide-react';
+import { isApexPlan } from '../utils/planLimits';
 
 export default function ProfileView({
   user,
@@ -19,16 +20,17 @@ export default function ProfileView({
   teamMembers = [],
   onSignOut,
   onExportBackup,
+  onOpenApexModal,
   showToast
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [displayName, setDisplayName] = useState(profileData.displayName || user?.displayName || 'Productivity User');
   const [jobTitle, setJobTitle] = useState(profileData.jobTitle || 'Productivity Champion');
   const [bio, setBio] = useState(profileData.bio || 'Organizing goals, driving deep focus, and managing team projects with Task Bandhu.');
-  const [plan, setPlan] = useState(profileData.plan || 'PRO'); // 'PRO' | 'Free'
   const [isSaving, setIsSaving] = useState(false);
 
   const isGuest = user?.isGuest;
+  const isApex = isApexPlan(profileData.plan);
 
   const handleSave = async (e) => {
     e?.preventDefault();
@@ -42,8 +44,7 @@ export default function ProfileView({
       await onUpdateProfile?.({
         displayName: displayName.trim(),
         jobTitle: jobTitle.trim(),
-        bio: bio.trim(),
-        plan
+        bio: bio.trim()
       });
       showToast?.("Profile updated successfully in cloud!", "success");
       setIsEditing(false);
@@ -80,13 +81,24 @@ export default function ProfileView({
                 <h1 className="text-2xl sm:text-3xl font-black tracking-tight truncate">
                   {displayName}
                 </h1>
-                <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider flex items-center gap-1 ${
-                  plan === 'PRO'
-                    ? 'bg-amber-400 text-amber-950 shadow-md'
-                    : 'bg-white/20 text-white'
-                }`}>
-                  <Crown size={12} /> {plan} Account
-                </span>
+                {isApex ? (
+                  <span className="px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-wider flex items-center gap-1.5 bg-gradient-to-r from-amber-400 via-amber-300 to-amber-500 text-amber-950 shadow-md">
+                    <Sparkles size={12} className="text-amber-950" /> ✦ Apex Prestige
+                  </span>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold tracking-wider bg-white/20 text-white">
+                      Core Starter
+                    </span>
+                    <button
+                      type="button"
+                      onClick={onOpenApexModal}
+                      className="px-2.5 py-0.5 rounded-full text-[10px] font-black tracking-wide bg-gradient-to-r from-amber-400 to-amber-500 text-amber-950 hover:from-amber-300 hover:to-amber-400 shadow-sm transition-all flex items-center gap-1"
+                    >
+                      <Crown size={11} /> Upgrade to Apex
+                    </button>
+                  </div>
+                )}
                 {!isGuest && (
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/30 text-emerald-100 border border-emerald-400/30 flex items-center gap-1">
                     <ShieldCheck size={11} /> Verified Cloud ID
@@ -172,48 +184,17 @@ export default function ProfileView({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-gray-600 dark:text-slate-300 mb-1.5">
-                Account Tier / Plan
-              </label>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setPlan('PRO')}
-                  className={`flex-1 py-2.5 rounded-xl text-xs font-extrabold border transition-all flex items-center justify-center gap-1.5 ${
-                    plan === 'PRO'
-                      ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-400 text-amber-700 dark:text-amber-300 shadow-sm'
-                      : 'border-gray-200 dark:border-slate-700 text-gray-500'
-                  }`}
-                >
-                  <Crown size={14} /> PRO Plan
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPlan('Free')}
-                  className={`flex-1 py-2.5 rounded-xl text-xs font-extrabold border transition-all flex items-center justify-center gap-1.5 ${
-                    plan === 'Free'
-                      ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-400 text-blue-700 dark:text-blue-300 shadow-sm'
-                      : 'border-gray-200 dark:border-slate-700 text-gray-500'
-                  }`}
-                >
-                  Free Starter
-                </button>
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-600 dark:text-slate-300 mb-1.5">
-                Bio / Mission Statement
-              </label>
-              <input
-                type="text"
-                value={bio}
-                onChange={(e) => setBio(e.target.value)}
-                className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm font-semibold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Brief personal headline"
-              />
-            </div>
+          <div>
+            <label className="block text-xs font-bold text-gray-600 dark:text-slate-300 mb-1.5">
+              Bio / Mission Statement
+            </label>
+            <input
+              type="text"
+              value={bio}
+              onChange={(e) => setBio(e.target.value)}
+              className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm font-semibold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Brief personal headline"
+            />
           </div>
 
           <div className="flex justify-end gap-2.5 pt-2">
@@ -238,50 +219,67 @@ export default function ProfileView({
       {/* 3 Main Grid Columns */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Card 1: Subscription & Plan Overview */}
-        <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm flex flex-col justify-between space-y-4">
+        <div className={`p-6 rounded-3xl border shadow-sm flex flex-col justify-between space-y-4 ${
+          isApex
+            ? 'bg-gradient-to-br from-violet-950/40 via-slate-800 to-indigo-950/40 border-violet-500/40'
+            : 'bg-white dark:bg-slate-800 border-gray-100 dark:border-slate-700'
+        }`}>
           <div>
             <div className="flex items-center justify-between mb-3">
               <span className="text-[11px] font-black uppercase tracking-wider text-gray-400 dark:text-slate-500">
-                Subscription Plan
+                Membership Tier
               </span>
-              <span className="p-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-600">
-                <Crown size={18} />
+              <span className={`p-1.5 rounded-xl ${isApex ? 'bg-amber-400/20 text-amber-300' : 'bg-blue-50 dark:bg-slate-700 text-blue-600 dark:text-blue-400'}`}>
+                {isApex ? <Sparkles size={18} /> : <ShieldCheck size={18} />}
               </span>
             </div>
-            <h3 className="text-xl font-black text-gray-900 dark:text-white mb-1">
-              Task Bandhu {plan}
+            <h3 className="text-xl font-black text-gray-900 dark:text-white mb-1 flex items-center gap-2">
+              Task Bandhu {isApex ? '✦ Apex' : 'Core'}
             </h3>
             <p className="text-xs text-gray-500 dark:text-slate-400 leading-relaxed">
-              {plan === 'PRO'
-                ? 'Full enterprise suite with cloud synchronization, multi-member team workspaces, AI assistance, and unlimited custom projects.'
-                : 'Essential individual productivity with standard daily task management.'}
+              {isApex
+                ? 'Apex Prestige edition with unlimited priority pins, unlimited custom projects, up to 50 team members, and full Gemini AI task breakdown.'
+                : 'Standard Core edition with individual task capture, up to 2 pinned priorities, 2 custom projects, and 2 team members.'}
             </p>
 
             <ul className="space-y-2 pt-4 text-xs font-semibold text-gray-700 dark:text-slate-300">
               <li className="flex items-center gap-2">
                 <CheckCircle2 size={15} className="text-emerald-500 shrink-0" />
-                <span>Unlimited Tasks & Custom Projects</span>
+                <span>{isApex ? 'Unlimited Pinned Priorities' : 'Max 2 Pinned Priorities'}</span>
               </li>
               <li className="flex items-center gap-2">
                 <CheckCircle2 size={15} className="text-emerald-500 shrink-0" />
-                <span>Team Workspaces & Live Member Invites</span>
+                <span>{isApex ? 'Unlimited Custom Projects' : 'Up to 2 Custom Projects'}</span>
               </li>
               <li className="flex items-center gap-2">
                 <CheckCircle2 size={15} className="text-emerald-500 shrink-0" />
-                <span>AI Natural Language Subtask Breakdown</span>
+                <span>{isApex ? '50 Collaborative Teammates' : '2 Team Members (Owner + 1 Teammate)'}</span>
               </li>
               <li className="flex items-center gap-2">
                 <CheckCircle2 size={15} className="text-emerald-500 shrink-0" />
-                <span>Real-Time Cloud Sync Across All Devices</span>
+                <span>{isApex ? 'Unlimited Gemini AI Breakdown' : '3 Daily AI Breakdowns'}</span>
               </li>
             </ul>
           </div>
 
-          <div className="pt-4 border-t border-gray-100 dark:border-slate-700 flex items-center justify-between text-xs font-bold text-gray-500">
-            <span>Status:</span>
-            <span className="text-emerald-600 dark:text-emerald-400 font-extrabold flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Active
-            </span>
+          <div className="pt-4 border-t border-gray-100 dark:border-slate-700 space-y-3">
+            <div className="flex items-center justify-between text-xs font-bold text-gray-500">
+              <span>Status:</span>
+              <span className={`font-extrabold flex items-center gap-1 ${isApex ? 'text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                <span className={`w-2 h-2 rounded-full ${isApex ? 'bg-amber-400' : 'bg-emerald-500'} animate-pulse`}></span>
+                {isApex ? '✦ Apex Prestige Active' : 'Core Active'}
+              </span>
+            </div>
+
+            {!isApex && (
+              <button
+                type="button"
+                onClick={onOpenApexModal}
+                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-amber-500 via-violet-600 to-indigo-600 hover:from-amber-400 hover:to-indigo-500 text-white text-xs font-black shadow-md flex items-center justify-center gap-1.5 active:scale-95 transition-all"
+              >
+                <Sparkles size={13} /> Upgrade to Apex Prestige
+              </button>
+            )}
           </div>
         </div>
 

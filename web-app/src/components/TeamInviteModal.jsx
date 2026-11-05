@@ -8,6 +8,9 @@ export default function TeamInviteModal({
   workspaceName,
   inviteCode,
   currentUser,
+  isApex = false,
+  teamCount = 1,
+  onOpenApexModal,
   onJoinTeamByCode,
   onInviteMemberByEmail,
   showToast
@@ -155,6 +158,26 @@ export default function TeamInviteModal({
                 <p className="font-bold">You are in Local Guest Mode</p>
                 <p className="text-[11px] opacity-90 mt-0.5">Teammates can only connect to registered cloud workspaces. Sign in with a free account to activate live team collaboration and cross-device sync.</p>
               </div>
+            </div>
+          )}
+
+          {!currentUser?.isGuest && !isApex && teamCount >= 2 && (
+            <div className="p-3.5 bg-gradient-to-r from-amber-500/10 via-violet-500/10 to-indigo-500/10 border border-amber-400/30 rounded-2xl flex items-start justify-between gap-3 text-xs">
+              <div className="space-y-0.5">
+                <p className="font-extrabold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+                  <Sparkles size={14} className="text-amber-500" /> Team Member Quota (2/2 Active)
+                </p>
+                <p className="text-[11px] text-slate-600 dark:text-slate-300">
+                  Core tier supports up to 2 team members. Upgrade to Apex for up to 50 teammates and role management.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={onOpenApexModal}
+                className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-violet-600 text-white font-black text-[10px] tracking-wide uppercase shrink-0 shadow-xs active:scale-95 transition-all"
+              >
+                Upgrade ✦
+              </button>
             </div>
           )}
 

@@ -123,7 +123,7 @@ export default function NotificationCenter({
   const isPermissionPending = isBrowserNotificationSupported && Notification.permission === 'default';
 
   return (
-    <div className="relative" ref={dropdownRef}>
+    <div className={`relative ${isOpen ? 'z-[120]' : 'z-20'}`} ref={dropdownRef}>
       {/* Bell Trigger Button */}
       <button
         type="button"

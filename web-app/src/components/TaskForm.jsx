@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import { X, Calendar, Tag, AlertCircle, AlignLeft, Sparkles, ChevronDown, Check, Paperclip, MessageSquare, Send, Repeat, Clock, Folder, UserPlus, Users, Link as LinkIcon, Bell, Lock } from 'lucide-react';
 import { collection, addDoc, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -65,6 +65,8 @@ export default function TaskForm({
   prefilledProject = '',
   prefilledPriority = '',
   allProjects = [],
+  isApex = false,
+  onOpenApexModal,
   onNotifyTeammate
 }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -113,8 +115,28 @@ export default function TaskForm({
 
   const handleAIBreakdown = () => {
     if (!task.title.trim()) return showToast("Please enter a Task Title first.", "warning");
+
+    const todayUsageKey = `tb_ai_usage_${new Date().toISOString().split('T')[0]}_${user?.isGuest ? 'guest' : (user?.uid || 'guest')}`;
+    let dailyUsage = 0;
+    try {
+      dailyUsage = parseInt(localStorage.getItem(todayUsageKey) || '0', 10);
+    } catch {
+      dailyUsage = 0;
+    }
+
+    if (!isApex && dailyUsage >= 3) {
+      showToast("Daily AI breakdown limit reached (3/3 used). Upgrade to Apex for unlimited AI suggestions!", "warning");
+      onOpenApexModal?.();
+      return;
+    }
+
     setIsAIGenerating(true);
     setTimeout(() => {
+      try {
+        localStorage.setItem(todayUsageKey, (dailyUsage + 1).toString());
+      } catch {
+        /* ignore */
+      }
       const t = task.title.toLowerCase();
       let steps = "- [ ] Define the end goal\n- [ ] Outline necessary resources\n- [ ] Execute step-by-step\n- [ ] Final review";
       if (t.includes('web') || t.includes('app') || t.includes('code') || t.includes('dev')) {
@@ -239,11 +261,18 @@ export default function TaskForm({
     }
   };
 
-  // Compute team member pills (available members)
-  const availableMembers = Array.from(new Set([
-    user?.displayName,
-    ...allAssignees
-  ].filter(Boolean)));
+  // Compute team member pills (strictly genuine workspace members, no legacy or dummy names)
+  const availableMembers = useMemo(() => {
+    const myName = (user?.displayName || '').trim();
+    const sourceList = allAssignees && allAssignees.length > 0 ? allAssignees : [myName || 'Me'];
+    return Array.from(new Set(sourceList.map(m => m?.trim()).filter(Boolean))).filter(m => {
+      // Remove redundant 'Me' if real user name exists
+      if (m.toLowerCase() === 'me' && myName && myName.toLowerCase() !== 'me') {
+        return false;
+      }
+      return true;
+    });
+  }, [allAssignees, user]);
 
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 z-[200] animate-in fade-in">
@@ -263,31 +292,26 @@ export default function TaskForm({
         <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
           <form id="taskForm" onSubmit={handleSubmit} className="p-6 space-y-5 overflow-y-auto flex-1 md:border-r border-gray-100 dark:border-slate-800 hide-scrollbar">
 
-            <div className="grid grid-cols-2 gap-5 mb-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-2">
               <div>
                 <label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5">
                   <Folder size={16} /> Project
                 </label>
-                <div className="flex gap-2">
+                <div className="relative">
                   <input
                     type="text"
-                    className="flex-1 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40 text-sm"
-                    placeholder="Project Name"
+                    list="task-projects-list"
+                    className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40 text-sm font-medium transition-all"
+                    placeholder="Enter or select project..."
                     value={task.project}
                     onChange={(e) => setTask({ ...task, project: e.target.value })}
                   />
                   {allProjects.length > 0 && (
-                    <select
-                      value={task.project}
-                      onChange={(e) => setTask({ ...task, project: e.target.value })}
-                      className="bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-2.5 py-2 text-gray-700 dark:text-slate-300 text-xs font-semibold outline-none focus:ring-2 focus:ring-blue-500/40 cursor-pointer"
-                      title="Select Existing Project"
-                    >
-                      <option value="" disabled>Choose...</option>
+                    <datalist id="task-projects-list">
                       {allProjects.map(proj => (
-                        <option key={proj} value={proj}>{proj}</option>
+                        <option key={proj} value={proj} />
                       ))}
-                    </select>
+                    </datalist>
                   )}
                 </div>
                 {allProjects.length > 0 && (
@@ -300,9 +324,9 @@ export default function TaskForm({
                         key={proj}
                         type="button"
                         onClick={() => setTask(prev => ({ ...prev, project: proj }))}
-                        className={`text-[10px] px-2 py-0.5 rounded-full font-semibold transition-colors ${
+                        className={`text-[10px] px-2.5 py-0.5 rounded-full font-semibold transition-colors ${
                           task.project?.toLowerCase() === proj.toLowerCase()
-                            ? 'bg-blue-600 text-white'
+                            ? 'bg-blue-600 text-white shadow-xs'
                             : 'bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-600'
                         }`}
                       >
@@ -316,13 +340,23 @@ export default function TaskForm({
                 <label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5">
                   <UserPlus size={16} /> Assignee
                 </label>
-                <input
-                  type="text"
-                  className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40 text-sm"
-                  placeholder="Assign to..."
-                  value={task.assignee}
-                  onChange={(e) => setTask({ ...task, assignee: e.target.value })}
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    list="task-assignees-list"
+                    className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40 text-sm font-medium transition-all"
+                    placeholder="Assign to..."
+                    value={task.assignee}
+                    onChange={(e) => setTask({ ...task, assignee: e.target.value })}
+                  />
+                  {availableMembers.length > 0 && (
+                    <datalist id="task-assignees-list">
+                      {availableMembers.map(m => (
+                        <option key={m} value={m} />
+                      ))}
+                    </datalist>
+                  )}
+                </div>
                 {user?.isGuest ? (
                   <p className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold flex items-center gap-1 mt-1">
                     <Lock size={10} /> Local mode: Sign in to assign tasks & notify teammates
@@ -337,20 +371,25 @@ export default function TaskForm({
                     <span className="text-[10px] font-semibold text-gray-400 dark:text-slate-500 flex items-center gap-1">
                       <Users size={11} /> Quick assign:
                     </span>
-                    {availableMembers.map(member => (
-                      <button
-                        key={member}
-                        type="button"
-                        onClick={() => setTask(prev => ({ ...prev, assignee: member }))}
-                        className={`text-[10px] px-2 py-0.5 rounded-full font-semibold transition-colors ${
-                          task.assignee?.toLowerCase() === member.toLowerCase()
-                            ? 'bg-purple-600 text-white'
-                            : 'bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-300 hover:bg-purple-50 dark:hover:bg-purple-900/30 hover:text-purple-600'
-                        }`}
-                      >
-                        {member === user?.displayName ? `${member.split(' ')[0]} (You)` : member}
-                      </button>
-                    ))}
+                    {availableMembers.map(member => {
+                      const isMe = member.toLowerCase() === (user?.displayName || '').toLowerCase() || member.toLowerCase() === 'me';
+                      const label = isMe ? `${(user?.displayName || member).split(' ')[0]} (You)` : member;
+                      const isSelected = task.assignee?.toLowerCase() === member.toLowerCase() || (isMe && task.assignee?.toLowerCase() === (user?.displayName || '').toLowerCase());
+                      return (
+                        <button
+                          key={member}
+                          type="button"
+                          onClick={() => setTask(prev => ({ ...prev, assignee: isMe ? (user?.displayName || member) : member }))}
+                          className={`text-[10px] px-2 py-0.5 rounded-full font-semibold transition-colors ${
+                            isSelected
+                              ? 'bg-purple-600 text-white'
+                              : 'bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-300 hover:bg-purple-50 dark:hover:bg-purple-900/30 hover:text-purple-600'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -519,16 +558,20 @@ export default function TaskForm({
               {availableMembers.length > 0 && (
                 <div className="flex items-center gap-1.5 flex-wrap mb-3">
                   <span className="text-[10px] text-gray-400">Tag:</span>
-                  {availableMembers.map(m => (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => setNewComment(prev => `${prev}@${m.split(' ')[0]} `)}
-                      className="text-[10px] bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 px-1.5 py-0.5 rounded hover:bg-blue-100 transition-colors font-medium"
-                    >
-                      @{m.split(' ')[0]}
-                    </button>
-                  ))}
+                  {availableMembers.map(m => {
+                    const isMe = m.toLowerCase() === (user?.displayName || '').toLowerCase() || m.toLowerCase() === 'me';
+                    const tagName = isMe ? (user?.displayName ? user.displayName.split(' ')[0] : 'Me') : m.split(' ')[0];
+                    return (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setNewComment(prev => `${prev}@${tagName} `)}
+                        className="text-[10px] bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 px-1.5 py-0.5 rounded hover:bg-blue-100 transition-colors font-medium"
+                      >
+                        @{tagName}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
 

@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Folder, Plus, ChevronRight, X, Trash2, Copy, Check, Share2, ShieldCheck } from 'lucide-react';
+import { Folder, Plus, ChevronRight, X, Trash2, Copy, Check, Share2, ShieldCheck, Sparkles } from 'lucide-react';
 import { doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
+import { PLAN_LIMITS } from '../utils/planLimits';
 
 const generateProjectCode = () => {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -18,6 +19,8 @@ export default function ProjectsView({
   tasks,
   user,
   workspaceId,
+  isApex = false,
+  onOpenApexModal,
   showToast,
   onFilterProject,
   onOpenNewTask
@@ -65,6 +68,11 @@ export default function ProjectsView({
   const handleCreateProject = async (e) => {
     e.preventDefault();
     if (!newProject.name.trim()) return;
+    if (!isApex && customProjects.length >= PLAN_LIMITS.CORE.customProjects) {
+      showToast?.(`Core Plan Limit: You can create up to ${PLAN_LIMITS.CORE.customProjects} custom projects. Upgrade to Apex for unlimited project workspaces!`, "warning");
+      onOpenApexModal?.();
+      return;
+    }
     const cleanName = newProject.name.trim();
     const projCode = generateProjectCode();
 
@@ -173,12 +181,31 @@ export default function ProjectsView({
             Track multi-stage objectives, health indicators, and project progress.
           </p>
         </div>
-        <button
-          onClick={() => setIsNewProjectModalOpen(true)}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm shadow-md transition-all active:scale-95"
-        >
-          <Plus size={16} /> New Project
-        </button>
+        <div className="flex items-center gap-2.5 flex-wrap">
+          {!isApex && (
+            <button
+              type="button"
+              onClick={onOpenApexModal}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800/50 hover:bg-amber-100 transition-all active:scale-95"
+            >
+              <Sparkles size={13} className="text-amber-500" />
+              <span>Projects: {customProjects.length}/{PLAN_LIMITS.CORE.customProjects} • <strong className="underline">Upgrade</strong></span>
+            </button>
+          )}
+          <button
+            onClick={() => {
+              if (!isApex && customProjects.length >= PLAN_LIMITS.CORE.customProjects) {
+                showToast?.(`Core Plan Limit: Free tier allows up to ${PLAN_LIMITS.CORE.customProjects} custom projects. Upgrade to Apex for unlimited workspaces!`, "warning");
+                onOpenApexModal?.();
+                return;
+              }
+              setIsNewProjectModalOpen(true);
+            }}
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm shadow-md transition-all active:scale-95"
+          >
+            <Plus size={16} /> New Project
+          </button>
+        </div>
       </div>
 
       {/* Projects Grid */}

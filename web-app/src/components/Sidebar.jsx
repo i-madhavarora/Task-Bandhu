@@ -13,6 +13,8 @@ export default function Sidebar({
   projectsCount = 0,
   teamCount = 0,
   user,
+  isApex = false,
+  onOpenApexModal,
   onSignOut,
   isDarkMode,
   setIsDarkMode,
@@ -236,6 +238,35 @@ export default function Sidebar({
               </button>
             </div>
           </div>
+
+          {/* Apex Tier Badge or Upgrade CTA */}
+          {!user?.isGuest && (
+            isApex ? (
+              <div className="p-2.5 rounded-2xl bg-gradient-to-r from-amber-500/15 via-violet-500/15 to-purple-500/15 border border-amber-400/30 flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-xs font-black text-amber-500 dark:text-amber-300">
+                  <Sparkles size={13} className="text-amber-400" />
+                  <span>Apex Prestige</span>
+                </div>
+                <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/30">
+                  Active
+                </span>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => { onOpenApexModal?.(); onClose?.(); }}
+                className="w-full p-2.5 rounded-2xl bg-gradient-to-r from-amber-500/15 via-violet-500/15 to-purple-500/15 border border-amber-400/30 hover:border-amber-400/60 text-slate-800 dark:text-amber-200 transition-all text-left flex items-center justify-between group active:scale-95"
+              >
+                <div className="flex items-center gap-1.5">
+                  <Sparkles size={13} className="text-amber-500 group-hover:scale-110 transition-transform" />
+                  <span className="text-xs font-black">Upgrade to Apex</span>
+                </div>
+                <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 text-amber-950 shadow-xs">
+                  ✦ Prestige
+                </span>
+              </button>
+            )
+          )}
 
           <button
             type="button"
