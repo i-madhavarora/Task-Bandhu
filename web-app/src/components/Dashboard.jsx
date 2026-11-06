@@ -8,7 +8,7 @@ import {
   Sparkles, CheckSquare, Settings2, Bell, CheckCircle, ShieldAlert, ShieldCheck,
   UserPlus, Lock
 } from 'lucide-react';
-import { collection, onSnapshot, query, doc, deleteDoc, updateDoc, addDoc, setDoc, getDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, doc, deleteDoc, updateDoc, addDoc, setDoc, getDoc, where, getDocs } from 'firebase/firestore';
 import { onAuthStateChanged, signOut, updateProfile } from 'firebase/auth';
 import { db, auth } from '../firebase';
 import TaskForm from './TaskForm';
@@ -206,48 +206,74 @@ export default function Dashboard() {
   }, []);
 
   // Team Workspace Identification & Invites
-  const workspaceId = effectiveUser?.isGuest ? 'local_workspace' : (`ws_${effectiveUser?.uid || 'main'}`);
-  const workspaceName = `${effectiveUser?.displayName ? `${effectiveUser.displayName}'s` : 'My'} Team Workspace`;
-
-  const [inviteCode, setInviteCode] = useState(() => {
-    const uKey = effectiveUser?.isGuest ? 'guest' : (effectiveUser?.uid || 'guest');
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState(() => {
+    if (effectiveUser?.isGuest) return 'local_workspace';
+    const uKey = effectiveUser?.uid || 'guest';
     try {
-      const saved = localStorage.getItem(`tb_team_code_${uKey}`);
-      if (saved) return saved;
+      return localStorage.getItem(`tb_active_ws_${uKey}`) || null;
     } catch {
-      /* ignore */
+      return null;
     }
-    const initialCode = effectiveUser?.isGuest ? generateSecureCode('TB-GUEST') : generateSecureCode('TB');
-    try { localStorage.setItem(`tb_team_code_${uKey}`, initialCode); } catch { /* ignore */ }
-    return initialCode;
   });
 
-  // Load workspace code if workspace was explicitly created in Firestore (NEVER auto-created!)
+  const [workspaceName, setWorkspaceName] = useState(() => {
+    return effectiveUser?.displayName ? `${effectiveUser.displayName}'s Team Workspace` : 'Team Workspace';
+  });
+
+  const [inviteCode, setInviteCode] = useState(() => {
+    if (effectiveUser?.isGuest) return '';
+    const uKey = effectiveUser?.uid || 'guest';
+    try {
+      return localStorage.getItem(`tb_team_code_${uKey}`) || '';
+    } catch {
+      return '';
+    }
+  });
+
+  const workspaceId = activeWorkspaceId || (effectiveUser?.isGuest ? 'local_workspace' : '');
+
+  // Automatically discover and load active workspace from Firestore on sign-in
   useEffect(() => {
-    if (!effectiveUser || effectiveUser.isGuest) return;
+    if (!effectiveUser || effectiveUser.isGuest) {
+      return;
+    }
     const uKey = effectiveUser.uid;
-
     let isMounted = true;
-    const checkExistingWorkspace = async () => {
-      try {
-        const wsRef = doc(db, 'workspaces', workspaceId);
-        const wsSnap = await getDoc(wsRef);
 
-        if (wsSnap.exists() && wsSnap.data().inviteCode) {
-          const finalCode = wsSnap.data().inviteCode;
-          if (isMounted) {
-            setInviteCode(finalCode);
-            try { localStorage.setItem(`tb_team_code_${uKey}`, finalCode); } catch { /* ignore */ }
+    const discoverWorkspace = async () => {
+      try {
+        // 1. Check user profile for activeWorkspaceId
+        const userRef = doc(db, 'users', effectiveUser.uid);
+        const userSnap = await getDoc(userRef);
+        let foundWsId = null;
+
+        if (userSnap.exists() && userSnap.data()?.activeWorkspaceId) {
+          foundWsId = userSnap.data().activeWorkspaceId;
+        } else {
+          // 2. Check if user is owner of an existing workspace
+          const wsQuery = query(collection(db, 'workspaces'), where('ownerUid', '==', effectiveUser.uid));
+          const wsSnap = await getDocs(wsQuery);
+          if (!wsSnap.empty) {
+            foundWsId = wsSnap.docs[0].id;
+          }
+        }
+
+        if (foundWsId && isMounted) {
+          setActiveWorkspaceId(foundWsId);
+          try {
+            localStorage.setItem(`tb_active_ws_${uKey}`, foundWsId);
+          } catch {
+            /* ignore */
           }
         }
       } catch (err) {
-        console.warn("Check workspace error:", err);
+        console.warn("Discover workspace error:", err);
       }
     };
 
-    checkExistingWorkspace();
+    discoverWorkspace();
     return () => { isMounted = false; };
-  }, [effectiveUser, workspaceId]);
+  }, [effectiveUser]);
 
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
 
@@ -288,11 +314,13 @@ export default function Dashboard() {
       showToast("Please sign in with an account to create a team workspace.", "info");
       return;
     }
+    const targetWsId = `ws_${effectiveUser.uid}`;
+    const targetWsName = `${effectiveUser.displayName ? `${effectiveUser.displayName}'s` : 'My'} Team Workspace`;
     const finalCode = generateSecureCode('TB');
     const ownerMember = {
       id: effectiveUser.uid,
       name: effectiveUser.displayName || 'Me',
-      role: 'Team Lead',
+      role: 'Workspace Owner',
       email: effectiveUser.email || '',
       status: 'Owner',
       joinedAt: new Date().toISOString()
@@ -300,10 +328,10 @@ export default function Dashboard() {
     const members = [ownerMember];
 
     try {
-      const wsRef = doc(db, 'workspaces', workspaceId);
+      const wsRef = doc(db, 'workspaces', targetWsId);
       await setDoc(wsRef, {
-        id: workspaceId,
-        name: workspaceName,
+        id: targetWsId,
+        name: targetWsName,
         ownerUid: effectiveUser.uid,
         inviteCode: finalCode,
         members,
@@ -314,18 +342,27 @@ export default function Dashboard() {
       await setDoc(doc(db, 'team_codes', finalCode), {
         code: finalCode,
         type: 'workspace',
-        workspaceId,
-        workspaceName,
+        workspaceId: targetWsId,
+        workspaceName: targetWsName,
         ownerUid: effectiveUser.uid,
-        ownerName: effectiveUser.displayName || 'Team Lead',
+        ownerName: effectiveUser.displayName || 'Workspace Owner',
         ownerEmail: effectiveUser.email || '',
         createdAt: new Date().toISOString()
       }, { merge: true });
 
+      // Save activeWorkspaceId into user document in Firestore
+      await setDoc(doc(db, 'users', effectiveUser.uid), {
+        activeWorkspaceId: targetWsId,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+
+      setActiveWorkspaceId(targetWsId);
       setInviteCode(finalCode);
+      setWorkspaceName(targetWsName);
       setTeamMembers(members);
       const uKey = effectiveUser.uid;
       try {
+        localStorage.setItem(`tb_active_ws_${uKey}`, targetWsId);
         localStorage.setItem(`tb_team_code_${uKey}`, finalCode);
         localStorage.setItem(`tb_team_members_${uKey}`, JSON.stringify(members));
       } catch {
@@ -336,7 +373,7 @@ export default function Dashboard() {
       console.warn("Create workspace error:", err);
       showToast("Could not create workspace. Please check your connection.", "error");
     }
-  }, [effectiveUser, generateSecureCode, showToast, workspaceId, workspaceName]);
+  }, [effectiveUser, generateSecureCode, showToast]);
 
   // User Profile & Account Data (synced to Firestore for signed in users)
   // Default tier is strictly 'Core' (Free). Upgrades to Apex Prestige are managed via VIP / Checkout.
@@ -414,14 +451,16 @@ export default function Dashboard() {
     }
   }, [effectiveUser]);
 
-  const handleDispatchNotification = useCallback(({
+  const handleDispatchNotification = useCallback(async ({
     type = 'task_assigned',
     title,
     message,
     taskId,
     assignee,
     priority,
-    project
+    project,
+    author,
+    authorUid
   }) => {
     const timestamp = new Date().toISOString();
     const uniqueId = `notif_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -438,36 +477,62 @@ export default function Dashboard() {
       read: false
     };
 
-    setNotifications(prev => {
-      const updated = [newNotif, ...prev.filter(n => n.id !== newNotif.id)].slice(0, 50);
-      try {
-        localStorage.setItem('tb_notifications_' + (effectiveUser?.uid || 'guest'), JSON.stringify(updated));
-      } catch {
-        /* ignore */
-      }
-      return updated;
-    });
+    const currentUserName = (effectiveUser?.displayName || '').trim().toLowerCase();
+    const isSelfAction = (authorUid && authorUid === effectiveUser?.uid) ||
+      (author && author.trim().toLowerCase() === currentUserName);
 
-    playSound('pop');
-    if (type === 'task_assigned' && assignee) {
+    // If this is a comment or self action authored by the current user, DO NOT add to own notification tray!
+    if (!isSelfAction) {
+      setNotifications(prev => {
+        const updated = [newNotif, ...prev.filter(n => n.id !== newNotif.id)].slice(0, 50);
+        try {
+          localStorage.setItem('tb_notifications_' + (effectiveUser?.uid || 'guest'), JSON.stringify(updated));
+        } catch {
+          /* ignore */
+        }
+        return updated;
+      });
+
+      playSound('pop');
+
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+        try {
+          new Notification(newNotif.title, {
+            body: newNotif.message,
+            icon: appLogo
+          });
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+
+    // Deliver notification to remote teammates in Firestore
+    if (effectiveUser && !effectiveUser.isGuest) {
+      try {
+        if (assignee && assignee !== 'Me' && assignee.toLowerCase() !== currentUserName) {
+          const targetMember = teamMembers.find(m => m.name?.toLowerCase() === assignee.toLowerCase());
+          if (targetMember && targetMember.id && targetMember.id !== effectiveUser.uid) {
+            await addDoc(collection(db, 'users', targetMember.id, 'notifications'), {
+              ...newNotif,
+              author: effectiveUser.displayName || 'Teammate',
+              authorUid: effectiveUser.uid
+            });
+          }
+        }
+      } catch (cloudErr) {
+        console.warn("Deliver cloud notification error:", cloudErr);
+      }
+    }
+
+    if (type === 'task_assigned' && assignee && assignee !== 'Me' && assignee.toLowerCase() !== currentUserName) {
       showToast(`📢 Task assigned to ${assignee}! Notification dispatched.`, 'info');
     } else if (type === 'task_completed') {
       showToast(`🎉 Task completed! Teammates notified.`, 'success');
     } else if (type === 'comment') {
       showToast(`💬 Message posted to task discussion!`, 'success');
     }
-
-    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-      try {
-        new Notification(newNotif.title, {
-          body: newNotif.message,
-          icon: appLogo
-        });
-      } catch {
-        /* ignore */
-      }
-    }
-  }, [effectiveUser, showToast, appLogo]);
+  }, [effectiveUser, showToast, appLogo, teamMembers]);
 
   const handleMarkNotificationRead = (notifId) => {
     setNotifications(prev => {
@@ -706,6 +771,23 @@ export default function Dashboard() {
       setTeamMembers(updated);
     } else {
       updated = teamMembers;
+    }
+
+    // Update user profile in Firestore with active workspace
+    if (codeData.workspaceId && effectiveUser?.uid) {
+      try {
+        await setDoc(doc(db, 'users', effectiveUser.uid), {
+          activeWorkspaceId: codeData.workspaceId,
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+        setActiveWorkspaceId(codeData.workspaceId);
+        setInviteCode(targetCode);
+        setWorkspaceName(targetWsName);
+        localStorage.setItem(`tb_active_ws_${effectiveUser.uid}`, codeData.workspaceId);
+        localStorage.setItem(`tb_team_code_${effectiveUser.uid}`, targetCode);
+      } catch (wsErr) {
+        console.warn("Update active workspace error:", wsErr);
+      }
     }
 
     if (updated) {
@@ -1106,7 +1188,7 @@ export default function Dashboard() {
     showToast("Signed out successfully.", "info");
   };
 
-  // Fetch tasks for either logged in user or guest
+  // Fetch tasks: unified stream of personal tasks + team workspace tasks
   useEffect(() => {
     if (!effectiveUser) {
       return;
@@ -1142,17 +1224,18 @@ export default function Dashboard() {
       };
     }
 
-    const q = query(collection(db, 'users', effectiveUser.uid, 'tasks'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const tasksData = snapshot.docs.map(d => {
-        const data = d.data();
-        return {
-          ...data,
-          id: d.id, // Explicitly assigned last so it cannot be overwritten by data.id!
-          status: data.status === 'Pending' ? 'To Do' : (data.status || 'To Do')
-        };
-      });
-      tasksData.sort((a, b) => {
+    let personalTasks = [];
+    let workspaceTasks = [];
+
+    const sortAndSet = () => {
+      const taskMap = new Map();
+      // First populate workspace tasks
+      workspaceTasks.forEach(t => taskMap.set(t.id, t));
+      // Then personal tasks (ensures personal tasks remain private and can co-exist)
+      personalTasks.forEach(t => taskMap.set(t.id, t));
+
+      const merged = Array.from(taskMap.values());
+      merged.sort((a, b) => {
         if (a.pinned && !b.pinned) return -1;
         if (!a.pinned && b.pinned) return 1;
         if (a.status === 'Completed' && b.status !== 'Completed') return 1;
@@ -1161,23 +1244,71 @@ export default function Dashboard() {
         if (b.deadline === todayStr && a.deadline !== todayStr) return 1;
         return (b.createdAt ? new Date(b.createdAt).getTime() : 0) - (a.createdAt ? new Date(a.createdAt).getTime() : 0);
       });
-      setTasks(tasksData);
+      setTasks(merged);
+      setLoading(false);
+    };
+
+    // 1. Listen to personal tasks
+    const qPersonal = query(collection(db, 'users', effectiveUser.uid, 'tasks'));
+    const unsubPersonal = onSnapshot(qPersonal, (snapshot) => {
+      personalTasks = snapshot.docs.map(d => {
+        const data = d.data();
+        return {
+          ...data,
+          id: d.id,
+          status: data.status === 'Pending' ? 'To Do' : (data.status || 'To Do'),
+          isWorkspaceTask: false
+        };
+      });
+      sortAndSet();
+    }, (err) => {
+      console.warn("Personal tasks sync error:", err);
       setLoading(false);
     });
+
+    // 2. Listen to workspace tasks if active workspace exists
+    let unsubWorkspace = () => {};
+    if (activeWorkspaceId && activeWorkspaceId !== 'local_workspace') {
+      const qWorkspace = query(collection(db, 'workspaces', activeWorkspaceId, 'tasks'));
+      unsubWorkspace = onSnapshot(qWorkspace, (snapshot) => {
+        workspaceTasks = snapshot.docs.map(d => {
+          const data = d.data();
+          return {
+            ...data,
+            id: d.id,
+            workspaceId: activeWorkspaceId,
+            status: data.status === 'Pending' ? 'To Do' : (data.status || 'To Do'),
+            isWorkspaceTask: true
+          };
+        });
+        sortAndSet();
+      }, (err) => console.warn("Workspace tasks sync error:", err));
+    }
+
     return () => {
-      unsubscribe();
+      unsubPersonal();
+      unsubWorkspace();
       setTasks([]);
     };
-  }, [effectiveUser, todayStr]);
+  }, [effectiveUser, activeWorkspaceId, todayStr]);
 
-  // Real-time Firestore sync for Team Workspace members
+  // Real-time Firestore sync for Team Workspace members & metadata
   useEffect(() => {
-    if (!effectiveUser || effectiveUser.isGuest || !workspaceId) return;
+    if (!effectiveUser || effectiveUser.isGuest || !activeWorkspaceId || activeWorkspaceId === 'local_workspace') {
+      return;
+    }
 
-    const wsRef = doc(db, 'workspaces', workspaceId);
+    const wsRef = doc(db, 'workspaces', activeWorkspaceId);
     const unsubscribeWs = onSnapshot(wsRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
+        if (data.inviteCode) {
+          setInviteCode(data.inviteCode);
+          try { localStorage.setItem(`tb_team_code_${effectiveUser.uid}`, data.inviteCode); } catch { /* ignore */ }
+        }
+        if (data.name) {
+          setWorkspaceName(data.name);
+        }
         if (Array.isArray(data.members)) {
           const cloudMembers = data.members;
           const myEmail = (effectiveUser.email || '').toLowerCase();
@@ -1200,21 +1331,14 @@ export default function Dashboard() {
             return true;
           }).map(m => {
             if (m.role === 'Workspace Owner' || m.id === effectiveUser.uid || (m.email && m.email.toLowerCase() === myEmail)) {
-              return { ...m, name: myName, email: effectiveUser.email || m.email, role: 'Workspace Owner', status: 'Owner' };
+              return {
+                ...m,
+                name: m.id === effectiveUser.uid ? myName : m.name,
+                email: m.id === effectiveUser.uid ? (effectiveUser.email || m.email) : m.email
+              };
             }
             return m;
           });
-
-          // Ensure owner is present
-          if (!reconciled.some(m => m.status === 'Owner' || m.id === effectiveUser.uid)) {
-            reconciled.unshift({
-              id: effectiveUser.uid,
-              name: myName,
-              role: 'Workspace Owner',
-              email: effectiveUser.email || 'owner@workspace.com',
-              status: 'Owner'
-            });
-          }
 
           setTeamMembers(reconciled);
           try {
@@ -1229,7 +1353,7 @@ export default function Dashboard() {
     });
 
     return () => unsubscribeWs();
-  }, [effectiveUser, workspaceId]);
+  }, [effectiveUser, activeWorkspaceId]);
 
   // Real-time Firestore sync for Notifications
   useEffect(() => {
@@ -1324,7 +1448,9 @@ export default function Dashboard() {
       setDistractionCount(prev => prev + 1);
       setDistractionsLog(prev => [record, ...prev.slice(0, 14)]);
       setLastDistractionNotice(`${reason} at ${timeStr}`);
+      setIsTimerRunning(false); // Instantly pause the countdown timer on distraction
       playSound('warn');
+      showToast(`Focus timer paused due to distraction (${reason}). Click Resume when ready.`, "warning");
     };
 
     const handleVisibilityChange = () => {
@@ -1350,7 +1476,7 @@ export default function Dashboard() {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('blur', handleWindowBlur);
     };
-  }, [isFocusModeActive, isTimerRunning]);
+  }, [isFocusModeActive, isTimerRunning, showToast]);
 
   // Keep screen awake during active Focus Mode
   useEffect(() => {
@@ -1366,7 +1492,7 @@ export default function Dashboard() {
       wakeLockRef.current?.release().catch(() => { });
       wakeLockRef.current = null;
     };
-  }, [isFocusModeActive, isTimerRunning]);
+  }, [isFocusModeActive, isTimerRunning, showToast]);
 
   const toggleBrownNoise = () => {
     if (isNoisePlaying) {
@@ -1467,28 +1593,39 @@ export default function Dashboard() {
       setTasks(updated);
       localStorage.setItem('tb_guest_tasks', JSON.stringify(updated));
     } else if (effectiveUser?.uid) {
-      await updateDoc(doc(db, 'users', effectiveUser.uid, 'tasks', taskId), payload);
+      await updateDoc(getTaskDocRef(currentTask, taskId), payload);
     }
   };
 
+  const getTaskDocRef = useCallback((targetTask, taskId) => {
+    const isWs = targetTask?.isWorkspaceTask || targetTask?.workspaceId;
+    const wsId = targetTask?.workspaceId || activeWorkspaceId;
+    if (isWs && wsId && wsId !== 'local_workspace') {
+      return doc(db, 'workspaces', wsId, 'tasks', taskId);
+    }
+    return doc(db, 'users', effectiveUser.uid, 'tasks', taskId);
+  }, [activeWorkspaceId, effectiveUser]);
+
   const handleUpdateTaskField = async (taskId, fields) => {
+    const targetTask = tasks.find(t => t.id === taskId);
     if (effectiveUser?.isGuest) {
       const updated = tasks.map(t => t.id === taskId ? { ...t, ...fields } : t);
       setTasks(updated);
       localStorage.setItem('tb_guest_tasks', JSON.stringify(updated));
     } else if (effectiveUser?.uid) {
-      await updateDoc(doc(db, 'users', effectiveUser.uid, 'tasks', taskId), fields);
+      await updateDoc(getTaskDocRef(targetTask, taskId), fields);
     }
   };
 
   const handleDelete = (id) => {
     confirmAction("Are you sure you want to delete this task?", async () => {
+      const targetTask = tasks.find(t => t.id === id);
       if (effectiveUser?.isGuest) {
         const updated = tasks.filter(t => t.id !== id);
         setTasks(updated);
         localStorage.setItem('tb_guest_tasks', JSON.stringify(updated));
       } else if (effectiveUser?.uid) {
-        await deleteDoc(doc(db, 'users', effectiveUser.uid, 'tasks', id));
+        await deleteDoc(getTaskDocRef(targetTask, id));
       }
       showToast("Task deleted", "info");
     });
@@ -1511,7 +1648,7 @@ export default function Dashboard() {
       setTasks(updated);
       localStorage.setItem('tb_guest_tasks', JSON.stringify(updated));
     } else if (effectiveUser?.uid) {
-      await updateDoc(doc(db, 'users', effectiveUser.uid, 'tasks', task.id), { pinned: newPinned });
+      await updateDoc(getTaskDocRef(task, task.id), { pinned: newPinned });
     }
     showToast(newPinned ? "Task pinned to top" : "Task unpinned", "info");
   };
@@ -1532,7 +1669,11 @@ export default function Dashboard() {
       setTasks(updated);
       localStorage.setItem('tb_guest_tasks', JSON.stringify(updated));
     } else if (effectiveUser?.uid) {
-      await addDoc(collection(db, 'users', effectiveUser.uid, 'tasks'), duplicatePayload);
+      if (task.isWorkspaceTask && (task.workspaceId || activeWorkspaceId)) {
+        await addDoc(collection(db, 'workspaces', task.workspaceId || activeWorkspaceId, 'tasks'), duplicatePayload);
+      } else {
+        await addDoc(collection(db, 'users', effectiveUser.uid, 'tasks'), duplicatePayload);
+      }
     }
     showToast("Task duplicated!", "success");
   };
@@ -1552,7 +1693,17 @@ export default function Dashboard() {
       setTasks(updated);
       localStorage.setItem('tb_guest_tasks', JSON.stringify(updated));
     } else if (effectiveUser?.uid) {
-      await addDoc(collection(db, 'users', effectiveUser.uid, 'tasks'), payload);
+      if (activeNavTab === 'team' && activeWorkspaceId && activeWorkspaceId !== 'local_workspace') {
+        await addDoc(collection(db, 'workspaces', activeWorkspaceId, 'tasks'), {
+          ...payload,
+          workspaceId: activeWorkspaceId,
+          project: 'Team Workspace',
+          creatorUid: effectiveUser.uid,
+          creatorName: effectiveUser.displayName || 'Teammate'
+        });
+      } else {
+        await addDoc(collection(db, 'users', effectiveUser.uid, 'tasks'), payload);
+      }
     }
     showToast("Task added successfully!", "success");
   };
@@ -1567,7 +1718,7 @@ export default function Dashboard() {
         localStorage.setItem('tb_guest_tasks', JSON.stringify(updated));
       } else if (effectiveUser?.uid) {
         for (const t of completedTasks) {
-          await deleteDoc(doc(db, 'users', effectiveUser.uid, 'tasks', t.id));
+          await deleteDoc(getTaskDocRef(t, t.id));
         }
       }
       showToast("Completed tasks cleared!", "success");
@@ -2577,17 +2728,19 @@ export default function Dashboard() {
                 </div>
 
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full md:w-auto shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      navigator.clipboard.writeText(inviteCode);
-                      showToast(`Team Code ${inviteCode} copied!`, "success");
-                    }}
-                    className="px-3.5 py-2.5 rounded-2xl bg-white/15 hover:bg-white/25 border border-white/30 text-white font-mono text-xs font-black transition-all flex items-center justify-center gap-1.5 shadow-sm"
-                    title="Click to Copy Team Code"
-                  >
-                    <Copy size={13} /> Code: {inviteCode}
-                  </button>
+                  {inviteCode && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(inviteCode);
+                        showToast(`Team Code ${inviteCode} copied!`, "success");
+                      }}
+                      className="px-3.5 py-2.5 rounded-2xl bg-white/15 hover:bg-white/25 border border-white/30 text-white font-mono text-xs font-black transition-all flex items-center justify-center gap-1.5 shadow-sm"
+                      title="Click to Copy Team Code"
+                    >
+                      <Copy size={13} /> Code: {inviteCode}
+                    </button>
+                  )}
 
                   <button
                     type="button"
@@ -2929,7 +3082,7 @@ export default function Dashboard() {
               </div>
 
               {/* Quick Capture Input */}
-              <div className={`relative flex flex-col sm:flex-row items-stretch sm:items-center bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-2xl p-1.5 md:p-2 focus-within:ring-2 focus-within:ring-blue-500 shadow-sm gap-2 sm:gap-0 ${isQuickPriorityOpen ? 'z-[100]' : 'z-20'}`}>
+              <div className={`relative flex flex-col sm:flex-row items-stretch sm:items-center bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-2xl p-1.5 md:p-2 focus-within:ring-2 focus-within:ring-blue-500 shadow-sm gap-2 sm:gap-0 ${isQuickPriorityOpen ? 'z-[100]' : 'z-30'}`}>
                 <div className="flex items-center flex-1 px-2 sm:px-0">
                   <Plus size={20} className="text-gray-400 hidden sm:block mx-2 shrink-0" />
                   <input
@@ -2960,7 +3113,7 @@ export default function Dashboard() {
               </div>
 
               {/* 4 Stats Cards */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 relative z-0">
                 <div className="bg-white dark:bg-slate-800 p-4 md:p-6 rounded-2xl md:rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm relative overflow-hidden group">
                   <div className="absolute top-0 right-0 p-3 md:p-4 opacity-10">
                     <ListTodo size={48} className="md:w-16 md:h-16 dark:text-white" />
@@ -3161,6 +3314,7 @@ export default function Dashboard() {
           prefilledProject={prefilledProject}
           allAssignees={allAssignees}
           allProjects={allProjectNames}
+          activeWorkspaceId={activeWorkspaceId}
           onNotifyTeammate={handleDispatchNotification}
         />
       )}

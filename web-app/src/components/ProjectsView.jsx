@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Folder, Plus, ChevronRight, X, Trash2, Copy, Check, Share2, ShieldCheck, Sparkles } from 'lucide-react';
-import { doc, setDoc, deleteDoc, collection, getDocs } from 'firebase/firestore';
+import { doc, setDoc, deleteDoc, collection, onSnapshot, query } from 'firebase/firestore';
 import { db } from '../firebase';
 import { PLAN_LIMITS } from '../utils/planLimits';
 
@@ -61,29 +61,48 @@ export default function ProjectsView({
     color: 'blue'
   });
 
-  // Pull projects from Firestore for signed in users
+  // Real-time Firestore sync for Projects (both personal & workspace projects)
   useEffect(() => {
     if (!user || user.isGuest) return;
-    let isMounted = true;
-    const fetchCloudProjects = async () => {
+
+    let personalProjects = [];
+    let wsProjects = [];
+
+    const mergeAndSet = () => {
+      const projMap = new Map();
+      wsProjects.forEach(p => projMap.set(p.id, p));
+      personalProjects.forEach(p => projMap.set(p.id, p));
+      const combined = Array.from(projMap.values());
+      setCustomProjects(combined);
       try {
-        const snap = await getDocs(collection(db, 'users', user.uid, 'projects'));
-        if (!snap.empty && isMounted) {
-          const cloudList = snap.docs.map(d => ({ ...d.data(), id: d.id }));
-          setCustomProjects(cloudList);
-          try {
-            localStorage.setItem(`tb_projects_${user.uid}`, JSON.stringify(cloudList));
-          } catch {
-            /* ignore */
-          }
-        }
-      } catch (err) {
-        console.warn("Cloud projects load error:", err);
+        localStorage.setItem(`tb_projects_${user.uid}`, JSON.stringify(combined));
+      } catch {
+        /* ignore */
       }
     };
-    fetchCloudProjects();
-    return () => { isMounted = false; };
-  }, [user]);
+
+    // 1. Listen to personal projects
+    const qPersonal = query(collection(db, 'users', user.uid, 'projects'));
+    const unsubPersonal = onSnapshot(qPersonal, (snap) => {
+      personalProjects = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+      mergeAndSet();
+    }, (err) => console.warn("Personal projects load error:", err));
+
+    // 2. Listen to workspace projects if workspace is active
+    let unsubWs = () => {};
+    if (workspaceId && workspaceId !== 'local_workspace') {
+      const qWs = query(collection(db, 'workspaces', workspaceId, 'projects'));
+      unsubWs = onSnapshot(qWs, (snap) => {
+        wsProjects = snap.docs.map(d => ({ ...d.data(), id: d.id, isWorkspaceProject: true }));
+        mergeAndSet();
+      }, (err) => console.warn("Workspace projects load error:", err));
+    }
+
+    return () => {
+      unsubPersonal();
+      unsubWs();
+    };
+  }, [user, workspaceId]);
 
   // Collect all projects (both from tasks and custom created strictly for this user)
   const taskProjects = Array.from(new Set(tasks.map(t => t.project?.trim()).filter(Boolean)));
@@ -113,10 +132,14 @@ export default function ProjectsView({
     const currentKey = user?.isGuest ? 'guest' : (user?.uid || 'guest');
     localStorage.setItem(`tb_projects_${currentKey}`, JSON.stringify(updated));
 
-    // Register unique project in Firestore
+    // Register project in Firestore (Workspace or User)
     if (user && !user.isGuest) {
       try {
-        await setDoc(doc(db, 'users', user.uid, 'projects', newProjObj.id), newProjObj);
+        if (workspaceId && workspaceId !== 'local_workspace') {
+          await setDoc(doc(db, 'workspaces', workspaceId, 'projects', newProjObj.id), newProjObj);
+        } else {
+          await setDoc(doc(db, 'users', user.uid, 'projects', newProjObj.id), newProjObj);
+        }
         await setDoc(doc(db, 'team_codes', projCode), {
           code: projCode,
           type: 'project',
@@ -148,6 +171,11 @@ export default function ProjectsView({
 
     if (user && !user.isGuest) {
       try {
+        if (targetProj?.isWorkspaceProject && workspaceId) {
+          await deleteDoc(doc(db, 'workspaces', workspaceId, 'projects', projId));
+        } else {
+          await deleteDoc(doc(db, 'users', user.uid, 'projects', projId));
+        }
         await deleteDoc(doc(db, 'users', user.uid, 'projects', projId));
         if (targetProj?.code) {
           await deleteDoc(doc(db, 'team_codes', targetProj.code));

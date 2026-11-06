@@ -65,6 +65,7 @@ export default function TaskForm({
   prefilledProject = '',
   prefilledPriority = '',
   allProjects = [],
+  activeWorkspaceId = '',
   _isApex = false,
   _onOpenApexModal,
   onNotifyTeammate
@@ -142,9 +143,16 @@ export default function TaskForm({
         }
       } else {
         try {
-          await updateDoc(doc(db, 'users', user.uid, 'tasks', taskToEdit.id), {
-            comments: updatedComments
-          });
+          if (taskToEdit.isWorkspaceTask || taskToEdit.workspaceId || activeWorkspaceId) {
+            const targetWsId = taskToEdit.workspaceId || activeWorkspaceId;
+            await updateDoc(doc(db, 'workspaces', targetWsId, 'tasks', taskToEdit.id), {
+              comments: updatedComments
+            });
+          } else {
+            await updateDoc(doc(db, 'users', user.uid, 'tasks', taskToEdit.id), {
+              comments: updatedComments
+            });
+          }
           showToast("Comment posted to team!", "success");
         } catch {
           showToast("Failed to sync comment.", "error");
@@ -158,7 +166,9 @@ export default function TaskForm({
         message: `${user?.displayName || 'Teammate'} commented: "${commentObj.text}"`,
         project: task.project,
         priority: task.priority,
-        assignee: task.assignee
+        assignee: task.assignee,
+        author: user?.displayName || 'User',
+        authorUid: user?.uid
       });
     }
   };
@@ -189,7 +199,7 @@ export default function TaskForm({
         window.dispatchEvent(new Event('tb_guest_tasks_updated'));
 
         if (finalPayload.assignee && finalPayload.assignee !== 'Me' && finalPayload.assignee !== user.displayName) {
-          onNotifyTeammate?.({ ...finalPayload, id: targetId }, !taskToEdit?.id);
+          onNotifyTeammate?.({ ...finalPayload, id: targetId, author: user.displayName, authorUid: user.uid }, !taskToEdit?.id);
         }
 
         onClose();
@@ -198,19 +208,41 @@ export default function TaskForm({
 
       let savedTaskId = taskToEdit?.id;
       if (taskToEdit && taskToEdit.id) {
-        await updateDoc(doc(db, 'users', user.uid, 'tasks', taskToEdit.id), finalPayload);
+        if (taskToEdit.isWorkspaceTask || taskToEdit.workspaceId) {
+          const targetWsId = taskToEdit.workspaceId || activeWorkspaceId;
+          await updateDoc(doc(db, 'workspaces', targetWsId, 'tasks', taskToEdit.id), finalPayload);
+        } else {
+          await updateDoc(doc(db, 'users', user.uid, 'tasks', taskToEdit.id), finalPayload);
+        }
         showToast("Task updated.", "success");
       } else {
-        const docRef = await addDoc(collection(db, 'users', user.uid, 'tasks'), {
-          ...finalPayload,
-          createdAt: new Date().toISOString()
-        });
-        savedTaskId = docRef.id;
+        // If task is assigned to a teammate or part of team workspace, store in workspace
+        const isTeamTask = activeWorkspaceId && (
+          finalPayload.project === 'Team Workspace' ||
+          (finalPayload.assignee && finalPayload.assignee !== 'Me' && finalPayload.assignee !== user.displayName)
+        );
+
+        if (isTeamTask) {
+          const docRef = await addDoc(collection(db, 'workspaces', activeWorkspaceId, 'tasks'), {
+            ...finalPayload,
+            workspaceId: activeWorkspaceId,
+            creatorUid: user.uid,
+            creatorName: user.displayName || 'Teammate',
+            createdAt: new Date().toISOString()
+          });
+          savedTaskId = docRef.id;
+        } else {
+          const docRef = await addDoc(collection(db, 'users', user.uid, 'tasks'), {
+            ...finalPayload,
+            createdAt: new Date().toISOString()
+          });
+          savedTaskId = docRef.id;
+        }
         showToast("New task created.", "success");
       }
 
       if (finalPayload.assignee && finalPayload.assignee !== 'Me' && finalPayload.assignee !== user.displayName) {
-        onNotifyTeammate?.({ ...finalPayload, id: savedTaskId }, !taskToEdit?.id);
+        onNotifyTeammate?.({ ...finalPayload, id: savedTaskId, author: user.displayName, authorUid: user.uid }, !taskToEdit?.id);
       }
 
       onClose();

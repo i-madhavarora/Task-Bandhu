@@ -264,7 +264,7 @@ export default function Sidebar({
               >
                 <div className="flex items-center gap-1.5">
                   <Sparkles size={13} className="text-amber-500 group-hover:scale-110 transition-transform" />
-                  <span className="text-xs font-black">Upgrade to Apex</span>
+                  <span className="text-xs font-black">Apex Preview</span>
                 </div>
                 <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 text-amber-950 shadow-xs">
                   ✦ Prestige

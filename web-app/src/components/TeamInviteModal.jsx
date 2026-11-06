@@ -182,6 +182,24 @@ export default function TeamInviteModal({
           )}
 
           {activeTab === 'invite' ? (
+            !inviteCode ? (
+              <div className="p-6 bg-gray-50 dark:bg-slate-800/60 rounded-3xl border border-gray-100 dark:border-slate-700 text-center space-y-3">
+                <div className="w-12 h-12 rounded-2xl bg-cyan-50 dark:bg-cyan-900/30 text-cyan-600 dark:text-cyan-400 flex items-center justify-center mx-auto">
+                  <Users size={22} />
+                </div>
+                <h3 className="text-sm font-bold text-gray-800 dark:text-white">No Team Workspace Created Yet</h3>
+                <p className="text-xs text-gray-500 dark:text-slate-400 max-w-sm mx-auto leading-relaxed">
+                  To get a shareable invite link and Team Code, first click &quot;Create Team Workspace&quot; in the Team Workspaces tab, or switch to the &quot;Join Another Team&quot; tab above if you have a colleague&apos;s code.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('join')}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all inline-flex items-center gap-1.5"
+                >
+                  <ArrowRight size={13} /> Join Team with Code
+                </button>
+              </div>
+            ) : (
             <>
               {/* Shareable Link Box */}
               <div className="space-y-2">
@@ -268,50 +286,48 @@ export default function TeamInviteModal({
                 </div>
               </div>
 
-              {/* Direct Member Roster Pre-Registration */}
-              <div className="pt-2 border-t border-gray-100 dark:border-slate-800">
-                <span className="text-xs font-bold text-gray-700 dark:text-slate-300 flex items-center gap-1.5 mb-2.5">
-                  <Mail size={14} className="text-blue-600" /> Pre-register Teammate Email
-                </span>
-                <form onSubmit={handleDirectEmailInvite} className="space-y-2.5">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <input
-                      type="text"
-                      placeholder="Teammate Name..."
-                      value={inviteName}
-                      onChange={(e) => setInviteName(e.target.value)}
-                      className="px-3 py-2 text-xs rounded-xl bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40"
-                    />
-                    <input
-                      type="email"
-                      required
-                      placeholder="teammate@company.com"
-                      value={inviteEmail}
-                      onChange={(e) => setInviteEmail(e.target.value)}
-                      className="px-3 py-2 text-xs rounded-xl bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40"
-                    />
-                  </div>
-                  <div className="flex gap-2">
-                    <select
-                      value={inviteRole}
-                      onChange={(e) => setInviteRole(e.target.value)}
-                      className="px-3 py-2 text-xs rounded-xl bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-800 dark:text-white outline-none"
-                    >
-                      <option value="Member">Member</option>
-                      <option value="Lead Developer">Lead Developer</option>
-                      <option value="UI/UX Designer">UI/UX Designer</option>
-                      <option value="Product Manager">Product Manager</option>
-                    </select>
-                    <button
-                      type="submit"
-                      className="flex-1 py-2 px-4 bg-gray-900 dark:bg-slate-700 hover:bg-black text-white text-xs font-extrabold rounded-xl transition-colors shadow-sm flex items-center justify-center gap-1.5"
-                    >
-                      <Sparkles size={13} /> Add to Workspace Roster
-                    </button>
-                  </div>
-                </form>
-              </div>
+              {/* Direct Email Invite Form */}
+              <form onSubmit={handleDirectEmailInvite} className="space-y-3 pt-2 border-t border-gray-100 dark:border-slate-800">
+                <label className="text-xs font-bold text-gray-700 dark:text-slate-300 flex items-center gap-1.5">
+                  <Mail size={14} className="text-blue-600" /> Pre-register Teammate via Email
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <input
+                    type="text"
+                    placeholder="Full Name (optional)"
+                    className="bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-gray-800 dark:text-white outline-none focus:ring-2 ring-blue-500/30"
+                    value={inviteName}
+                    onChange={(e) => setInviteName(e.target.value)}
+                  />
+                  <select
+                    value={inviteRole}
+                    onChange={(e) => setInviteRole(e.target.value)}
+                    className="bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-gray-800 dark:text-white outline-none font-semibold focus:ring-2 ring-blue-500/30"
+                  >
+                    <option value="Member">Member</option>
+                    <option value="Project Lead">Project Lead</option>
+                    <option value="Reviewer">Reviewer</option>
+                  </select>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="email"
+                    required
+                    placeholder="colleague@company.com"
+                    className="flex-1 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-gray-800 dark:text-white outline-none focus:ring-2 ring-blue-500/30"
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                  />
+                  <button
+                    type="submit"
+                    className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95 shrink-0"
+                  >
+                    Add Teammate
+                  </button>
+                </div>
+              </form>
             </>
+            )
           ) : (
             /* Join Team Tab */
             <div className="py-2 space-y-4">

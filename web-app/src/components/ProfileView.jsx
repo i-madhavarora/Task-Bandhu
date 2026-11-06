@@ -95,7 +95,7 @@ export default function ProfileView({
                       onClick={onOpenApexModal}
                       className="px-2.5 py-0.5 rounded-full text-[10px] font-black tracking-wide bg-gradient-to-r from-amber-400 to-amber-500 text-amber-950 hover:from-amber-300 hover:to-amber-400 shadow-sm transition-all flex items-center gap-1"
                     >
-                      <Crown size={11} /> Upgrade to Apex
+                      <Crown size={11} /> Apex Preview
                     </button>
                   </div>
                 )}
@@ -364,7 +364,7 @@ export default function ProfileView({
             <div className="p-3 rounded-2xl bg-gray-50 dark:bg-slate-900/60 border border-gray-100 dark:border-slate-700 mt-4 space-y-2">
               <div className="flex items-center justify-between text-xs font-bold">
                 <span className="text-gray-400">Team Code:</span>
-                <span className="font-mono text-blue-600 dark:text-blue-400 font-black">{inviteCode || 'TB-DEFAULT'}</span>
+                <span className="font-mono text-blue-600 dark:text-blue-400 font-black">{inviteCode || 'No Team Code Yet'}</span>
               </div>
               <div className="flex items-center justify-between text-xs font-bold">
                 <span className="text-gray-400">Your Role:</span>
