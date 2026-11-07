@@ -66,6 +66,7 @@ export default function TaskForm({
   prefilledPriority = '',
   allProjects = [],
   activeWorkspaceId = '',
+  currentWorkspaceType = 'personal',
   _isApex = false,
   _onOpenApexModal,
   onNotifyTeammate
@@ -216,8 +217,9 @@ export default function TaskForm({
         }
         showToast("Task updated.", "success");
       } else {
-        // If task is assigned to a teammate or part of team workspace, store in workspace
+        // If task is created in team workspace mode OR assigned to a teammate, store in workspace collection
         const isTeamTask = activeWorkspaceId && (
+          currentWorkspaceType === 'team' ||
           finalPayload.project === 'Team Workspace' ||
           (finalPayload.assignee && finalPayload.assignee !== 'Me' && finalPayload.assignee !== user.displayName)
         );
@@ -256,13 +258,21 @@ export default function TaskForm({
   const availableMembers = useMemo(() => {
     const myName = (user?.displayName || '').trim();
     const sourceList = allAssignees && allAssignees.length > 0 ? allAssignees : [myName || 'Me'];
-    return Array.from(new Set(sourceList.map(m => m?.trim()).filter(Boolean))).filter(m => {
-      // Remove redundant 'Me' if real user name exists
-      if (m.toLowerCase() === 'me' && myName && myName.toLowerCase() !== 'me') {
-        return false;
+    const unique = [];
+    const seen = new Set();
+    for (const m of sourceList) {
+      if (!m) continue;
+      const clean = m.trim();
+      const lower = clean.toLowerCase();
+      // Drop redundant 'me' if real user name exists
+      if (lower === 'me' && myName && myName.toLowerCase() !== 'me') {
+        continue;
       }
-      return true;
-    });
+      if (seen.has(lower)) continue;
+      seen.add(lower);
+      unique.push(clean);
+    }
+    return unique;
   }, [allAssignees, user]);
 
   return (

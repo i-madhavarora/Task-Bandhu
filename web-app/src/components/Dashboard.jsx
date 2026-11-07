@@ -8,9 +8,10 @@ import {
   Sparkles, CheckSquare, Settings2, Bell, CheckCircle, ShieldAlert, ShieldCheck,
   UserPlus, Lock
 } from 'lucide-react';
-import { collection, onSnapshot, query, doc, deleteDoc, updateDoc, addDoc, setDoc, getDoc, where, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, query, doc, deleteDoc, updateDoc, addDoc, setDoc, getDoc, where, getDocs, writeBatch } from 'firebase/firestore';
 import { onAuthStateChanged, signOut, updateProfile } from 'firebase/auth';
 import { db, auth } from '../firebase';
+import { getLocalTodayStr, isTaskOverdue, isTaskDueToday } from '../utils/dateUtils';
 import TaskForm from './TaskForm';
 import Sidebar from './Sidebar';
 import AuthModal from './AuthModal';
@@ -125,8 +126,8 @@ const CustomDropdown = ({ options, value, onChange, className = '', onOpenChange
       </button>
       {isOpen && (
         <>
-          <div className="fixed inset-0 z-[110]" onClick={handleClose}></div>
-          <div className={`absolute ${computedDropUp ? 'bottom-full mb-1.5' : 'top-full mt-1.5'} left-0 w-full min-w-[150px] bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl shadow-2xl z-[120] py-1`}>
+          <div className="fixed inset-0 z-[140]" onClick={handleClose}></div>
+          <div className={`absolute ${computedDropUp ? 'bottom-full mb-1.5' : 'top-full mt-1.5'} right-0 w-full min-w-[150px] bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl shadow-2xl z-[150] py-1`}>
             {options.map(opt => (
               <button
                 key={opt}
@@ -146,6 +147,45 @@ const CustomDropdown = ({ options, value, onChange, className = '', onOpenChange
       )}
     </div>
   );
+};
+
+const computeAllNotifications = (tasks, notifications, readAlertIds) => {
+  const deadlineNotifs = [];
+  const dueTodayTasks = tasks.filter(t => isTaskDueToday(t));
+  const overdueTasks = tasks.filter(t => isTaskOverdue(t));
+
+  for (const t of overdueTasks) {
+    const alertId = `alert_overdue_${t.id}_${t.deadline}`;
+    deadlineNotifs.push({
+      id: alertId,
+      type: 'overdue',
+      title: `🚨 Overdue Task: ${t.title}`,
+      message: `Task "${t.title}" passed its deadline (${t.deadline}${t.endTime ? ` at ${t.endTime}` : ''}). Click to reschedule or mark completed.`,
+      taskId: t.id,
+      project: t.project || 'General Workspace',
+      priority: 'Urgent',
+      createdAt: t.createdAt || t.deadline || '',
+      read: readAlertIds.has(alertId)
+    });
+  }
+
+  for (const t of dueTodayTasks) {
+    const alertId = `alert_due_${t.id}_${t.deadline}`;
+    deadlineNotifs.push({
+      id: alertId,
+      type: 'due_today',
+      title: `⏰ Due Today: ${t.title}`,
+      message: `Today is the deadline for "${t.title}"${t.endTime ? ` (by ${t.endTime})` : ''}.`,
+      taskId: t.id,
+      project: t.project || 'General Workspace',
+      priority: t.priority || 'Medium',
+      createdAt: t.createdAt || t.deadline || '',
+      read: readAlertIds.has(alertId)
+    });
+  }
+
+  const merged = [...deadlineNotifs, ...notifications];
+  return merged.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
 };
 
 export default function Dashboard() {
@@ -231,6 +271,20 @@ export default function Dashboard() {
   });
 
   const workspaceId = activeWorkspaceId || (effectiveUser?.isGuest ? 'local_workspace' : '');
+  const [currentWorkspaceType, setCurrentWorkspaceType] = useState(() => {
+    try {
+      return localStorage.getItem('tb_workspace_mode') || 'personal';
+    } catch {
+      return 'personal';
+    }
+  });
+
+  const handleSelectWorkspaceType = useCallback((type) => {
+    setCurrentWorkspaceType(type);
+    try {
+      localStorage.setItem('tb_workspace_mode', type);
+    } catch { /* ignore */ }
+  }, []);
 
   // Automatically discover and load active workspace from Firestore on sign-in
   useEffect(() => {
@@ -255,6 +309,26 @@ export default function Dashboard() {
           const wsSnap = await getDocs(wsQuery);
           if (!wsSnap.empty) {
             foundWsId = wsSnap.docs[0].id;
+          } else {
+            // 3. Check if user is a member of an existing workspace in Firestore
+            try {
+              const allWsSnap = await getDocs(collection(db, 'workspaces'));
+              for (const docD of allWsSnap.docs) {
+                const data = docD.data();
+                if (Array.isArray(data.members)) {
+                  const isMember = data.members.some(m =>
+                    (m.id && m.id === effectiveUser.uid) ||
+                    (m.email && m.email.toLowerCase() === (effectiveUser.email || '').toLowerCase())
+                  );
+                  if (isMember) {
+                    foundWsId = docD.id;
+                    break;
+                  }
+                }
+              }
+            } catch (err) {
+              console.warn("Scan member workspaces error:", err);
+            }
           }
         }
 
@@ -293,6 +367,16 @@ export default function Dashboard() {
       ];
     } catch {
       return [];
+    }
+  });
+
+  const [readAlertIds, setReadAlertIds] = useState(() => {
+    try {
+      const uKey = effectiveUser?.uid || 'guest';
+      const saved = localStorage.getItem(`tb_read_alerts_${uKey}`);
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch {
+      return new Set();
     }
   });
 
@@ -510,15 +594,28 @@ export default function Dashboard() {
     // Deliver notification to remote teammates in Firestore
     if (effectiveUser && !effectiveUser.isGuest) {
       try {
+        const targetRecipients = new Set();
+        // 1. Deliver to workspace members (excluding the author)
+        teamMembers.forEach(m => {
+          if (m.id && m.id !== effectiveUser.uid && m.status !== 'Invited') {
+            targetRecipients.add(m.id);
+          }
+        });
+
+        // 2. Deliver to specific assignee if matched
         if (assignee && assignee !== 'Me' && assignee.toLowerCase() !== currentUserName) {
           const targetMember = teamMembers.find(m => m.name?.toLowerCase() === assignee.toLowerCase());
           if (targetMember && targetMember.id && targetMember.id !== effectiveUser.uid) {
-            await addDoc(collection(db, 'users', targetMember.id, 'notifications'), {
-              ...newNotif,
-              author: effectiveUser.displayName || 'Teammate',
-              authorUid: effectiveUser.uid
-            });
+            targetRecipients.add(targetMember.id);
           }
+        }
+
+        for (const recipientUid of targetRecipients) {
+          await addDoc(collection(db, 'users', recipientUid, 'notifications'), {
+            ...newNotif,
+            author: effectiveUser.displayName || 'Teammate',
+            authorUid: effectiveUser.uid
+          });
         }
       } catch (cloudErr) {
         console.warn("Deliver cloud notification error:", cloudErr);
@@ -534,7 +631,7 @@ export default function Dashboard() {
     }
   }, [effectiveUser, showToast, appLogo, teamMembers]);
 
-  const handleMarkNotificationRead = (notifId) => {
+  const handleMarkNotificationRead = async (notifId) => {
     setNotifications(prev => {
       const updated = prev.map(n => n.id === notifId ? { ...n, read: true } : n);
       try {
@@ -544,9 +641,31 @@ export default function Dashboard() {
       }
       return updated;
     });
+
+    setReadAlertIds(prev => {
+      const next = new Set(prev);
+      next.add(notifId);
+      try {
+        const uKey = effectiveUser?.uid || 'guest';
+        localStorage.setItem(`tb_read_alerts_${uKey}`, JSON.stringify(Array.from(next)));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+
+    if (effectiveUser && !effectiveUser.isGuest) {
+      try {
+        await updateDoc(doc(db, 'users', effectiveUser.uid, 'notifications', notifId), {
+          read: true
+        });
+      } catch {
+        /* Dynamic synthetic alert or already updated */
+      }
+    }
   };
 
-  const handleMarkAllNotificationsRead = () => {
+  const handleMarkAllNotificationsRead = async () => {
     setNotifications(prev => {
       const updated = prev.map(n => ({ ...n, read: true }));
       try {
@@ -556,6 +675,35 @@ export default function Dashboard() {
       }
       return updated;
     });
+
+    setReadAlertIds(prev => {
+      const next = new Set(prev);
+      allNotifications.forEach(n => next.add(n.id));
+      try {
+        const uKey = effectiveUser?.uid || 'guest';
+        localStorage.setItem(`tb_read_alerts_${uKey}`, JSON.stringify(Array.from(next)));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+
+    if (effectiveUser && !effectiveUser.isGuest) {
+      try {
+        const unreadQuery = query(collection(db, 'users', effectiveUser.uid, 'notifications'), where('read', '==', false));
+        const unreadSnap = await getDocs(unreadQuery);
+        if (!unreadSnap.empty) {
+          const batch = writeBatch(db);
+          unreadSnap.docs.forEach(d => {
+            batch.update(d.ref, { read: true });
+          });
+          await batch.commit();
+        }
+      } catch (err) {
+        console.warn("Firestore batch mark read error:", err);
+      }
+    }
+
     showToast("All notifications marked as read.", "success");
   };
 
@@ -569,8 +717,30 @@ export default function Dashboard() {
     showToast("Notifications cleared.", "info");
   };
 
-  const handleSelectTaskFromNotification = (taskId) => {
-    const target = tasks.find(t => t.id === taskId);
+  const handleSelectTaskFromNotification = async (taskId) => {
+    if (!taskId) return;
+    let target = tasks.find(t => t.id === taskId);
+    if (!target && activeWorkspaceId && activeWorkspaceId !== 'local_workspace') {
+      try {
+        const wsTaskSnap = await getDoc(doc(db, 'workspaces', activeWorkspaceId, 'tasks', taskId));
+        if (wsTaskSnap.exists()) {
+          target = { ...wsTaskSnap.data(), id: wsTaskSnap.id, isWorkspaceTask: true, workspaceId: activeWorkspaceId };
+        }
+      } catch (err) {
+        console.warn("Fetch workspace task from notif error:", err);
+      }
+    }
+    if (!target && effectiveUser?.uid) {
+      try {
+        const userTaskSnap = await getDoc(doc(db, 'users', effectiveUser.uid, 'tasks', taskId));
+        if (userTaskSnap.exists()) {
+          target = { ...userTaskSnap.data(), id: userTaskSnap.id, isWorkspaceTask: false };
+        }
+      } catch (err) {
+        console.warn("Fetch personal task from notif error:", err);
+      }
+    }
+
     if (target) {
       handleOpenEditTask(target);
     } else {
@@ -913,7 +1083,7 @@ export default function Dashboard() {
   const fileInputRef = useRef(null);
   const noiseNodeRef = useRef(null);
   const audioCtxRef = useRef(null);
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getLocalTodayStr();
 
   useEffect(() => {
     if (isDarkMode) {
@@ -1112,41 +1282,7 @@ export default function Dashboard() {
   }, [handleJoinTeamByCode, confirmAction]);
 
   // Dynamic Notifications Engine (combines live deadline & overdue alerts with team activity)
-  const allNotifications = useMemo(() => {
-    const deadlineNotifs = [];
-    const dueTodayTasks = tasks.filter(t => t.status !== 'Completed' && t.deadline === todayStr);
-    const overdueTasks = tasks.filter(t => t.status !== 'Completed' && t.deadline && t.deadline < todayStr);
-
-    if (dueTodayTasks.length > 0) {
-      deadlineNotifs.push({
-        id: `notif_due_${todayStr}`,
-        type: 'due_today',
-        title: `⏰ ${dueTodayTasks.length} ${dueTodayTasks.length === 1 ? 'Task' : 'Tasks'} Due Today`,
-        message: `Today is the deadline for "${dueTodayTasks[0].title}"${dueTodayTasks.length > 1 ? ` and ${dueTodayTasks.length - 1} other task(s)` : ''}. Please complete or update status.`,
-        taskId: dueTodayTasks[0].id,
-        project: dueTodayTasks[0].project,
-        priority: dueTodayTasks[0].priority,
-        createdAt: new Date().toISOString(),
-        read: false
-      });
-    }
-
-    if (overdueTasks.length > 0) {
-      deadlineNotifs.push({
-        id: `notif_overdue_${todayStr}`,
-        type: 'overdue',
-        title: `🚨 ${overdueTasks.length} Overdue Task Notice`,
-        message: `Task "${overdueTasks[0].title}" passed its deadline (${overdueTasks[0].deadline}). Click to reschedule or mark completed.`,
-        taskId: overdueTasks[0].id,
-        project: overdueTasks[0].project,
-        priority: 'Urgent',
-        createdAt: new Date().toISOString(),
-        read: false
-      });
-    }
-
-    return [...deadlineNotifs, ...notifications];
-  }, [tasks, todayStr, notifications]);
+  const allNotifications = computeAllNotifications(tasks, notifications, readAlertIds);
 
   const handleGuestLogin = (customInfo = null) => {
     const guest = {
@@ -1678,7 +1814,7 @@ export default function Dashboard() {
     showToast("Task duplicated!", "success");
   };
 
-  const handleAddNewTaskDirectly = async (taskData) => {
+  const handleAddNewTaskDirectly = useCallback(async (taskData) => {
     const payload = {
       ...taskData,
       createdAt: new Date().toISOString(),
@@ -1706,7 +1842,7 @@ export default function Dashboard() {
       }
     }
     showToast("Task added successfully!", "success");
-  };
+  }, [effectiveUser, tasks, activeNavTab, activeWorkspaceId, showToast]);
 
   const handleBulkClear = () => {
     const completedTasks = tasks.filter(t => t.status === 'Completed');
@@ -1822,7 +1958,7 @@ export default function Dashboard() {
   };
 
   const handleSmartReschedule = () => {
-    const overdueList = tasks.filter(t => t.status !== 'Completed' && t.deadline && t.deadline < todayStr);
+    const overdueList = tasks.filter(t => isTaskOverdue(t));
     if (overdueList.length === 0) return showToast("No overdue tasks found!", "info");
     confirmAction(`Auto-reschedule ${overdueList.length} overdue tasks to today?`, async () => {
       for (const task of overdueList) {
@@ -1836,12 +1972,15 @@ export default function Dashboard() {
     total: tasks.length,
     pending: tasks.filter(t => t.status !== 'Completed').length,
     completed: tasks.filter(t => t.status === 'Completed').length,
-    overdue: tasks.filter(t => t.status !== 'Completed' && t.deadline && t.deadline < todayStr).length
+    overdue: tasks.filter(t => isTaskOverdue(t)).length
   };
 
   // Discover all unique team members exclusively from the genuine team roster
   const allAssignees = useMemo(() => {
     const ownerName = (effectiveUser?.displayName || 'Me').trim();
+    if (currentWorkspaceType === 'personal') {
+      return [ownerName];
+    }
     // Strictly real team members from the active workspace roster
     const memberNames = teamMembers.map(m => m.name?.trim()).filter(Boolean);
     if (!memberNames.some(n => n.toLowerCase() === ownerName.toLowerCase())) {
@@ -1854,7 +1993,7 @@ export default function Dashboard() {
       }
       return true;
     });
-  }, [teamMembers, effectiveUser]);
+  }, [teamMembers, effectiveUser, currentWorkspaceType]);
   const teamFilterOptions = ['All Members', ...allAssignees];
 
   // Discover all projects (tasks + custom created projects strictly scoped per user)
@@ -1875,8 +2014,8 @@ export default function Dashboard() {
 
     // Navigation tab scoping
     if (activeNavTab === 'my-day') {
-      const isDueToday = task.deadline === todayStr;
-      const isOverdue = tStatus !== 'Completed' && task.deadline && task.deadline < todayStr;
+      const isDueToday = isTaskDueToday(task);
+      const isOverdue = isTaskOverdue(task);
       if (!isDueToday && !isOverdue) return false;
     } else if (activeNavTab === 'inbox') {
       if (task.project && task.project !== 'Inbox' && task.project !== 'General Workspace') return false;
@@ -1889,7 +2028,7 @@ export default function Dashboard() {
     const matchesStatus = filter === 'All'
       ? true
       : filter === 'Overdue'
-        ? (tStatus !== 'Completed' && task.deadline && task.deadline < todayStr)
+        ? isTaskOverdue(task)
         : tStatus === filter;
 
     const matchesAssignee = assigneeFilter === 'All Members'
@@ -1927,7 +2066,7 @@ export default function Dashboard() {
     return `${m}:${s}`;
   };
 
-  const todayTasks = tasks.filter(t => t.deadline === todayStr);
+  const todayTasks = tasks.filter(t => isTaskDueToday(t));
   const todayCompleted = todayTasks.filter(t => t.status === 'Completed').length;
   const dailyCompletionRate = todayTasks.length > 0 ? Math.round((todayCompleted / todayTasks.length) * 100) : 0;
   const realStreak = calculateRealStreak();
@@ -1967,7 +2106,8 @@ export default function Dashboard() {
 
   const TaskCard = ({ task }) => {
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-    const isOverdue = task.status !== 'Completed' && task.deadline && task.deadline < todayStr;
+    const isOverdue = isTaskOverdue(task);
+    const isDueToday = isTaskDueToday(task);
     const tags = Array.isArray(task.category) ? task.category : (task.category ? [task.category] : []);
     const commentCount = task.comments?.length || 0;
 
@@ -2001,7 +2141,7 @@ export default function Dashboard() {
                 <AlertOctagon size={12} /> OVERDUE
               </span>
             )}
-            {task.deadline === todayStr && !isOverdue && task.status !== 'Completed' && (
+            {isDueToday && (
               <span className="bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 text-[10px] md:text-xs px-2 py-0.5 rounded-full font-bold shrink-0">
                 Due Today
               </span>
@@ -2411,6 +2551,8 @@ export default function Dashboard() {
         onImportClick={() => fileInputRef.current?.click()}
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
+        currentWorkspaceType={currentWorkspaceType}
+        onSelectWorkspaceType={handleSelectWorkspaceType}
       />
 
       {/* Main App Workspace Area */}
@@ -2527,9 +2669,26 @@ export default function Dashboard() {
                 <img src={appLogo} alt="Task Bandhu Logo" className="w-full h-full object-contain rounded-xl" />
               </div>
               <div>
-                <h1 className="text-xl sm:text-2xl font-extrabold text-gray-900 dark:text-white capitalize">
-                  {activeNavTab.replace('-', ' ')}
-                </h1>
+                <div className="flex items-center gap-2 mb-0.5">
+                  <h1 className="text-xl sm:text-2xl font-extrabold text-gray-900 dark:text-white capitalize">
+                    {activeNavTab.replace('-', ' ')}
+                  </h1>
+                  {!effectiveUser.isGuest && (
+                    <button
+                      type="button"
+                      onClick={() => handleSelectWorkspaceType(currentWorkspaceType === 'personal' ? 'team' : 'personal')}
+                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition-colors shadow-xs active:scale-95 ${
+                        currentWorkspaceType === 'team'
+                          ? 'bg-cyan-50 dark:bg-cyan-950/40 text-cyan-700 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800'
+                          : 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+                      }`}
+                      title="Click to switch workspace mode"
+                    >
+                      {currentWorkspaceType === 'team' ? <Users size={10} /> : <Lock size={10} />}
+                      <span>{currentWorkspaceType === 'team' ? (workspaceName || 'Team Workspace') : 'Personal'}</span>
+                    </button>
+                  )}
+                </div>
                 <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">
                   {effectiveUser.isGuest ? (
                     <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-bold">
@@ -3082,7 +3241,7 @@ export default function Dashboard() {
               </div>
 
               {/* Quick Capture Input */}
-              <div className={`relative flex flex-col sm:flex-row items-stretch sm:items-center bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-2xl p-1.5 md:p-2 focus-within:ring-2 focus-within:ring-blue-500 shadow-sm gap-2 sm:gap-0 ${isQuickPriorityOpen ? 'z-[100]' : 'z-30'}`}>
+              <div className={`relative flex flex-col sm:flex-row items-stretch sm:items-center bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-2xl p-1.5 md:p-2 focus-within:ring-2 focus-within:ring-blue-500 shadow-sm gap-2 sm:gap-0 ${isQuickPriorityOpen ? 'z-50' : 'z-20'}`}>
                 <div className="flex items-center flex-1 px-2 sm:px-0">
                   <Plus size={20} className="text-gray-400 hidden sm:block mx-2 shrink-0" />
                   <input
@@ -3113,7 +3272,7 @@ export default function Dashboard() {
               </div>
 
               {/* 4 Stats Cards */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 relative z-0">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 relative">
                 <div className="bg-white dark:bg-slate-800 p-4 md:p-6 rounded-2xl md:rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm relative overflow-hidden group">
                   <div className="absolute top-0 right-0 p-3 md:p-4 opacity-10">
                     <ListTodo size={48} className="md:w-16 md:h-16 dark:text-white" />
@@ -3315,6 +3474,7 @@ export default function Dashboard() {
           allAssignees={allAssignees}
           allProjects={allProjectNames}
           activeWorkspaceId={activeWorkspaceId}
+          currentWorkspaceType={currentWorkspaceType}
           onNotifyTeammate={handleDispatchNotification}
         />
       )}

@@ -2,7 +2,7 @@ import {
   Sun, Moon, LogOut, DownloadCloud, UploadCloud,
   CheckCircle2, Inbox, Folder, Users,
   Sparkles, Timer, BarChart3, Zap, Pin, LayoutGrid, X,
-  ShieldCheck, User
+  ShieldCheck, User, Lock
 } from 'lucide-react';
 import logoDark from '../assets/logo_d.png';
 import logoLight from '../assets/logo_l.png';
@@ -22,7 +22,9 @@ export default function Sidebar({
   onExportBackup,
   onImportClick,
   isOpen,
-  onClose
+  onClose,
+  currentWorkspaceType = 'personal',
+  onSelectWorkspaceType
 }) {
   const isGuest = !!user?.isGuest;
 
@@ -94,6 +96,38 @@ export default function Sidebar({
               <X size={20} />
             </button>
           </div>
+
+          {/* Workspace Environment Switcher */}
+          {!isGuest && onSelectWorkspaceType && (
+            <div className="px-4 py-2.5 bg-gray-50/70 dark:bg-slate-800/40 border-b border-gray-100 dark:border-slate-800">
+              <div className="bg-gray-200/80 dark:bg-slate-800 p-1 rounded-xl flex items-center gap-1 border border-gray-200 dark:border-slate-700/80">
+                <button
+                  type="button"
+                  onClick={() => onSelectWorkspaceType('personal')}
+                  className={`flex-1 py-1.5 px-2 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all ${
+                    currentWorkspaceType === 'personal'
+                      ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm'
+                      : 'text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white'
+                  }`}
+                  title="Your private productivity environment"
+                >
+                  <Lock size={12} /> Personal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSelectWorkspaceType('team')}
+                  className={`flex-1 py-1.5 px-2 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all ${
+                    currentWorkspaceType === 'team'
+                      ? 'bg-white dark:bg-slate-700 text-cyan-600 dark:text-cyan-400 shadow-sm'
+                      : 'text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white'
+                  }`}
+                  title="Collaborative shared team environment"
+                >
+                  <Users size={12} /> Team
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Navigation Links (Flex-1 scrollable area) */}

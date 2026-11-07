@@ -56,31 +56,28 @@ export default function AIAssistantModal({
         <div className="flex gap-2 p-1 bg-gray-100 dark:bg-slate-900/60 rounded-2xl mb-6">
           <button
             onClick={() => setActiveTab('generator')}
-            className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${
-              activeTab === 'generator'
-                ? 'bg-white dark:bg-slate-800 text-purple-600 dark:text-purple-400 shadow-sm'
-                : 'text-gray-500 hover:text-gray-700 dark:text-slate-400'
-            }`}
+            className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'generator'
+              ? 'bg-white dark:bg-slate-800 text-purple-600 dark:text-purple-400 shadow-sm'
+              : 'text-gray-500 hover:text-gray-700 dark:text-slate-400'
+              }`}
           >
             Natural Language Creator
           </button>
           <button
             onClick={() => setActiveTab('planner')}
-            className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${
-              activeTab === 'planner'
-                ? 'bg-white dark:bg-slate-800 text-purple-600 dark:text-purple-400 shadow-sm'
-                : 'text-gray-500 hover:text-gray-700 dark:text-slate-400'
-            }`}
+            className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'planner'
+              ? 'bg-white dark:bg-slate-800 text-purple-600 dark:text-purple-400 shadow-sm'
+              : 'text-gray-500 hover:text-gray-700 dark:text-slate-400'
+              }`}
           >
             AI Daily Planner
           </button>
           <button
             onClick={() => setActiveTab('coach')}
-            className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${
-              activeTab === 'coach'
-                ? 'bg-white dark:bg-slate-800 text-purple-600 dark:text-purple-400 shadow-sm'
-                : 'text-gray-500 hover:text-gray-700 dark:text-slate-400'
-            }`}
+            className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'coach'
+              ? 'bg-white dark:bg-slate-800 text-purple-600 dark:text-purple-400 shadow-sm'
+              : 'text-gray-500 hover:text-gray-700 dark:text-slate-400'
+              }`}
           >
             Priority Coach
           </button>
