@@ -13,13 +13,46 @@ export function getLocalTodayStr() {
 
 export function parseTaskDeadline(deadline, endTime) {
   if (!deadline) return null;
-  const parts = deadline.split('-');
-  if (parts.length !== 3) return null;
-  const year = parseInt(parts[0], 10);
-  const month = parseInt(parts[1], 10) - 1;
-  const day = parseInt(parts[2], 10);
+  let year, month, day;
 
-  const d = new Date(year, month, day);
+  if (typeof deadline === 'string') {
+    const trimmed = deadline.trim();
+    if (trimmed.includes('-')) {
+      const parts = trimmed.split('-');
+      if (parts.length === 3) {
+        if (parts[0].length === 4) {
+          year = parseInt(parts[0], 10);
+          month = parseInt(parts[1], 10) - 1;
+          day = parseInt(parts[2], 10);
+        } else if (parts[2].length === 4) {
+          year = parseInt(parts[2], 10);
+          month = parseInt(parts[0], 10) - 1;
+          day = parseInt(parts[1], 10);
+        }
+      }
+    } else if (trimmed.includes('/')) {
+      const parts = trimmed.split('/');
+      if (parts.length === 3) {
+        if (parts[2].length === 4) {
+          year = parseInt(parts[2], 10);
+          month = parseInt(parts[0], 10) - 1;
+          day = parseInt(parts[1], 10);
+        } else if (parts[0].length === 4) {
+          year = parseInt(parts[0], 10);
+          month = parseInt(parts[1], 10) - 1;
+          day = parseInt(parts[2], 10);
+        }
+      }
+    }
+  }
+
+  let d;
+  if (year !== undefined && !isNaN(year) && !isNaN(month) && !isNaN(day)) {
+    d = new Date(year, month, day);
+  } else {
+    d = new Date(deadline);
+    if (isNaN(d.getTime())) return null;
+  }
 
   if (endTime && typeof endTime === 'string' && endTime.trim() !== '') {
     const isPM = endTime.toLowerCase().includes('pm');
@@ -32,7 +65,7 @@ export function parseTaskDeadline(deadline, endTime) {
     if (isAM && hours === 12) hours = 0;
     d.setHours(hours, minutes, 59, 999);
   } else {
-    // Default to the very end of the deadline day (23:59:59.999 local time)
+    // Default to the end of the day in local time
     d.setHours(23, 59, 59, 999);
   }
   return d;
@@ -47,8 +80,16 @@ export function isTaskOverdue(task) {
 
 export function isTaskDueToday(task) {
   if (!task || !task.deadline || task.status === 'Completed') return false;
-  if (isTaskOverdue(task)) return false;
-  return task.deadline === getLocalTodayStr();
+  const due = parseTaskDeadline(task.deadline, task.endTime);
+  if (!due) return false;
+  if (due.getTime() < Date.now()) return false;
+
+  const now = new Date();
+  return (
+    due.getFullYear() === now.getFullYear() &&
+    due.getMonth() === now.getMonth() &&
+    due.getDate() === now.getDate()
+  );
 }
 
 export function formatDeadlineDisplay(deadline, endTime) {
