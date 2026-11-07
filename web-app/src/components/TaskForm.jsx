@@ -66,7 +66,6 @@ export default function TaskForm({
   prefilledPriority = '',
   allProjects = [],
   activeWorkspaceId = '',
-  currentWorkspaceType = 'personal',
   _isApex = false,
   _onOpenApexModal,
   onNotifyTeammate
@@ -217,9 +216,8 @@ export default function TaskForm({
         }
         showToast("Task updated.", "success");
       } else {
-        // If task is created in team workspace mode OR assigned to a teammate, store in workspace collection
+        // If task is assigned to a teammate or part of team workspace, store in workspace
         const isTeamTask = activeWorkspaceId && (
-          currentWorkspaceType === 'team' ||
           finalPayload.project === 'Team Workspace' ||
           (finalPayload.assignee && finalPayload.assignee !== 'Me' && finalPayload.assignee !== user.displayName)
         );
@@ -254,9 +252,13 @@ export default function TaskForm({
     }
   };
 
-  // Compute team member pills (strictly genuine workspace members, no legacy or dummy names)
+  // Compute team member pills (strictly genuine workspace members, scoped per project privacy)
+  const isPersonalProject = !task.project || task.project === 'General Workspace' || task.project === 'Inbox';
   const availableMembers = useMemo(() => {
     const myName = (user?.displayName || '').trim();
+    if (isPersonalProject) {
+      return [myName || 'Me'];
+    }
     const sourceList = allAssignees && allAssignees.length > 0 ? allAssignees : [myName || 'Me'];
     const unique = [];
     const seen = new Set();
@@ -273,7 +275,7 @@ export default function TaskForm({
       unique.push(clean);
     }
     return unique;
-  }, [allAssignees, user]);
+  }, [allAssignees, user, isPersonalProject]);
 
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 z-[200] animate-in fade-in">

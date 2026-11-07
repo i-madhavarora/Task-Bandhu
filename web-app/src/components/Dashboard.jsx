@@ -271,20 +271,6 @@ export default function Dashboard() {
   });
 
   const workspaceId = activeWorkspaceId || (effectiveUser?.isGuest ? 'local_workspace' : '');
-  const [currentWorkspaceType, setCurrentWorkspaceType] = useState(() => {
-    try {
-      return localStorage.getItem('tb_workspace_mode') || 'personal';
-    } catch {
-      return 'personal';
-    }
-  });
-
-  const handleSelectWorkspaceType = useCallback((type) => {
-    setCurrentWorkspaceType(type);
-    try {
-      localStorage.setItem('tb_workspace_mode', type);
-    } catch { /* ignore */ }
-  }, []);
 
   // Automatically discover and load active workspace from Firestore on sign-in
   useEffect(() => {
@@ -1707,15 +1693,26 @@ export default function Dashboard() {
         showToast(`🎉 Level Up! You achieved Level ${newLvl}: ${getRankTitle(newLvl)}`, "success");
       }
 
-      handleDispatchNotification({
-        type: 'task_completed',
-        title: 'Task Completed! ✅',
-        message: `${effectiveUser?.displayName || 'Teammate'} marked "${currentTask?.title || 'Task'}" as Completed in ${currentTask?.project || 'General Workspace'}.`,
-        taskId,
-        assignee: currentTask?.assignee,
-        project: currentTask?.project,
-        priority: currentTask?.priority
-      });
+      const isSharedTask = !!(
+        currentTask?.isWorkspaceTask ||
+        currentTask?.workspaceId ||
+        currentTask?.project === 'Team Workspace' ||
+        (currentTask?.assignee && currentTask.assignee !== 'Me' && currentTask.assignee !== effectiveUser?.displayName)
+      );
+
+      if (isSharedTask) {
+        handleDispatchNotification({
+          type: 'task_completed',
+          title: 'Task Completed! ✅',
+          message: `${effectiveUser?.displayName || 'Teammate'} marked "${currentTask?.title || 'Task'}" as Completed in ${currentTask?.project || 'Team Workspace'}.`,
+          taskId,
+          assignee: currentTask?.assignee,
+          project: currentTask?.project,
+          priority: currentTask?.priority,
+          authorUid: effectiveUser?.uid,
+          author: effectiveUser?.displayName
+        });
+      }
     }
 
     const payload = {
@@ -1978,9 +1975,6 @@ export default function Dashboard() {
   // Discover all unique team members exclusively from the genuine team roster
   const allAssignees = useMemo(() => {
     const ownerName = (effectiveUser?.displayName || 'Me').trim();
-    if (currentWorkspaceType === 'personal') {
-      return [ownerName];
-    }
     // Strictly real team members from the active workspace roster
     const memberNames = teamMembers.map(m => m.name?.trim()).filter(Boolean);
     if (!memberNames.some(n => n.toLowerCase() === ownerName.toLowerCase())) {
@@ -1993,7 +1987,7 @@ export default function Dashboard() {
       }
       return true;
     });
-  }, [teamMembers, effectiveUser, currentWorkspaceType]);
+  }, [teamMembers, effectiveUser]);
   const teamFilterOptions = ['All Members', ...allAssignees];
 
   // Discover all projects (tasks + custom created projects strictly scoped per user)
@@ -2115,12 +2109,12 @@ export default function Dashboard() {
       <div
         draggable={viewMode === 'kanban'}
         onDragStart={(e) => handleDragStart(e, task.id)}
-        className={`bg-white dark:bg-slate-800 border p-4 md:p-5 rounded-2xl md:rounded-3xl shadow-sm hover:shadow-md transition-all flex flex-col justify-between gap-4 relative group ${isDropdownOpen ? 'z-[80]' : 'z-10'
+        className={`bg-white dark:bg-[#101625] border p-4 md:p-5 rounded-2xl md:rounded-3xl shadow-xs hover:shadow-md transition-all flex flex-col justify-between gap-4 relative group ${isDropdownOpen ? 'z-[80]' : 'z-10'
           } ${task.status === 'Completed'
-            ? 'border-gray-100 dark:border-slate-800/80 bg-gray-50/50 dark:bg-slate-800/40 opacity-75'
+            ? 'border-slate-200/60 dark:border-slate-800/60 bg-slate-50/60 dark:bg-slate-900/40 opacity-70'
             : isOverdue
-              ? 'border-red-200 dark:border-red-900/60 bg-red-50/20 dark:bg-red-950/20'
-              : 'border-gray-100 dark:border-slate-700'
+              ? 'border-rose-200 dark:border-rose-900/60 bg-rose-50/20 dark:bg-rose-950/20'
+              : 'border-slate-200/80 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700'
           } ${viewMode === 'kanban' ? 'w-full' : 'md:flex-row md:items-center'}`}
       >
         {viewMode === 'kanban' && (
@@ -2551,8 +2545,6 @@ export default function Dashboard() {
         onImportClick={() => fileInputRef.current?.click()}
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
-        currentWorkspaceType={currentWorkspaceType}
-        onSelectWorkspaceType={handleSelectWorkspaceType}
       />
 
       {/* Main App Workspace Area */}
@@ -2669,27 +2661,10 @@ export default function Dashboard() {
                 <img src={appLogo} alt="Task Bandhu Logo" className="w-full h-full object-contain rounded-xl" />
               </div>
               <div>
-                <div className="flex items-center gap-2 mb-0.5">
-                  <h1 className="text-xl sm:text-2xl font-extrabold text-gray-900 dark:text-white capitalize">
-                    {activeNavTab.replace('-', ' ')}
-                  </h1>
-                  {!effectiveUser.isGuest && (
-                    <button
-                      type="button"
-                      onClick={() => handleSelectWorkspaceType(currentWorkspaceType === 'personal' ? 'team' : 'personal')}
-                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition-colors shadow-xs active:scale-95 ${
-                        currentWorkspaceType === 'team'
-                          ? 'bg-cyan-50 dark:bg-cyan-950/40 text-cyan-700 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800'
-                          : 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
-                      }`}
-                      title="Click to switch workspace mode"
-                    >
-                      {currentWorkspaceType === 'team' ? <Users size={10} /> : <Lock size={10} />}
-                      <span>{currentWorkspaceType === 'team' ? (workspaceName || 'Team Workspace') : 'Personal'}</span>
-                    </button>
-                  )}
-                </div>
-                <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">
+                <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white capitalize tracking-tight mb-0.5">
+                  {activeNavTab.replace('-', ' ')}
+                </h1>
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
                   {effectiveUser.isGuest ? (
                     <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-bold">
                       <ShieldAlert size={12} /> Guest Mode • Sign in to save across devices
@@ -3201,59 +3176,59 @@ export default function Dashboard() {
             /* DEFAULT WORKSPACE TABS ('my-day', 'inbox', 'all-tasks', 'favorites') */
             <div className="space-y-6">
               {/* Daily Mission & Progress Bar (Always visible on My Day or top of workspace) */}
-              <div className="bg-white dark:bg-slate-800 p-4 sm:p-5 md:p-6 rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm flex flex-col xl:flex-row gap-5 items-stretch xl:items-center justify-between">
+              <div className="bg-white/90 dark:bg-[#101625]/90 backdrop-blur-xl p-5 sm:p-6 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm flex flex-col xl:flex-row gap-5 items-stretch xl:items-center justify-between relative overflow-hidden">
                 <div className="flex-1 min-w-0 pr-0 xl:pr-4">
                   <div className="flex justify-between items-end mb-3">
                     <div>
-                      <h2 className="text-base md:text-lg font-bold text-gray-800 dark:text-white flex items-center gap-2">
-                        Today's Mission <span className="text-[10px] md:text-xs bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-400 px-2 py-0.5 rounded-md font-bold">XP: {currentXP}/100</span>
+                      <h2 className="text-base md:text-lg font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                        Today's Mission <span className="text-[10px] md:text-xs bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60 px-2 py-0.5 rounded-md font-bold">XP: {currentXP}/100</span>
                       </h2>
-                      <p className="text-xs md:text-sm text-gray-500 dark:text-slate-400">{todayCompleted} of {todayTasks.length} tasks for today done.</p>
+                      <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 font-medium">{todayCompleted} of {todayTasks.length} tasks for today done.</p>
                     </div>
-                    <span className="text-lg md:text-xl font-extrabold text-blue-600 dark:text-blue-400">{dailyCompletionRate}%</span>
+                    <span className="text-lg md:text-xl font-black text-blue-600 dark:text-blue-400">{dailyCompletionRate}%</span>
                   </div>
-                  <div className="w-full bg-gray-100 dark:bg-slate-700 rounded-full h-2.5 md:h-3 overflow-hidden">
-                    <div className="bg-gradient-to-r from-blue-500 to-indigo-600 h-full rounded-full transition-all" style={{ width: `${dailyCompletionRate}%` }}></div>
+                  <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2.5 md:h-3 overflow-hidden p-0.5">
+                    <div className="bg-gradient-to-r from-blue-500 via-indigo-500 to-cyan-400 h-full rounded-full transition-all duration-500 shadow-xs" style={{ width: `${dailyCompletionRate}%` }}></div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2.5 sm:gap-3 w-full xl:w-auto shrink-0 justify-start sm:justify-end flex-wrap sm:flex-nowrap">
-                  <div className="bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800/50 px-3.5 sm:px-4 py-2.5 sm:py-3 rounded-2xl flex items-center gap-2.5 shrink-0">
-                    <div className="bg-indigo-200 dark:bg-indigo-800 p-1.5 rounded-xl text-indigo-700 dark:text-indigo-300">
-                      <Zap size={18} className="sm:w-5 sm:h-5" />
+                  <div className="bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/50 px-3.5 sm:px-4 py-2.5 sm:py-3 rounded-2xl flex items-center gap-2.5 shrink-0 shadow-xs">
+                    <div className="bg-indigo-600 text-white p-1.5 rounded-xl shadow-xs">
+                      <Zap size={16} className="sm:w-4 sm:h-4" />
                     </div>
                     <div>
-                      <p className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Rank</p>
-                      <p className="text-xs sm:text-sm font-extrabold text-indigo-900 dark:text-indigo-100 whitespace-nowrap">
+                      <p className="text-[9px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Level</p>
+                      <p className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-white whitespace-nowrap">
                         Lv. {currentLevel} • {getRankTitle(currentLevel)}
                       </p>
                     </div>
                   </div>
-                  <div className={`border px-3.5 sm:px-4 py-2.5 sm:py-3 rounded-2xl flex items-center gap-2.5 shrink-0 ${realStreak > 0 ? 'bg-orange-50 dark:bg-orange-900/30 border-orange-200 dark:border-orange-800/50' : 'bg-gray-50 dark:bg-slate-800/50 border-gray-100 dark:border-slate-700'}`}>
-                    <div className={`p-1.5 rounded-xl ${realStreak > 0 ? 'bg-orange-200 dark:bg-orange-800 text-orange-700 dark:text-orange-300' : 'bg-gray-200 dark:bg-slate-700 text-gray-500 dark:text-slate-400'}`}>
-                      <Flame size={18} className="sm:w-5 sm:h-5" />
+                  <div className={`border px-3.5 sm:px-4 py-2.5 sm:py-3 rounded-2xl flex items-center gap-2.5 shrink-0 shadow-xs transition-colors ${realStreak > 0 ? 'bg-orange-50/80 dark:bg-orange-950/40 border-orange-200/80 dark:border-orange-900/50' : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200/60 dark:border-slate-800'}`}>
+                    <div className={`p-1.5 rounded-xl ${realStreak > 0 ? 'bg-orange-500 text-white shadow-xs' : 'bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400'}`}>
+                      <Flame size={16} className="sm:w-4 sm:h-4" />
                     </div>
                     <div>
-                      <p className={`text-[10px] font-bold uppercase tracking-wider ${realStreak > 0 ? 'text-orange-600 dark:text-orange-400' : 'text-gray-500 dark:text-slate-400'}`}>Streak</p>
-                      <p className={`text-xs sm:text-sm font-extrabold whitespace-nowrap ${realStreak > 0 ? 'text-orange-900 dark:text-orange-100' : 'text-gray-700 dark:text-slate-300'}`}>{realStreak} {realStreak === 1 ? 'Day' : 'Days'}</p>
+                      <p className={`text-[9px] font-black uppercase tracking-wider ${realStreak > 0 ? 'text-orange-600 dark:text-orange-400' : 'text-slate-500 dark:text-slate-400'}`}>Streak</p>
+                      <p className={`text-xs sm:text-sm font-extrabold whitespace-nowrap ${realStreak > 0 ? 'text-slate-900 dark:text-white' : 'text-slate-700 dark:text-slate-300'}`}>{realStreak} {realStreak === 1 ? 'Day' : 'Days'}</p>
                     </div>
                   </div>
                 </div>
               </div>
 
               {/* Quick Capture Input */}
-              <div className={`relative flex flex-col sm:flex-row items-stretch sm:items-center bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-2xl p-1.5 md:p-2 focus-within:ring-2 focus-within:ring-blue-500 shadow-sm gap-2 sm:gap-0 ${isQuickPriorityOpen ? 'z-50' : 'z-20'}`}>
+              <div className={`relative flex flex-col sm:flex-row items-stretch sm:items-center bg-white dark:bg-[#101625] border border-slate-200/90 dark:border-slate-800 rounded-2xl p-1.5 md:p-2 focus-within:ring-2 focus-within:ring-blue-500/40 focus-within:border-blue-500 shadow-sm gap-2 sm:gap-0 transition-all ${isQuickPriorityOpen ? 'z-50' : 'z-20'}`}>
                 <div className="flex items-center flex-1 px-2 sm:px-0">
-                  <Plus size={20} className="text-gray-400 hidden sm:block mx-2 shrink-0" />
+                  <Plus size={18} className="text-slate-400 hidden sm:block mx-2 shrink-0" />
                   <input
                     type="text"
-                    className="flex-1 w-full py-2.5 sm:py-3 px-2 sm:px-3 text-gray-900 dark:text-white bg-transparent outline-none font-medium text-sm md:text-base min-w-0"
-                    placeholder="Quick capture a task... Press Enter"
+                    className="flex-1 w-full py-2.5 sm:py-3 px-2 sm:px-3 text-slate-900 dark:text-white bg-transparent outline-none font-medium text-sm md:text-base min-w-0 placeholder:text-slate-400 dark:placeholder:text-slate-500"
+                    placeholder="Quick capture a task... Press Enter ↵"
                     value={quickTaskTitle}
                     onChange={(e) => setQuickTaskTitle(e.target.value)}
                     onKeyDown={handleQuickAddKeyDown}
                   />
                 </div>
-                <div className="flex items-center gap-2 sm:border-l border-gray-200 dark:border-slate-700 sm:pl-3 pr-1 w-full sm:w-auto justify-end">
+                <div className="flex items-center gap-2 sm:border-l border-slate-200/80 dark:border-slate-800 sm:pl-3 pr-1 w-full sm:w-auto justify-end">
                   <CustomDropdown
                     options={['Urgent', 'High', 'Medium', 'Low']}
                     value={quickPriority}
@@ -3263,26 +3238,30 @@ export default function Dashboard() {
                   />
                   <button
                     onClick={submitQuickTask}
-                    className="h-10 px-4 bg-blue-600 text-white rounded-xl w-full sm:w-auto flex items-center justify-center hover:bg-blue-700 transition-colors shadow-sm active:scale-95"
+                    className="h-10 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl w-full sm:w-auto flex items-center justify-center transition-all shadow-sm active:scale-95"
                     title="Add Task"
                   >
-                    <Send size={16} />
+                    <Send size={15} />
                   </button>
                 </div>
               </div>
 
               {/* 4 Stats Cards */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 relative">
-                <div className="bg-white dark:bg-slate-800 p-4 md:p-6 rounded-2xl md:rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm relative overflow-hidden group">
-                  <div className="absolute top-0 right-0 p-3 md:p-4 opacity-10">
-                    <ListTodo size={48} className="md:w-16 md:h-16 dark:text-white" />
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-5 relative">
+                <div className="bg-white dark:bg-[#101625] p-5 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 shadow-xs relative overflow-hidden group hover:border-slate-300 dark:hover:border-slate-700 transition-all">
+                  <div className="absolute top-0 right-0 p-3 opacity-5 group-hover:opacity-10 transition-opacity">
+                    <ListTodo size={54} className="dark:text-white text-slate-900" />
                   </div>
-                  <h2 className="text-gray-500 dark:text-slate-400 font-bold text-[10px] md:text-xs uppercase tracking-wider mb-1 md:mb-2">Total</h2>
-                  <p className="text-2xl md:text-4xl font-extrabold text-gray-900 dark:text-white">{stats.total}</p>
+                  <h2 className="text-slate-400 dark:text-slate-500 font-extrabold text-[10px] md:text-xs uppercase tracking-wider mb-1">Total Tasks</h2>
+                  <p className="text-2xl md:text-3xl font-black text-slate-900 dark:text-white tracking-tight">{stats.total}</p>
                 </div>
-                <div className="bg-white dark:bg-slate-800 p-4 md:p-6 rounded-2xl md:rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm relative overflow-hidden group">
-                  <div className="absolute top-0 right-0 p-3 md:p-4 text-green-500 opacity-10">
-                    <CheckCircle2 size={48} className="md:w-16 md:h-16" />
+                <div className="bg-white dark:bg-[#101625] p-5 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 shadow-xs relative overflow-hidden group hover:border-slate-300 dark:hover:border-slate-700 transition-all">
+                  <div className="absolute top-0 right-0 p-3 opacity-5 text-emerald-500 group-hover:opacity-10 transition-opacity">
+                    <CheckCircle2 size={54} />
+                  </div>
+                  <h2 className="text-emerald-600 dark:text-emerald-400 font-extrabold text-[10px] md:text-xs uppercase tracking-wider mb-1">Completed</h2>
+                  <p className="text-2xl md:text-3xl font-black text-slate-900 dark:text-white tracking-tight">{stats.completed}</p>
+                </div>
                   </div>
                   <h2 className="text-green-600 dark:text-green-400 font-bold text-[10px] md:text-xs uppercase tracking-wider mb-1 md:mb-2">Done</h2>
                   <p className="text-2xl md:text-4xl font-extrabold text-gray-900 dark:text-white">{stats.completed}</p>
@@ -3474,7 +3453,6 @@ export default function Dashboard() {
           allAssignees={allAssignees}
           allProjects={allProjectNames}
           activeWorkspaceId={activeWorkspaceId}
-          currentWorkspaceType={currentWorkspaceType}
           onNotifyTeammate={handleDispatchNotification}
         />
       )}
