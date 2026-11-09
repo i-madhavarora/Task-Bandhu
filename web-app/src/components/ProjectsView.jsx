@@ -1,24 +1,30 @@
-import { useState, useEffect } from 'react';
-import { Folder, Plus, ChevronRight, X, Trash2, Copy, Check, Share2, ShieldCheck, Sparkles } from 'lucide-react';
-import { doc, setDoc, deleteDoc, collection, onSnapshot, query } from 'firebase/firestore';
-import { db } from '../firebase';
+import { useState, useMemo } from 'react';
+import {
+  Folder, Plus, ChevronRight, X, Trash2, Check,
+  Users, Lock, UserCheck, LogOut
+} from 'lucide-react';
 import { PLAN_LIMITS } from '../utils/planLimits';
 
-const generateProjectCode = () => {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let p1 = '';
-  let p2 = '';
-  for (let i = 0; i < 4; i++) {
-    p1 += chars.charAt(Math.floor(Math.random() * chars.length));
-    p2 += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return `PRJ-${p1}-${p2}`;
+const PROJECT_COLOR_CLASSES = {
+  blue: { bg: 'bg-blue-500', border: 'border-blue-500/30', light: 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400' },
+  emerald: { bg: 'bg-emerald-500', border: 'border-emerald-500/30', light: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400' },
+  purple: { bg: 'bg-purple-500', border: 'border-purple-500/30', light: 'bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400' },
+  amber: { bg: 'bg-amber-500', border: 'border-amber-500/30', light: 'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400' },
+  rose: { bg: 'bg-rose-500', border: 'border-rose-500/30', light: 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400' },
+  indigo: { bg: 'bg-indigo-500', border: 'border-indigo-500/30', light: 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400' },
+  cyan: { bg: 'bg-cyan-500', border: 'border-cyan-500/30', light: 'bg-cyan-50 dark:bg-cyan-950/40 text-cyan-600 dark:text-cyan-400' }
 };
 
 export default function ProjectsView({
-  tasks,
+  projects = [],
+  tasks = [],
   user,
-  workspaceId,
+  currentWorkspace = 'personal', // 'personal' | 'team'
+  connections = [],
+  onCreateProject,
+  onDeleteProject,
+  onUpdateProjectMembers,
+  onLeaveProject,
   isApex = false,
   onOpenApexModal,
   showToast,
@@ -26,475 +32,658 @@ export default function ProjectsView({
   onOpenNewTask
 }) {
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
-  const [copiedCodeMap, setCopiedCodeMap] = useState({});
-  const userKey = user?.isGuest ? 'guest' : (user?.uid || 'guest');
-
-  const [customProjects, setCustomProjects] = useState(() => {
-    try {
-      const saved = localStorage.getItem(`tb_projects_${userKey}`);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        let modified = false;
-        const enriched = parsed.map(p => {
-          if (!p.code) {
-            p.code = generateProjectCode();
-            modified = true;
-          }
-          return p;
-        });
-        if (modified) {
-          localStorage.setItem(`tb_projects_${userKey}`, JSON.stringify(enriched));
-        }
-        return enriched;
-      }
-      return [];
-    } catch {
-      return [];
-    }
-  });
-
+  const [editingMembersProject, setEditingMembersProject] = useState(null);
+  const [editMemberUids, setEditMemberUids] = useState(new Set());
+  const [selectedConnectedUids, setSelectedConnectedUids] = useState(new Set());
   const [newProject, setNewProject] = useState({
     name: '',
     description: '',
-    category: 'Work',
-    targetDate: '',
-    color: 'blue'
+    color: 'indigo',
+    type: currentWorkspace === 'team' ? 'team' : 'personal'
   });
 
-  // Real-time Firestore sync for Projects (both personal & workspace projects)
-  useEffect(() => {
-    if (!user || user.isGuest) return;
-
-    let personalProjects = [];
-    let wsProjects = [];
-
-    const mergeAndSet = () => {
-      const projMap = new Map();
-      wsProjects.forEach(p => projMap.set(p.id, p));
-      personalProjects.forEach(p => projMap.set(p.id, p));
-      const combined = Array.from(projMap.values());
-      setCustomProjects(combined);
-      try {
-        localStorage.setItem(`tb_projects_${user.uid}`, JSON.stringify(combined));
-      } catch {
-        /* ignore */
-      }
-    };
-
-    // 1. Listen to personal projects
-    const qPersonal = query(collection(db, 'users', user.uid, 'projects'));
-    const unsubPersonal = onSnapshot(qPersonal, (snap) => {
-      personalProjects = snap.docs.map(d => ({ ...d.data(), id: d.id }));
-      mergeAndSet();
-    }, (err) => console.warn("Personal projects load error:", err));
-
-    // 2. Listen to workspace projects if workspace is active
-    let unsubWs = () => {};
-    if (workspaceId && workspaceId !== 'local_workspace') {
-      const qWs = query(collection(db, 'workspaces', workspaceId, 'projects'));
-      unsubWs = onSnapshot(qWs, (snap) => {
-        wsProjects = snap.docs.map(d => ({ ...d.data(), id: d.id, isWorkspaceProject: true }));
-        mergeAndSet();
-      }, (err) => console.warn("Workspace projects load error:", err));
+  // Filter projects by active workspace
+  const workspaceProjects = projects.filter(p => {
+    if (currentWorkspace === 'personal') {
+      return p.type === 'personal' || !p.type;
     }
+    return p.type === 'team';
+  });
 
-    return () => {
-      unsubPersonal();
-      unsubWs();
-    };
-  }, [user, workspaceId]);
+  // Limit checks: Core max 2 projects, Apex max 10 projects
+  // Limits strictly apply to projects created and owned by this user (being in shared teams does not consume your limit)
+  const maxProjectsAllowed = isApex ? (PLAN_LIMITS.APEX.customProjects || 10) : (PLAN_LIMITS.CORE.customProjects || 2);
+  const maxTeamMembersAllowed = isApex ? 50 : 20;
 
-  // Collect all projects (both from tasks and custom created strictly for this user)
-  const taskProjects = Array.from(new Set(tasks.map(t => t.project?.trim()).filter(Boolean)));
-  const allProjectNames = Array.from(new Set(['General Workspace', ...taskProjects, ...customProjects.map(p => p.name?.trim())].filter(Boolean)));
+  const myUid = user?.uid || 'guest';
+  const ownedProjects = useMemo(() => {
+    return projects.filter(p => p.creatorUid === myUid || (!p.creatorUid && p.members?.[0]?.uid === myUid));
+  }, [projects, myUid]);
 
-  const handleCreateProject = async (e) => {
-    e.preventDefault();
-    if (!newProject.name.trim()) return;
-    if (!isApex && customProjects.length >= PLAN_LIMITS.CORE.customProjects) {
-      showToast?.(`Core Plan Limit: You can create up to ${PLAN_LIMITS.CORE.customProjects} custom projects. Upgrade to Apex for unlimited project workspaces!`, "warning");
-      onOpenApexModal?.();
+  const ownedProjectsCount = ownedProjects.length;
+
+  const handleOpenCreateModal = () => {
+    if (ownedProjectsCount >= maxProjectsAllowed) {
+      showToast?.(
+        `${isApex ? 'Apex' : 'Core'} Plan Limit: You can create and own up to ${maxProjectsAllowed} projects. ${!isApex ? 'Upgrade to Apex for up to 10 projects!' : ''}`,
+        "warning"
+      );
+      if (!isApex) onOpenApexModal?.();
       return;
     }
-    const cleanName = newProject.name.trim();
-    const projCode = generateProjectCode();
 
-    const newProjObj = {
-      ...newProject,
+    setNewProject({
+      name: '',
+      description: '',
+      color: 'indigo',
+      type: currentWorkspace === 'team' ? 'team' : 'personal'
+    });
+    setSelectedConnectedUids(new Set());
+    setIsNewProjectModalOpen(true);
+  };
+
+  const toggleTeammateSelection = (uid) => {
+    setSelectedConnectedUids(prev => {
+      const next = new Set(prev);
+      if (next.has(uid)) {
+        next.delete(uid);
+      } else {
+        if (next.size >= maxTeamMembersAllowed - 1) { // -1 for creator
+          showToast?.(`Maximum team size for ${isApex ? 'Apex' : 'Core'} plan is ${maxTeamMembersAllowed} members.`, 'warning');
+          return next;
+        }
+        next.add(uid);
+      }
+      return next;
+    });
+  };
+
+  const handleOpenEditMembersModal = (proj) => {
+    setEditingMembersProject(proj);
+    const myUid = user?.uid || 'guest';
+    const creatorUid = proj.creatorUid || myUid;
+    // Exclude the project owner/creator so only external teammates are tracked
+    const existingTeammateUids = new Set(
+      (proj.members || [])
+        .map(m => m.uid)
+        .filter(uid => uid && uid !== creatorUid && uid !== myUid)
+    );
+    setEditMemberUids(existingTeammateUids);
+  };
+
+  const toggleEditMemberUid = (uid) => {
+    setEditMemberUids(prev => {
+      const next = new Set(prev);
+      if (next.has(uid)) {
+        next.delete(uid);
+      } else {
+        if (next.size >= maxTeamMembersAllowed - 1) {
+          showToast?.(`Maximum team size for ${isApex ? 'Apex' : 'Core'} plan is ${maxTeamMembersAllowed} members.`, 'warning');
+          return next;
+        }
+        next.add(uid);
+      }
+      return next;
+    });
+  };
+
+  const handleSaveEditedMembers = async () => {
+    if (!editingMembersProject) return;
+
+    const creatorMember = {
+      uid: editingMembersProject.creatorUid || user?.uid || 'guest',
+      name: editingMembersProject.creatorName || user?.displayName || 'Owner',
+      email: editingMembersProject.creatorEmail || user?.email || '',
+      role: 'Owner'
+    };
+
+    const chosenTeammates = connections
+      .filter(c => editMemberUids.has(c.uid || c.id) && (c.uid || c.id) !== creatorMember.uid)
+      .map(c => ({
+        uid: c.uid || c.id,
+        name: c.name || (c.email ? c.email.split('@')[0] : 'Teammate'),
+        email: c.email || '',
+        role: 'Member'
+      }));
+
+    const updatedMembers = [creatorMember, ...chosenTeammates];
+    await onUpdateProjectMembers?.(editingMembersProject.id, updatedMembers);
+    setEditingMembersProject(null);
+  };
+
+  const handleFormSubmit = async (e) => {
+    e.preventDefault();
+    const cleanName = newProject.name.trim();
+    if (!cleanName) return;
+
+    if (ownedProjectsCount >= maxProjectsAllowed) {
+      showToast?.(`You have reached the maximum of ${maxProjectsAllowed} owned projects.`, "warning");
+      return;
+    }
+
+    // Build members list
+    const creatorMember = {
+      uid: user?.uid || 'guest',
+      name: user?.displayName || 'Owner',
+      email: user?.email || '',
+      role: 'Owner'
+    };
+
+    let projectMembers = [creatorMember];
+    if (newProject.type === 'team') {
+      const chosenTeammates = connections
+        .filter(c => selectedConnectedUids.has(c.uid || c.id))
+        .map(c => ({
+          uid: c.uid || c.id,
+          name: c.name || (c.email ? c.email.split('@')[0] : 'Teammate'),
+          email: c.email || '',
+          role: 'Member'
+        }));
+      projectMembers = [creatorMember, ...chosenTeammates];
+    }
+
+    const payload = {
       name: cleanName,
-      id: Date.now().toString(),
-      code: projCode,
+      description: newProject.description.trim(),
+      color: newProject.color,
+      type: newProject.type,
+      creatorUid: user?.uid || 'guest',
+      creatorName: user?.displayName || 'User',
+      creatorEmail: user?.email || '',
+      members: projectMembers,
+      memberUids: projectMembers.map(m => m.uid),
+      memberEmails: projectMembers.map(m => (m.email || '').toLowerCase()).filter(Boolean),
       createdAt: new Date().toISOString()
     };
 
-    const updated = [...customProjects, newProjObj];
-    setCustomProjects(updated);
-    const currentKey = user?.isGuest ? 'guest' : (user?.uid || 'guest');
-    localStorage.setItem(`tb_projects_${currentKey}`, JSON.stringify(updated));
-
-    // Register project in Firestore (Workspace or User)
-    if (user && !user.isGuest) {
-      try {
-        if (workspaceId && workspaceId !== 'local_workspace') {
-          await setDoc(doc(db, 'workspaces', workspaceId, 'projects', newProjObj.id), newProjObj);
-        } else {
-          await setDoc(doc(db, 'users', user.uid, 'projects', newProjObj.id), newProjObj);
-        }
-        await setDoc(doc(db, 'team_codes', projCode), {
-          code: projCode,
-          type: 'project',
-          workspaceId: workspaceId || `ws_${user.uid}`,
-          workspaceName: `${user.displayName || 'Owner'}'s Workspace`,
-          projectName: cleanName,
-          ownerUid: user.uid,
-          ownerName: user.displayName || 'Project Lead',
-          ownerEmail: user.email || '',
-          createdAt: new Date().toISOString()
-        });
-      } catch (err) {
-        console.warn("Cloud project registration error:", err);
-      }
-    }
-
-    showToast?.(`Project "${cleanName}" created with unique code ${projCode}!`, "success");
-    setNewProject({ name: '', description: '', category: 'Work', targetDate: '', color: 'blue' });
+    await onCreateProject?.(payload);
     setIsNewProjectModalOpen(false);
   };
 
-  const handleDeleteProject = async (projId, e) => {
-    e?.stopPropagation();
-    const targetProj = customProjects.find(p => p.id === projId);
-    const updated = customProjects.filter(p => p.id !== projId);
-    setCustomProjects(updated);
-    const currentKey = user?.isGuest ? 'guest' : (user?.uid || 'guest');
-    localStorage.setItem(`tb_projects_${currentKey}`, JSON.stringify(updated));
-
-    if (user && !user.isGuest) {
-      try {
-        if (targetProj?.isWorkspaceProject && workspaceId) {
-          await deleteDoc(doc(db, 'workspaces', workspaceId, 'projects', projId));
-        } else {
-          await deleteDoc(doc(db, 'users', user.uid, 'projects', projId));
-        }
-        await deleteDoc(doc(db, 'users', user.uid, 'projects', projId));
-        if (targetProj?.code) {
-          await deleteDoc(doc(db, 'team_codes', targetProj.code));
-        }
-      } catch (err) {
-        console.warn("Cloud project deletion error:", err);
-      }
-    }
-    showToast?.("Project deleted.", "info");
-  };
-
-  const handleCopyProjectCode = async (code, e) => {
-    e?.stopPropagation();
-    try {
-      await navigator.clipboard.writeText(code);
-      setCopiedCodeMap(prev => ({ ...prev, [code]: true }));
-      showToast?.(`Project Code ${code} copied!`, "success");
-      setTimeout(() => setCopiedCodeMap(prev => ({ ...prev, [code]: false })), 2500);
-    } catch {
-      showToast?.("Could not copy project code.", "error");
-    }
-  };
-
-  const handleShareProjectLink = async (projectName, code, e) => {
-    e?.stopPropagation();
-    const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    const path = typeof window !== 'undefined' ? window.location.pathname : '';
-    const wsId = workspaceId || (user?.isGuest ? 'local_workspace' : `ws_${user?.uid || 'main'}`);
-    const inviter = user?.displayName || 'Project Lead';
-    const link = `${origin}${path}?joinTeam=${encodeURIComponent(wsId)}&code=${encodeURIComponent(code)}&inviter=${encodeURIComponent(inviter)}&wsName=${encodeURIComponent(projectName)}`;
-
-    try {
-      await navigator.clipboard.writeText(link);
-      showToast?.(`Invite link for "${projectName}" copied to clipboard!`, "success");
-    } catch {
-      showToast?.("Could not copy link automatically.", "error");
-    }
-  };
-
-  const getProjectStats = (projectName) => {
-    const target = (projectName || '').trim().toLowerCase();
-    const projectTasks = tasks.filter(t => (t.project || 'General Workspace').trim().toLowerCase() === target);
-    const completed = projectTasks.filter(t => t.status === 'Completed').length;
-    const total = projectTasks.length;
-    const overdue = projectTasks.filter(t => t.status !== 'Completed' && t.deadline && t.deadline < new Date().toISOString().split('T')[0]).length;
-    const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
-    const health = overdue > 0 ? 'At Risk' : progress === 100 ? 'Completed' : 'On Track';
-    return { total, completed, overdue, progress, health };
-  };
-
   return (
-    <div className="space-y-6 animate-in fade-in">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white dark:bg-slate-800 p-6 rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm">
+    <div className="space-y-6 animate-in fade-in pb-16">
+      {/* Header Banner */}
+      <div className="bg-white dark:bg-[#101726] p-6 sm:p-7 rounded-3xl border border-slate-200/80 dark:border-white/[0.08] shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 transition-all">
         <div>
-          <h2 className="text-xl sm:text-2xl font-extrabold text-gray-900 dark:text-white flex items-center gap-2">
-            📁 Project Workspaces & Milestones
-          </h2>
-          <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400 mt-1">
-            Track multi-stage objectives, health indicators, and project progress.
+          <div className="flex items-center gap-2 mb-1">
+            <span className="p-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/50">
+              {currentWorkspace === 'personal' ? <Lock size={18} /> : <Users size={18} />}
+            </span>
+            <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+              {currentWorkspace === 'personal' ? 'Personal Projects' : 'Team Projects'}
+            </h2>
+          </div>
+          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 font-medium">
+            {currentWorkspace === 'personal'
+              ? 'Private projects for your individual work and goals.'
+              : 'Collaborative projects with teams formed from your connected people.'}
           </p>
         </div>
-        <div className="flex items-center gap-2.5 flex-wrap">
-          {!isApex && (
-            <button
-              type="button"
-              onClick={onOpenApexModal}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800/50 hover:bg-amber-100 transition-all active:scale-95"
-            >
-              <Sparkles size={13} className="text-amber-500" />
-              <span>Projects: {customProjects.length}/{PLAN_LIMITS.CORE.customProjects} • <strong className="underline">Upgrade</strong></span>
-            </button>
-          )}
+
+        <div className="flex items-center gap-2.5">
+          <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-white/[0.05] border border-slate-200/60 dark:border-white/[0.06]" title="Projects created & owned by you">
+            {ownedProjectsCount} / {maxProjectsAllowed} Owned Projects
+          </span>
           <button
-            onClick={() => {
-              if (!isApex && customProjects.length >= PLAN_LIMITS.CORE.customProjects) {
-                showToast?.(`Core Plan Limit: Free tier allows up to ${PLAN_LIMITS.CORE.customProjects} custom projects. Upgrade to Apex for unlimited workspaces!`, "warning");
-                onOpenApexModal?.();
-                return;
-              }
-              setIsNewProjectModalOpen(true);
-            }}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm shadow-md transition-all active:scale-95"
+            type="button"
+            onClick={handleOpenCreateModal}
+            className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white px-4 py-2.5 rounded-2xl text-xs font-black shadow-md shadow-indigo-500/20 active:scale-95 transition-all"
           >
-            <Plus size={16} /> New Project
+            <Plus size={15} />
+            <span>New {currentWorkspace === 'personal' ? 'Personal' : 'Team'} Project</span>
           </button>
         </div>
       </div>
 
       {/* Projects Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {allProjectNames.map(name => {
-          const stats = getProjectStats(name);
-          const customMeta = customProjects.find(p => p.name === name);
+      {workspaceProjects.length === 0 ? (
+        <div className="bg-white dark:bg-[#101726] p-12 rounded-3xl border border-slate-200/70 dark:border-white/[0.06] text-center">
+          <div className="w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-500 flex items-center justify-center mx-auto mb-3">
+            <Folder size={26} />
+          </div>
+          <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+            No {currentWorkspace === 'personal' ? 'Personal' : 'Team'} Projects Yet
+          </h3>
+          <p className="text-xs text-slate-400 max-w-sm mx-auto mt-1 mb-5">
+            {currentWorkspace === 'personal'
+              ? 'Organize your goals, study, or habits by creating a personal project.'
+              : 'Create a team project and select connected teammates to collaborate.'}
+          </p>
+          <button
+            type="button"
+            onClick={handleOpenCreateModal}
+            className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-xl text-xs font-black shadow-md transition-all active:scale-95"
+          >
+            <Plus size={14} /> Create Project
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {workspaceProjects.map((proj) => {
+            const colorMeta = PROJECT_COLOR_CLASSES[proj.color] || PROJECT_COLOR_CLASSES.indigo;
+            const projectTasks = tasks.filter(t => t.projectId === proj.id || (t.project && proj.name && t.project.trim().toLowerCase() === proj.name.trim().toLowerCase()));
+            const completedCount = projectTasks.filter(t => t.status === 'Completed').length;
+            const totalCount = projectTasks.length;
+            const pct = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+            const memberCount = Array.isArray(proj.members) ? proj.members.length : 1;
+            const isOwner = proj.creatorUid === user?.uid || !proj.creatorUid;
 
-          return (
-            <div
-              key={name}
-              className="bg-white dark:bg-slate-800 p-6 rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm hover:shadow-md transition-all flex flex-col justify-between group"
-            >
-              <div>
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-extrabold">
-                      <Folder size={20} />
+            return (
+              <div
+                key={proj.id}
+                className="bg-white dark:bg-[#101726] rounded-3xl border border-slate-200/80 dark:border-white/[0.06] p-5 shadow-xs hover:border-indigo-400/50 dark:hover:border-indigo-500/40 transition-all flex flex-col justify-between gap-4 group"
+              >
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-2.5">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={`w-3 h-3 rounded-full ${colorMeta.bg} shrink-0 shadow-xs`} />
+                      <h4 className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
+                        {proj.name}
+                      </h4>
                     </div>
-                    <div>
-                      <h3 className="font-extrabold text-base text-gray-900 dark:text-white group-hover:text-blue-600 transition-colors">
-                        {name}
-                      </h3>
-                      <p className="text-[11px] text-gray-400 dark:text-slate-500 font-medium">
-                        {customMeta?.category || 'General Workspace'}
-                      </p>
-                    </div>
-                  </div>
 
-                  <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full border ${
-                    stats.health === 'At Risk'
-                      ? 'bg-red-50 text-red-600 border-red-200 dark:bg-red-950/40 dark:border-red-800'
-                      : stats.health === 'Completed'
-                        ? 'bg-green-50 text-green-600 border-green-200 dark:bg-green-950/40 dark:border-green-800'
-                        : 'bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-950/40 dark:border-blue-800'
-                  }`}>
-                    {stats.health}
-                  </span>
-                </div>
-
-                {customMeta?.description && (
-                  <p className="text-xs text-gray-600 dark:text-slate-300 mb-4 line-clamp-2">
-                    {customMeta.description}
-                  </p>
-                )}
-
-                {/* Progress Bar */}
-                <div className="space-y-1.5 mb-6">
-                  <div className="flex justify-between items-center text-xs font-bold">
-                    <span className="text-gray-500 dark:text-slate-400">Completion</span>
-                    <span className="text-blue-600 dark:text-blue-400">{stats.progress}%</span>
-                  </div>
-                  <div className="w-full h-2.5 bg-gray-100 dark:bg-slate-700 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full transition-all duration-500"
-                      style={{ width: `${stats.progress}%` }}
-                    />
-                  </div>
-                </div>
-
-                {/* Metrics */}
-                <div className="grid grid-cols-3 gap-2 py-3 px-4 bg-gray-50 dark:bg-slate-900/50 rounded-2xl border border-gray-100 dark:border-slate-800 text-center mb-4">
-                  <div>
-                    <p className="text-[10px] text-gray-400 font-bold uppercase">Tasks</p>
-                    <p className="text-sm font-extrabold text-gray-900 dark:text-white">{stats.total}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-green-500 font-bold uppercase">Done</p>
-                    <p className="text-sm font-extrabold text-green-600 dark:text-green-400">{stats.completed}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-red-500 font-bold uppercase">Alerts</p>
-                    <p className="text-sm font-extrabold text-red-600 dark:text-red-400">{stats.overdue}</p>
-                  </div>
-                </div>
-
-                {/* Unique Project Code Badge & Quick Share */}
-                {customMeta?.code && (
-                  <div className="flex items-center justify-between p-2.5 mb-2 rounded-2xl bg-indigo-50/70 dark:bg-slate-900/60 border border-indigo-100 dark:border-slate-700/80">
-                    <div className="min-w-0 flex items-center gap-1.5">
-                      <span className="text-[10px] font-black uppercase text-indigo-600 dark:text-indigo-400">
-                        Code:
-                      </span>
-                      <span className="font-mono font-bold text-xs text-gray-800 dark:text-slate-200 truncate">
-                        {customMeta.code}
-                      </span>
-                      {!user?.isGuest && (
-                        <span className="hidden sm:inline-flex items-center gap-0.5 text-[9px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.2 rounded-md">
-                          <ShieldCheck size={10} /> Cloud
-                        </span>
-                      )}
-                    </div>
                     <div className="flex items-center gap-1 shrink-0">
-                      <button
-                        type="button"
-                        onClick={(e) => handleCopyProjectCode(customMeta.code, e)}
-                        className="p-1.5 rounded-lg text-indigo-600 dark:text-indigo-400 hover:bg-white dark:hover:bg-slate-800 transition-colors"
-                        title="Copy Unique Project Code"
-                      >
-                        {copiedCodeMap[customMeta.code] ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => handleShareProjectLink(name, customMeta.code, e)}
-                        className="p-1.5 rounded-lg text-blue-600 dark:text-blue-400 hover:bg-white dark:hover:bg-slate-800 transition-colors"
-                        title="Share Project Invite Link"
-                      >
-                        <Share2 size={13} />
-                      </button>
+                      <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${colorMeta.light}`}>
+                        {proj.type === 'team' ? 'Team' : 'Personal'}
+                      </span>
+                      {isOwner ? (
+                        <button
+                          type="button"
+                          onClick={() => onDeleteProject?.(proj.id, proj.name)}
+                          className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-all"
+                          title="Delete Project"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      ) : proj.type === 'team' ? (
+                        <button
+                          type="button"
+                          onClick={() => onLeaveProject?.(proj.id, proj.name)}
+                          className="text-[10px] font-bold text-rose-500 hover:text-rose-600 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 px-2 py-0.5 rounded-lg border border-rose-200 dark:border-rose-800/40 transition-all flex items-center gap-1"
+                          title="Leave this team project"
+                        >
+                          <LogOut size={11} /> Leave
+                        </button>
+                      ) : null}
                     </div>
                   </div>
-                )}
-              </div>
 
-              {/* Action Buttons */}
-              <div className="flex items-center gap-2 pt-3 border-t border-gray-100 dark:border-slate-700/60">
-                <button
-                  type="button"
-                  onClick={() => onFilterProject(name)}
-                  className="flex-1 py-2 px-3 bg-gray-100 dark:bg-slate-700 hover:bg-blue-50 dark:hover:bg-blue-900/30 text-gray-700 dark:text-slate-200 hover:text-blue-600 dark:hover:text-blue-400 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5"
-                >
-                  View Tasks <ChevronRight size={14} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onOpenNewTask(name)}
-                  className="p-2 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-xl hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
-                  title="Add Task to Project"
-                >
-                  <Plus size={16} />
-                </button>
-                {customMeta?.id && (
-                  <button
-                    type="button"
-                    onClick={(e) => handleDeleteProject(customMeta.id, e)}
-                    className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-xl transition-colors"
-                    title="Delete Project"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+                  {proj.description && (
+                    <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed mb-3">
+                      {proj.description}
+                    </p>
+                  )}
 
-      {/* New Project Modal */}
+                  {/* Progress bar */}
+                  <div className="space-y-1 mt-2">
+                    <div className="flex justify-between text-[11px] font-bold text-slate-400">
+                      <span>Tasks: {completedCount}/{totalCount}</span>
+                      <span>{pct}%</span>
+                    </div>
+                    <div className="w-full bg-slate-100 dark:bg-white/[0.06] h-2 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full ${colorMeta.bg} transition-all duration-300 rounded-full`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Card Footer */}
+                <div className="pt-3 border-t border-slate-100 dark:border-white/[0.04] flex items-center justify-between">
+                  {proj.type === 'team' ? (
+                    isOwner ? (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditMembersModal(proj)}
+                        className="flex items-center gap-1.5 text-xs text-indigo-600 dark:text-indigo-400 font-bold hover:underline py-1 px-1.5 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition-colors"
+                        title="Manage project team members"
+                      >
+                        <Users size={14} className="text-indigo-500" />
+                        <span>{memberCount} Members • Edit</span>
+                      </button>
+                    ) : (
+                      <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 font-semibold">
+                        <Users size={14} className="text-indigo-500" />
+                        <span>{memberCount} Members</span>
+                      </div>
+                    )
+                  ) : (
+                    <div className="flex items-center gap-1.5 text-xs text-slate-400 font-medium">
+                      <Lock size={13} />
+                      <span>Private</span>
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => onOpenNewTask?.(proj.name)}
+                      className="p-1.5 rounded-xl bg-slate-100 hover:bg-indigo-50 dark:bg-white/[0.05] dark:hover:bg-indigo-950/40 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors text-xs font-bold"
+                      title="Add Task to Project"
+                    >
+                      <Plus size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onFilterProject?.(proj.name)}
+                      className="px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 text-xs font-extrabold flex items-center gap-1 transition-colors"
+                    >
+                      <span>View</span>
+                      <ChevronRight size={13} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Create Project Modal */}
       {isNewProjectModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 z-[200] animate-in fade-in">
-          <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl border border-gray-100 dark:border-slate-700">
-            <div className="flex justify-between items-center pb-4 mb-4 border-b border-gray-100 dark:border-slate-700">
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                <Folder size={18} className="text-blue-600" /> Create New Project
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-[250] flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-[#0c121e] border border-slate-200/90 dark:border-white/[0.08] rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl space-y-5 animate-in zoom-in-95 max-h-[90vh] overflow-y-auto hide-scrollbar">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                <Folder size={18} className="text-indigo-500" />
+                New Project
               </h3>
               <button
+                type="button"
                 onClick={() => setIsNewProjectModalOpen(false)}
-                className="p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-full"
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-white/[0.05] transition-colors"
               >
                 <X size={18} />
               </button>
             </div>
 
-            <form onSubmit={handleCreateProject} className="space-y-4">
+            <form onSubmit={handleFormSubmit} className="space-y-4">
+              {/* Type Switcher */}
               <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1.5">
-                  Project Title
+                <label className="block text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">
+                  Project Scope
+                </label>
+                <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 dark:bg-white/[0.04] rounded-2xl">
+                  <button
+                    type="button"
+                    onClick={() => setNewProject(p => ({ ...p, type: 'personal' }))}
+                    className={`py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 ${
+                      newProject.type === 'personal'
+                        ? 'bg-white dark:bg-[#151e32] text-slate-900 dark:text-white shadow-xs'
+                        : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <Lock size={13} /> Personal Project
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewProject(p => ({ ...p, type: 'team' }))}
+                    className={`py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 ${
+                      newProject.type === 'team'
+                        ? 'bg-white dark:bg-[#151e32] text-indigo-600 dark:text-indigo-400 shadow-xs'
+                        : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <Users size={13} /> Team Project
+                  </button>
+                </div>
+              </div>
+
+              {/* Project Name */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Project Title *
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Q3 Product Launch"
+                  placeholder="e.g. Website Launch, Finals Prep, Marketing Sprint"
                   value={newProject.name}
-                  onChange={(e) => setNewProject({ ...newProject, name: e.target.value })}
-                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500/40 dark:text-white"
+                  onChange={(e) => setNewProject(p => ({ ...p, name: e.target.value }))}
+                  className="w-full px-4 py-2.5 text-sm bg-slate-50 dark:bg-[#101726] border border-slate-200 dark:border-white/[0.08] rounded-2xl text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
                 />
               </div>
 
+              {/* Description */}
               <div>
-                <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1.5">
-                  Description / Milestone Objective
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Description
                 </label>
                 <textarea
-                  rows={3}
-                  placeholder="Goals, deliverables, or team scope..."
+                  rows={2}
+                  placeholder="Brief objective or team notes..."
                   value={newProject.description}
-                  onChange={(e) => setNewProject({ ...newProject, description: e.target.value })}
-                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500/40 dark:text-white"
+                  onChange={(e) => setNewProject(p => ({ ...p, description: e.target.value }))}
+                  className="w-full px-4 py-2.5 text-sm bg-slate-50 dark:bg-[#101726] border border-slate-200 dark:border-white/[0.08] rounded-2xl text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 resize-none"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1.5">
-                    Category
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Engineering, Marketing..."
-                    value={newProject.category}
-                    onChange={(e) => setNewProject({ ...newProject, category: e.target.value })}
-                    className="w-full px-4 py-2.5 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500/40 dark:text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1.5">
-                    Target Date
-                  </label>
-                  <input
-                    type="date"
-                    value={newProject.targetDate}
-                    onChange={(e) => setNewProject({ ...newProject, targetDate: e.target.value })}
-                    className="w-full px-4 py-2.5 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500/40 dark:text-white"
-                  />
+              {/* Color Picker */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
+                  Accent Color
+                </label>
+                <div className="flex items-center gap-2.5">
+                  {Object.keys(PROJECT_COLOR_CLASSES).map((colorKey) => (
+                    <button
+                      key={colorKey}
+                      type="button"
+                      onClick={() => setNewProject(p => ({ ...p, color: colorKey }))}
+                      className={`w-7 h-7 rounded-full ${PROJECT_COLOR_CLASSES[colorKey].bg} flex items-center justify-center transition-all ${
+                        newProject.color === colorKey ? 'ring-2 ring-offset-2 ring-indigo-500 scale-110 shadow-md' : 'opacity-80 hover:opacity-100'
+                      }`}
+                    >
+                      {newProject.color === colorKey && <Check size={14} className="text-white stroke-[3]" />}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              <div className="flex justify-end gap-3 pt-3">
+              {/* Team Members Selection (Strictly Connected People) */}
+              {newProject.type === 'team' && (
+                <div className="pt-2 border-t border-slate-100 dark:border-white/[0.06] space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-extrabold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                      <UserCheck size={14} className="text-indigo-500" />
+                      Add Teammates from Connected Network
+                    </label>
+                    <span className="text-[11px] font-bold text-indigo-500">
+                      {selectedConnectedUids.size} / {maxTeamMembersAllowed - 1} Selected
+                    </span>
+                  </div>
+
+                  {connections.length === 0 ? (
+                    <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/40 text-xs text-amber-700 dark:text-amber-300">
+                      <p className="font-bold">No connected people yet!</p>
+                      <p className="text-[11px] mt-0.5 opacity-90">
+                        Go to the <strong>Connect</strong> section to connect with colleagues by email first. You can only team up with connected people.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1 hide-scrollbar">
+                      {connections.map((c) => {
+                        const targetId = c.uid || c.id;
+                        const isSelected = selectedConnectedUids.has(targetId);
+                        return (
+                          <div
+                            key={targetId}
+                            onClick={() => toggleTeammateSelection(targetId)}
+                            className={`p-2.5 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
+                              isSelected
+                                ? 'bg-indigo-50/80 dark:bg-indigo-950/40 border-indigo-300 dark:border-indigo-800'
+                                : 'bg-slate-50 dark:bg-white/[0.02] border-slate-200/60 dark:border-white/[0.04] hover:bg-slate-100 dark:hover:bg-white/[0.04]'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white font-extrabold text-xs flex items-center justify-center shrink-0">
+                                {(c.name || c.email || 'U').charAt(0).toUpperCase()}
+                              </div>
+                              <div className="min-w-0">
+                                <span className="text-xs font-bold text-slate-800 dark:text-white block truncate">
+                                  {c.name || c.email}
+                                </span>
+                                <span className="text-[10px] text-slate-400 block truncate">
+                                  {c.email}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className={`w-5 h-5 rounded-lg border flex items-center justify-center transition-all ${
+                              isSelected ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-300 dark:border-slate-600'
+                            }`}>
+                              {isSelected && <Check size={12} className="stroke-[3]" />}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end gap-2.5 pt-3">
                 <button
                   type="button"
                   onClick={() => setIsNewProjectModalOpen(false)}
-                  className="px-5 py-2.5 text-xs font-bold text-gray-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-xl"
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-white/[0.05] transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md transition-all active:scale-95"
+                  disabled={!newProject.name.trim()}
+                  className="px-5 py-2.5 rounded-xl text-xs font-black bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white shadow-md shadow-indigo-500/20 active:scale-95 transition-all disabled:opacity-50"
                 >
-                  Create Project
+                  Create {newProject.type === 'team' ? 'Team' : 'Personal'} Project
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* Edit Team Members Modal */}
+      {editingMembersProject && (
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-[250] flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-[#0c121e] border border-slate-200/90 dark:border-white/[0.08] rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl space-y-5 animate-in zoom-in-95 max-h-[90vh] overflow-y-auto hide-scrollbar">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                  <Users size={18} className="text-indigo-500" />
+                  Manage Team Members
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-semibold mt-0.5">
+                  Project: <span className="text-indigo-600 dark:text-indigo-400 font-bold">{editingMembersProject.name}</span>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingMembersProject(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-white/[0.05] transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-600 dark:text-slate-400">
+                  Select teammates from your Connected People:
+                </span>
+                <span className="text-[11px] font-extrabold text-indigo-600 dark:text-indigo-400">
+                  {editMemberUids.size + 1} / {maxTeamMembersAllowed} Members
+                </span>
+              </div>
+
+              {/* Pinned Owner / Creator */}
+              <div className="p-3 rounded-2xl border border-indigo-200/60 dark:border-indigo-900/40 bg-indigo-50/40 dark:bg-indigo-950/20 flex items-center justify-between">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-500 to-cyan-500 text-white flex items-center justify-center font-black text-xs shrink-0 shadow-xs">
+                    {(user?.displayName || 'Y').charAt(0).toUpperCase()}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                      {user?.displayName || 'You'} (Project Owner)
+                    </p>
+                    <p className="text-[10px] text-slate-400 truncate">
+                      {user?.email || ''}
+                    </p>
+                  </div>
+                </div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-indigo-600 dark:text-indigo-400 bg-white dark:bg-[#101726] px-2 py-0.5 rounded-lg border border-indigo-200 dark:border-indigo-800/60">
+                  Owner
+                </span>
+              </div>
+
+              {connections.length === 0 ? (
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-white/[0.03] border border-slate-200/60 dark:border-white/[0.06] text-center">
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-semibold">
+                    No connected teammates found.
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Connect with teammates in the Connect tab first.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+                  {connections.map((conn) => {
+                    const uid = conn.uid || conn.id;
+                    const isSelected = editMemberUids.has(uid);
+                    return (
+                      <div
+                        key={uid}
+                        onClick={() => toggleEditMemberUid(uid)}
+                        className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between ${
+                          isSelected
+                            ? 'bg-indigo-50/80 dark:bg-indigo-950/40 border-indigo-400 dark:border-indigo-600/60 shadow-xs'
+                            : 'bg-white dark:bg-white/[0.02] border-slate-200/80 dark:border-white/[0.06] hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-black text-xs shrink-0">
+                            {(conn.name || conn.email || 'T').charAt(0).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                              {conn.name || conn.email}
+                            </p>
+                            <p className="text-[10px] text-slate-400 truncate">
+                              {conn.email}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className={`w-5 h-5 rounded-lg border flex items-center justify-center transition-all ${
+                          isSelected
+                            ? 'bg-indigo-600 border-indigo-600 text-white'
+                            : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900'
+                        }`}>
+                          {isSelected && <Check size={12} strokeWidth={3} />}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-white/[0.06]">
+              <button
+                type="button"
+                onClick={() => setEditingMembersProject(null)}
+                className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-white/[0.05] transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEditedMembers}
+                className="px-5 py-2.5 rounded-xl text-xs font-black bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white shadow-md shadow-indigo-500/20 active:scale-95 transition-all"
+              >
+                Save Team Members
+              </button>
+            </div>
           </div>
         </div>
       )}

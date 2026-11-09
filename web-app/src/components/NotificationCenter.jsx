@@ -128,16 +128,16 @@ export default function NotificationCenter({
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className={`relative p-2.5 rounded-2xl border transition-all shadow-sm active:scale-95 ${
+        className={`relative p-2.5 rounded-2xl border transition-all shadow-xs active:scale-95 ${
           isOpen
-            ? 'bg-blue-50 dark:bg-slate-700 border-blue-400 text-blue-600 dark:text-blue-400'
-            : 'bg-white dark:bg-slate-800 border-gray-100 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700/80 text-gray-600 dark:text-slate-300'
+            ? 'bg-indigo-50 dark:bg-[#162035] border-indigo-400 dark:border-indigo-500 text-indigo-600 dark:text-indigo-400 ring-2 ring-indigo-500/20'
+            : 'bg-white dark:bg-[#101726] border-slate-200/80 dark:border-white/[0.08] hover:bg-slate-50 dark:hover:bg-[#151e32] text-slate-600 dark:text-slate-300'
         }`}
         title="Notifications Center"
       >
         <Bell size={18} />
         {unreadCount > 0 && (
-          <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-black rounded-full flex items-center justify-center shadow-md animate-pulse">
+          <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-gradient-to-r from-rose-500 to-pink-500 text-white text-[10px] font-black rounded-full flex items-center justify-center shadow-md shadow-rose-500/30 animate-pulse">
             {unreadCount > 9 ? '9+' : unreadCount}
           </span>
         )}
@@ -145,15 +145,18 @@ export default function NotificationCenter({
 
       {/* Floating Notification Panel */}
       {isOpen && (
-        <div className="fixed sm:absolute top-16 sm:top-full right-2 sm:right-0 mt-2 w-[calc(100vw-1rem)] sm:w-[420px] max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-gray-200 dark:border-slate-800 z-[99999] overflow-hidden flex flex-col max-h-[82vh] animate-in fade-in slide-in-from-top-2">
+        <div className="fixed sm:absolute top-16 sm:top-full right-2 sm:right-0 mt-2 w-[calc(100vw-1.5rem)] sm:w-[440px] max-w-md bg-white/95 dark:bg-[#0c1220]/95 backdrop-blur-2xl rounded-3xl shadow-2xl border border-slate-200/90 dark:border-white/[0.08] z-[99999] overflow-hidden flex flex-col max-h-[82vh] animate-in fade-in slide-in-from-top-2">
           {/* Header */}
-          <div className="p-4 border-b border-gray-100 dark:border-slate-800 flex items-center justify-between bg-gray-50/50 dark:bg-slate-800/40">
+          <div className="p-4 border-b border-slate-100 dark:border-white/[0.06] flex items-center justify-between bg-slate-50/70 dark:bg-[#101726]/70">
             <div className="flex items-center gap-2">
-              <h3 className="font-extrabold text-sm text-gray-900 dark:text-white flex items-center gap-2">
-                <Bell size={16} className="text-blue-600" /> Notifications
+              <div className="w-7 h-7 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                <Bell size={15} />
+              </div>
+              <h3 className="font-extrabold text-sm text-slate-900 dark:text-white tracking-tight">
+                Notifications
               </h3>
               {unreadCount > 0 && (
-                <span className="bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 text-[10px] font-extrabold px-2 py-0.5 rounded-full">
+                <span className="bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 text-[10px] font-extrabold px-2 py-0.5 rounded-full">
                   {unreadCount} new
                 </span>
               )}
@@ -164,17 +167,18 @@ export default function NotificationCenter({
                 <button
                   type="button"
                   onClick={onMarkAllAsRead}
-                  className="p-1.5 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-white dark:hover:bg-slate-800 rounded-lg text-xs font-bold transition-colors flex items-center gap-1"
+                  className="px-2 py-1 text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-[#151e32] rounded-xl text-xs font-bold transition-colors flex items-center gap-1"
                   title="Mark all as read"
                 >
                   <CheckCheck size={14} />
+                  <span className="hidden sm:inline">Mark read</span>
                 </button>
               )}
               {notifications.length > 0 && (
                 <button
                   type="button"
                   onClick={onClearAll}
-                  className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-white dark:hover:bg-slate-800 rounded-lg text-xs font-bold transition-colors"
+                  className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-slate-100 dark:hover:bg-[#151e32] rounded-xl text-xs font-bold transition-colors"
                   title="Clear all notifications"
                 >
                   <Trash2 size={14} />
@@ -184,9 +188,9 @@ export default function NotificationCenter({
           </div>
 
           {/* Category Filter Pills */}
-          <div className="flex items-center gap-1 px-4 py-2 bg-white dark:bg-slate-900 border-b border-gray-100 dark:border-slate-800 overflow-x-auto hide-scrollbar">
-            <span className="text-[10px] font-bold text-gray-400 dark:text-slate-500 flex items-center gap-1 mr-1">
-              <Filter size={10} /> Filter:
+          <div className="flex items-center gap-1.5 px-4 py-2.5 bg-white dark:bg-[#0c1220] border-b border-slate-100 dark:border-white/[0.06] overflow-x-auto hide-scrollbar">
+            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-400 flex items-center gap-1 mr-1">
+              <Filter size={11} /> Filter:
             </span>
             {[
               { id: 'all', label: 'All' },
@@ -198,10 +202,10 @@ export default function NotificationCenter({
                 key={tab.id}
                 type="button"
                 onClick={() => setFilterType(tab.id)}
-                className={`text-[10px] px-2.5 py-1 rounded-full font-extrabold whitespace-nowrap transition-all ${
+                className={`text-[10px] px-3 py-1 rounded-full font-extrabold whitespace-nowrap transition-all ${
                   filterType === tab.id
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700'
+                    ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/25'
+                    : 'bg-slate-100 dark:bg-[#151e32] text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
                 {tab.label}
@@ -211,14 +215,14 @@ export default function NotificationCenter({
 
           {/* Desktop Push Notification Permission Banner */}
           {isPermissionPending && (
-            <div className="px-4 py-2.5 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/40 border-b border-blue-100 dark:border-blue-900/40 flex items-center justify-between gap-2">
-              <span className="text-[11px] font-medium text-blue-800 dark:text-blue-200">
+            <div className="px-4 py-2.5 bg-gradient-to-r from-indigo-50 to-blue-50 dark:from-indigo-950/40 dark:to-blue-950/40 border-b border-indigo-100 dark:border-indigo-900/40 flex items-center justify-between gap-2">
+              <span className="text-[11px] font-medium text-indigo-900 dark:text-indigo-200">
                 🔔 Get desktop push alerts for deadlines & team assignments
               </span>
               <button
                 type="button"
                 onClick={handleRequestPushPermission}
-                className="px-2.5 py-1 bg-blue-600 text-white rounded-lg text-[10px] font-black hover:bg-blue-700 transition-colors shrink-0 shadow-sm"
+                className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-black transition-colors shrink-0 shadow-sm"
               >
                 Enable
               </button>
@@ -226,16 +230,16 @@ export default function NotificationCenter({
           )}
 
           {/* Notifications Scrollable List */}
-          <div className="overflow-y-auto divide-y divide-gray-100 dark:divide-slate-800 flex-1 hide-scrollbar">
+          <div className="overflow-y-auto divide-y divide-slate-100 dark:divide-white/[0.06] flex-1 hide-scrollbar">
             {filteredNotifications.length === 0 ? (
               <div className="py-12 px-6 text-center">
-                <div className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-900/20 text-blue-500 flex items-center justify-center mx-auto mb-3">
+                <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-500 flex items-center justify-center mx-auto mb-3">
                   <Check size={20} />
                 </div>
-                <h4 className="font-extrabold text-sm text-gray-800 dark:text-white">
+                <h4 className="font-extrabold text-sm text-slate-900 dark:text-white tracking-tight">
                   You're all caught up!
                 </h4>
-                <p className="text-xs text-gray-400 dark:text-slate-500 mt-1 max-w-[240px] mx-auto">
+                <p className="text-xs text-slate-400 dark:text-slate-400 mt-1 max-w-[240px] mx-auto">
                   When teammates assign tasks, complete work, comment, or deadlines approach, alerts will appear here.
                 </p>
               </div>
@@ -248,25 +252,25 @@ export default function NotificationCenter({
                     onClick={() => onMarkAsRead?.(n.id)}
                     className={`p-4 transition-colors flex items-start gap-3 cursor-pointer group ${
                       !n.read
-                        ? 'bg-blue-50/40 dark:bg-blue-950/20 hover:bg-blue-50/70 dark:hover:bg-blue-950/40'
-                        : 'hover:bg-gray-50 dark:hover:bg-slate-800/50'
+                        ? 'bg-indigo-50/50 dark:bg-indigo-950/30 hover:bg-indigo-50/80 dark:hover:bg-indigo-950/50'
+                        : 'hover:bg-slate-50/80 dark:hover:bg-[#151e32]/60'
                     }`}
                   >
-                    <div className="w-9 h-9 rounded-2xl bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 flex items-center justify-center shrink-0 shadow-sm mt-0.5">
+                    <div className="w-9 h-9 rounded-2xl bg-white dark:bg-[#151e32] border border-slate-200/70 dark:border-white/[0.08] flex items-center justify-center shrink-0 shadow-xs mt-0.5">
                       {theme.icon}
                     </div>
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-1 mb-1">
-                        <span className="font-extrabold text-xs text-gray-900 dark:text-white truncate">
+                        <span className="font-extrabold text-xs text-slate-900 dark:text-white truncate">
                           {n.title}
                         </span>
-                        <span className="text-[10px] text-gray-400 dark:text-slate-500 shrink-0 font-medium">
+                        <span className="text-[10px] text-slate-400 dark:text-slate-400 shrink-0 font-medium">
                           {formatTimeAgo(n.createdAt)}
                         </span>
                       </div>
 
-                      <p className="text-xs text-gray-600 dark:text-slate-300 leading-snug">
+                      <p className="text-xs text-slate-600 dark:text-slate-300 leading-snug">
                         {n.message}
                       </p>
 
@@ -276,15 +280,15 @@ export default function NotificationCenter({
                         </span>
 
                         {n.project && (
-                          <span className="text-[10px] font-semibold text-gray-500 dark:text-slate-400 bg-gray-100 dark:bg-slate-800 px-2 py-0.5 rounded-md truncate max-w-[120px]">
+                          <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-[#151e32] px-2 py-0.5 rounded-md truncate max-w-[120px]">
                             {n.project}
                           </span>
                         )}
 
                         {n.priority && (
                           <span className={`text-[9px] font-black px-1.5 py-0.5 rounded ${
-                            n.priority === 'Urgent' ? 'bg-red-100 text-red-600 dark:bg-red-950/40 dark:text-red-400' :
-                            n.priority === 'High' ? 'bg-orange-100 text-orange-600 dark:bg-orange-950/40 dark:text-orange-400' :
+                            n.priority === 'Urgent' ? 'bg-rose-100 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400' :
+                            n.priority === 'High' ? 'bg-amber-100 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400' :
                             'bg-blue-100 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400'
                           }`}>
                             {n.priority}
@@ -297,10 +301,10 @@ export default function NotificationCenter({
                             onClick={(e) => {
                               e.stopPropagation();
                               onMarkAsRead?.(n.id);
-                              onSelectTask?.(n.taskId);
+                              onSelectTask?.(n.taskId, n);
                               setIsOpen(false);
                             }}
-                            className="ml-auto text-[11px] font-extrabold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-0.5"
+                            className="ml-auto text-[11px] font-extrabold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 group-hover:translate-x-0.5 transition-transform"
                           >
                             View Task <ExternalLink size={11} />
                           </button>
@@ -309,7 +313,7 @@ export default function NotificationCenter({
                     </div>
 
                     {!n.read && (
-                      <div className="w-2 h-2 rounded-full bg-blue-600 shrink-0 mt-2"></div>
+                      <div className="w-2 h-2 rounded-full bg-indigo-600 dark:bg-indigo-400 shrink-0 mt-2 shadow-xs shadow-indigo-500"></div>
                     )}
                   </div>
                 );

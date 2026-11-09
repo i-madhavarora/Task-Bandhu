@@ -20,7 +20,7 @@ export const PLAN_LIMITS = {
     name: 'Apex',
     badge: '✦ Apex Prestige',
     pinnedTasks: Infinity,
-    customProjects: Infinity,
+    customProjects: 10,
     teamMembers: 50,
     dailyAIBreakdowns: Infinity,
     subtasksPerTask: Infinity,

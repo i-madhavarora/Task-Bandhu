@@ -1,18 +1,32 @@
 import {
   Sun, Moon, LogOut, DownloadCloud, UploadCloud,
   CheckCircle2, Inbox, Folder, Users,
-  Sparkles, Timer, BarChart3, Zap, Pin, LayoutGrid, X,
-  ShieldCheck, User
+  Sparkles, Timer, BarChart3, Zap, Star, LayoutGrid, X,
+  Calendar, UserCheck, Plus, ShieldCheck, UserPlus, Lock
 } from 'lucide-react';
 import logoDark from '../assets/logo_d.png';
 import logoLight from '../assets/logo_l.png';
+
+const PROJECT_COLOR_MAP = {
+  blue: 'bg-blue-500',
+  emerald: 'bg-emerald-500',
+  purple: 'bg-purple-500',
+  amber: 'bg-amber-500',
+  rose: 'bg-rose-500',
+  cyan: 'bg-cyan-500',
+  indigo: 'bg-indigo-500',
+  slate: 'bg-slate-400'
+};
 
 export default function Sidebar({
   activeTab,
   setActiveTab,
   stats,
-  projectsCount = 0,
-  teamCount = 0,
+  projects = [],
+  activeProject = '',
+  onSelectProject,
+  onOpenNewProject,
+  _teamCount = 0,
   user,
   isApex = false,
   onOpenApexModal,
@@ -22,30 +36,35 @@ export default function Sidebar({
   onExportBackup,
   onImportClick,
   isOpen,
-  onClose
+  onClose,
+  currentWorkspace = 'personal',
+  onSwitchWorkspace,
+  pendingRequestsCount = 0
 }) {
   const isGuest = !!user?.isGuest;
 
-  const navItems = [
+  const smartViews = [
     { id: 'my-day', label: 'My Day', icon: Sun, badge: stats?.todayCount, color: 'text-amber-500' },
-    { id: 'inbox', label: 'Inbox', icon: Inbox, badge: stats?.inboxCount, color: 'text-blue-500', guestHidden: true },
-    { id: 'all-tasks', label: 'All Tasks', icon: CheckCircle2, badge: stats?.total, color: 'text-indigo-500' },
-    { id: 'eisenhower', label: 'Focus Matrix', icon: LayoutGrid, color: 'text-purple-500', guestHidden: true },
-    { id: 'favorites', label: 'Pinned & Favorites', icon: Pin, badge: stats?.pinnedCount, color: 'text-rose-500' },
-  ];
-
-  const projectItems = [
-    { id: 'projects', label: 'Projects', icon: Folder, badge: projectsCount, color: 'text-emerald-500', guestHidden: true },
-    { id: 'team', label: 'Team Workspaces', icon: Users, badge: teamCount, color: 'text-cyan-500', guestHidden: true },
-    { id: 'profile', label: 'Profile & Account', icon: User, color: 'text-indigo-500', guestHidden: true },
+    { id: 'favorites', label: 'Important', icon: Star, badge: stats?.pinnedCount, color: 'text-amber-400' },
+    { id: 'upcoming', label: 'Planned', icon: Calendar, badge: stats?.upcomingCount, color: 'text-indigo-500' },
+    { id: 'all-tasks', label: 'All Tasks', icon: CheckCircle2, badge: stats?.total, color: 'text-blue-500' },
+    { id: 'assigned-to-me', label: 'Assigned to Me', icon: UserCheck, badge: stats?.assignedCount, color: 'text-emerald-500', guestHidden: true },
+    { id: 'inbox', label: 'Inbox', icon: Inbox, badge: stats?.inboxCount, color: 'text-purple-500', guestHidden: true },
+    { id: 'connect', label: 'Connect (Teammates)', icon: UserPlus, badge: pendingRequestsCount, color: 'text-indigo-500', guestHidden: true },
   ];
 
   const productivityItems = [
-    { id: 'ai-assistant', label: 'AI Assistant', icon: Sparkles, color: 'text-purple-600 dark:text-purple-400', isHot: true, guestHidden: true },
     { id: 'focus', label: 'Deep Focus', icon: Timer, color: 'text-blue-500' },
+    { id: 'eisenhower', label: 'Focus Matrix', icon: LayoutGrid, color: 'text-purple-500', guestHidden: true },
     { id: 'analytics', label: 'Reports & Analytics', icon: BarChart3, color: 'text-amber-500', guestHidden: true },
+    { id: 'ai-assistant', label: 'AI Assistant', icon: Sparkles, color: 'text-purple-600 dark:text-purple-400', isHot: true, guestHidden: true },
     { id: 'automations', label: 'Automations', icon: Zap, color: 'text-yellow-500', guestHidden: true },
   ];
+
+  const displayedProjects = projects.filter(p => {
+    if (currentWorkspace === 'personal') return p.type === 'personal' || !p.type;
+    return p.type === 'team';
+  });
 
   return (
     <>
@@ -65,8 +84,8 @@ export default function Sidebar({
         {/* Top Header */}
         <div className="shrink-0 p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-white dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700/80 shadow-md flex items-center justify-center p-2 shrink-0 overflow-hidden ring-1 ring-black/5 dark:ring-white/5">
-              <img src={isDarkMode ? logoDark : logoLight} alt="Task Bandhu Logo" className="w-full h-full object-contain rounded-xl" />
+            <div className="w-10 h-10 rounded-xl overflow-hidden shrink-0 shadow-sm flex items-center justify-center">
+              <img src={isDarkMode ? logoDark : logoLight} alt="Task Bandhu Logo" className="w-full h-full object-cover" />
             </div>
             <div>
               <div className="flex items-center gap-1.5">
@@ -97,34 +116,66 @@ export default function Sidebar({
         </div>
 
         {/* Navigation Links */}
-        <div className="flex-1 px-3 py-4 space-y-6 overflow-y-auto hide-scrollbar min-h-0">
-          {/* Core Focus Section */}
+        <div className="flex-1 px-3 py-3 space-y-5 overflow-y-auto hide-scrollbar min-h-0">
+          {/* Segmented Switcher for Personal & Team (Top Priority Workspace Switcher) */}
+          {!isGuest && (
+            <div className="p-1 bg-slate-100 dark:bg-white/[0.04] rounded-2xl border border-slate-200/60 dark:border-white/[0.06] grid grid-cols-2 gap-1 shadow-xs">
+              <button
+                type="button"
+                onClick={() => onSwitchWorkspace?.('personal')}
+                className={`py-2 px-2.5 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 ${
+                  currentWorkspace === 'personal'
+                    ? 'bg-white dark:bg-[#151e32] text-slate-900 dark:text-white shadow-xs'
+                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                }`}
+                title="Personal Workspace (Your private projects & tasks)"
+              >
+                <Lock size={12} className={currentWorkspace === 'personal' ? 'text-indigo-500' : ''} />
+                <span>Personal</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onSwitchWorkspace?.('team')}
+                className={`py-2 px-2.5 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 ${
+                  currentWorkspace === 'team'
+                    ? 'bg-white dark:bg-[#151e32] text-indigo-600 dark:text-indigo-400 shadow-xs'
+                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                }`}
+                title="Team Workspace (Collaborative team projects & workload)"
+              >
+                <Users size={12} className={currentWorkspace === 'team' ? 'text-indigo-500' : ''} />
+                <span>Team</span>
+              </button>
+            </div>
+          )}
+
+          {/* Core Focus / Smart Lists (Microsoft To Do & Todoist) */}
           <div>
-            <p className="px-3 mb-2 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-              Core Focus
+            <p className="px-3 mb-2 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-400">
+              Focus & Lists
             </p>
             <div className="space-y-1">
-              {navItems.filter(item => !isGuest || !item.guestHidden).map((item) => {
+              {smartViews.filter(item => !isGuest || !item.guestHidden).map((item) => {
                 const Icon = item.icon;
                 const isActive = activeTab === item.id;
                 return (
                   <button
                     key={item.id}
                     onClick={() => { setActiveTab(item.id); onClose?.(); }}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all relative group ${
+                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs transition-all relative group ${
                       isActive
-                        ? 'bg-blue-50 dark:bg-gradient-to-r dark:from-blue-600/20 dark:to-indigo-600/10 text-blue-600 dark:text-blue-400 border border-blue-200/70 dark:border-blue-500/30 shadow-xs dark:shadow-[0_0_15px_-3px_rgba(59,130,246,0.25)]'
-                        : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100/70 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white'
+                        ? 'bg-indigo-50/90 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-500/30 dark:shadow-[0_0_18px_rgba(99,102,241,0.2)] font-extrabold'
+                        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100/70 dark:hover:bg-white/[0.04] hover:text-slate-900 dark:hover:text-white font-medium'
                     }`}
                   >
                     <div className="flex items-center gap-2.5">
-                      <Icon size={16} className={`${isActive ? 'text-blue-600 dark:text-blue-400' : item.color} transition-colors`} />
+                      <Icon size={16} className={`${isActive ? 'text-indigo-600 dark:text-indigo-400' : item.color} transition-colors`} />
                       <span>{item.label}</span>
                     </div>
                     {typeof item.badge === 'number' && item.badge > 0 && (
                       <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
                         isActive
-                          ? 'bg-blue-600 text-white'
+                          ? 'bg-indigo-600 text-white'
                           : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 group-hover:bg-slate-200 dark:group-hover:bg-slate-700'
                       }`}>
                         {item.badge}
@@ -136,43 +187,73 @@ export default function Sidebar({
             </div>
           </div>
 
-          {/* Collaboration Section */}
+          {/* Projects Section (Scoped strictly to active workspace) */}
           <div>
-            <p className="px-3 mb-2 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-              Collaboration
-            </p>
-            <div className="space-y-1">
-              {projectItems.filter(item => !isGuest || !item.guestHidden).map((item) => {
-                const Icon = item.icon;
-                const isActive = activeTab === item.id;
-                return (
+            <div className="flex items-center justify-between px-3 mb-2">
+              <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-400">
+                {currentWorkspace === 'personal' ? 'Personal Projects' : 'Team Projects'}
+              </p>
                   <button
-                    key={item.id}
-                    onClick={() => { setActiveTab(item.id); onClose?.(); }}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all relative group ${
-                      isActive
-                        ? 'bg-blue-50 dark:bg-gradient-to-r dark:from-blue-600/20 dark:to-indigo-600/10 text-blue-600 dark:text-blue-400 border border-blue-200/70 dark:border-blue-500/30 shadow-xs dark:shadow-[0_0_15px_-3px_rgba(59,130,246,0.25)]'
-                        : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100/70 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white'
+                    type="button"
+                    onClick={() => { onOpenNewProject?.(); }}
+                    className="p-1 rounded-md text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-white/[0.05] transition-colors"
+                    title={`Create New ${currentWorkspace === 'personal' ? 'Personal' : 'Team'} Project`}
+                  >
+                    <Plus size={14} />
+                  </button>
+                </div>
+
+                <div className="space-y-1">
+                  {displayedProjects.length === 0 ? (
+                    <p className="px-3 py-1.5 text-[11px] text-slate-400 italic">
+                      No {currentWorkspace === 'personal' ? 'personal' : 'team'} projects yet
+                    </p>
+                  ) : (
+                    displayedProjects.map((proj) => {
+                      const isProjActive = activeTab === 'project' && activeProject === proj.name;
+                      const colorClass = PROJECT_COLOR_MAP[proj.color] || 'bg-indigo-500';
+                      return (
+                        <button
+                          key={proj.id || proj.name}
+                          onClick={() => { onSelectProject?.(proj.name); onClose?.(); }}
+                          className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-all relative group ${
+                            isProjActive
+                              ? 'bg-indigo-50/90 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-500/30 dark:shadow-[0_0_18px_rgba(99,102,241,0.2)] font-extrabold'
+                              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100/70 dark:hover:bg-white/[0.04] hover:text-slate-900 dark:hover:text-white font-medium'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 truncate">
+                            <span className={`w-2.5 h-2.5 rounded-full ${colorClass} shrink-0 shadow-xs`} />
+                            <span className="truncate">{proj.name}</span>
+                          </div>
+                          {typeof proj.taskCount === 'number' && proj.taskCount > 0 && (
+                            <span className="text-[10px] px-1.5 py-0.2 rounded-full font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 shrink-0">
+                              {proj.taskCount}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => { setActiveTab('projects'); onClose?.(); }}
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-all text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100/50 dark:hover:bg-white/[0.03] font-semibold ${
+                      activeTab === 'projects' ? 'text-indigo-600 dark:text-indigo-400 font-bold' : ''
                     }`}
                   >
-                    <div className="flex items-center gap-2.5">
-                      <Icon size={16} className={`${isActive ? 'text-blue-600 dark:text-blue-400' : item.color} transition-colors`} />
-                      <span>{item.label}</span>
+                    <div className="flex items-center gap-2">
+                      <Folder size={15} />
+                      <span>Manage {currentWorkspace === 'personal' ? 'Personal' : 'Team'} Projects</span>
                     </div>
-                    {typeof item.badge === 'number' && item.badge > 0 ? (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
-                        {item.badge}
-                      </span>
-                    ) : null}
                   </button>
-                );
-              })}
-            </div>
-          </div>
+                </div>
+              </div>
 
           {/* Productivity & AI Section */}
           <div>
-            <p className="px-3 mb-2 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+            <p className="px-3 mb-2 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-400">
               Productivity & AI
             </p>
             <div className="space-y-1">
@@ -183,14 +264,14 @@ export default function Sidebar({
                   <button
                     key={item.id}
                     onClick={() => { setActiveTab(item.id); onClose?.(); }}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all relative group ${
+                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs transition-all relative group ${
                       isActive
-                        ? 'bg-blue-50 dark:bg-gradient-to-r dark:from-blue-600/20 dark:to-indigo-600/10 text-blue-600 dark:text-blue-400 border border-blue-200/70 dark:border-blue-500/30 shadow-xs dark:shadow-[0_0_15px_-3px_rgba(59,130,246,0.25)]'
-                        : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100/70 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white'
+                        ? 'bg-indigo-50/90 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-500/30 dark:shadow-[0_0_18px_rgba(99,102,241,0.2)] font-extrabold'
+                        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100/70 dark:hover:bg-white/[0.04] hover:text-slate-900 dark:hover:text-white font-medium'
                     }`}
                   >
                     <div className="flex items-center gap-2.5">
-                      <Icon size={16} className={`${isActive ? 'text-blue-600 dark:text-blue-400' : item.color} transition-colors`} />
+                      <Icon size={16} className={`${isActive ? 'text-indigo-600 dark:text-indigo-400' : item.color} transition-colors`} />
                       <span>{item.label}</span>
                     </div>
                     {item.isHot && (
@@ -205,38 +286,91 @@ export default function Sidebar({
           </div>
         </div>
 
-        {/* Footer: User controls, backup, theme, sign out */}
-        <div className="shrink-0 p-4 border-t border-slate-100 dark:border-slate-800/80 space-y-3 bg-slate-50/50 dark:bg-[#0c121e]/80">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1 bg-white dark:bg-slate-800/80 p-1 rounded-xl border border-slate-200/60 dark:border-slate-700/80 shadow-xs">
+        {/* Footer: User controls, tier badge, theme & actions */}
+        <div className="shrink-0 p-3.5 border-t border-slate-100 dark:border-white/[0.06] space-y-2.5 bg-slate-50/70 dark:bg-[#090d16]/80">
+          {/* User Profile Card */}
+          <button
+            type="button"
+            onClick={() => { setActiveTab('profile'); onClose?.(); }}
+            className={`w-full flex items-center gap-2.5 p-2 rounded-2xl transition-all text-left group ${
+              activeTab === 'profile'
+                ? 'bg-indigo-50 dark:bg-indigo-500/15 border border-indigo-200 dark:border-indigo-500/30'
+                : 'hover:bg-white dark:hover:bg-white/[0.05] border border-transparent hover:border-slate-200/60 dark:hover:border-white/[0.06]'
+            }`}
+            title="View & Edit Account Profile"
+          >
+            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-500 to-cyan-500 text-white font-extrabold text-xs flex items-center justify-center shrink-0 shadow-sm shadow-indigo-500/20">
+              {user?.displayName ? user.displayName.charAt(0).toUpperCase() : 'G'}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-extrabold text-slate-900 dark:text-white truncate tracking-tight">
+                {user?.isGuest ? 'Guest User' : (user?.displayName || 'Active User')}
+              </p>
+              <p className="text-[10px] text-slate-400 dark:text-slate-400 truncate font-medium">
+                {user?.isGuest ? 'Guest Mode • On this device' : (user?.email || 'Active Account')}
+              </p>
+            </div>
+          </button>
+
+          {/* Apex Tier Badge or Upgrade CTA */}
+          {!user?.isGuest && (
+            isApex ? (
+              <div className="px-3 py-2 rounded-xl bg-gradient-to-r from-amber-500/10 via-violet-500/10 to-indigo-500/10 border border-amber-400/30 flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-[11px] font-extrabold text-amber-500 dark:text-amber-300">
+                  <Sparkles size={13} className="text-amber-400" />
+                  <span>Apex Prestige</span>
+                </div>
+                <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/30">
+                  Active
+                </span>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => { onOpenApexModal?.(); onClose?.(); }}
+                className="w-full px-3 py-2 rounded-xl bg-gradient-to-r from-amber-500/10 via-violet-500/10 to-indigo-500/10 border border-amber-400/30 hover:border-amber-400/60 text-slate-800 dark:text-amber-200 transition-all text-left flex items-center justify-between group active:scale-95 shadow-xs"
+              >
+                <div className="flex items-center gap-1.5">
+                  <Sparkles size={13} className="text-amber-500 group-hover:scale-110 transition-transform" />
+                  <span className="text-xs font-extrabold">Apex Prestige</span>
+                </div>
+                <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 text-amber-950 shadow-xs">
+                  Upgrade ✦
+                </span>
+              </button>
+            )
+          )}
+
+          {/* Quick Action Tools Row: Theme, Backup, Logout */}
+          <div className="flex items-center justify-between pt-1 border-t border-slate-200/50 dark:border-white/[0.05]">
+            <div className="flex items-center gap-1">
               <button
                 onClick={onExportBackup}
-                className="p-1.5 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 rounded-lg transition-colors"
+                className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-lg hover:bg-white dark:hover:bg-white/[0.05] transition-colors"
                 title="Export Backup JSON"
               >
-                <DownloadCloud size={15} />
+                <DownloadCloud size={14} />
               </button>
-              <div className="w-px h-3.5 bg-slate-200 dark:bg-slate-700"></div>
               <button
                 onClick={onImportClick}
-                className="p-1.5 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 rounded-lg transition-colors"
+                className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-lg hover:bg-white dark:hover:bg-white/[0.05] transition-colors"
                 title="Restore Backup"
               >
-                <UploadCloud size={15} />
+                <UploadCloud size={14} />
               </button>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
               <button
                 onClick={() => setIsDarkMode(!isDarkMode)}
-                className="p-2 text-slate-500 dark:text-amber-400 bg-white dark:bg-slate-800/80 border border-slate-200/60 dark:border-slate-700/80 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors shadow-xs"
+                className="p-1.5 text-slate-500 dark:text-amber-400 hover:bg-white dark:hover:bg-white/[0.05] rounded-lg transition-colors"
                 title={isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
               >
                 {isDarkMode ? <Sun size={15} /> : <Moon size={15} />}
               </button>
               <button
                 onClick={onSignOut}
-                className="p-2 text-slate-400 hover:text-red-600 bg-white dark:bg-slate-800/80 border border-slate-200/60 dark:border-slate-700/80 hover:border-red-200 dark:hover:border-red-900/60 rounded-xl transition-colors shadow-xs"
+                className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-white dark:hover:bg-white/[0.05] rounded-lg transition-colors"
                 title="Sign Out"
               >
                 <LogOut size={15} />
@@ -244,169 +378,11 @@ export default function Sidebar({
             </div>
           </div>
 
-          {/* Apex Tier Badge or Upgrade CTA */}
-          {!user?.isGuest && (
-            isApex ? (
-              <div className="p-2.5 rounded-2xl bg-gradient-to-r from-amber-500/15 via-violet-500/15 to-purple-500/15 border border-amber-400/30 flex items-center justify-between">
-                <div className="flex items-center gap-1.5 text-xs font-black text-amber-500 dark:text-amber-300">
-                  <Sparkles size={13} className="text-amber-400" />
-                  <span>Apex Prestige</span>
-                </div>
-                <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/30">
-                  Active
-                </span>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => { onOpenApexModal?.(); onClose?.(); }}
-                className="w-full p-2.5 rounded-2xl bg-gradient-to-r from-amber-500/15 via-violet-500/15 to-purple-500/15 border border-amber-400/30 hover:border-amber-400/60 text-slate-800 dark:text-amber-200 transition-all text-left flex items-center justify-between group active:scale-95 shadow-xs"
-              >
-                <div className="flex items-center gap-1.5">
-                  <Sparkles size={13} className="text-amber-500 group-hover:scale-110 transition-transform" />
-                  <span className="text-xs font-black">Apex Preview</span>
-                </div>
-                <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 text-amber-950 shadow-xs">
-                  ✦ Prestige
-                </span>
-              </button>
-            )
-          )}
-
-          <button
-            type="button"
-            onClick={() => { setActiveTab('profile'); onClose?.(); }}
-            className={`w-full flex items-center gap-2.5 p-2 rounded-2xl transition-all text-left ${
-              activeTab === 'profile'
-                ? 'bg-blue-50 dark:bg-blue-900/40 ring-2 ring-blue-500/30'
-                : 'hover:bg-slate-100/70 dark:hover:bg-slate-800/60'
-            }`}
-            title="View & Edit Account Profile"
-          >
-            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white font-extrabold text-xs flex items-center justify-center shrink-0 shadow-sm">
-              {user?.displayName ? user.displayName.charAt(0).toUpperCase() : 'G'}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-bold text-slate-800 dark:text-white truncate">
-                {user?.isGuest ? 'Guest User' : (user?.displayName || 'Active User')}
-              </p>
-              <p className="text-[10px] text-slate-400 dark:text-slate-500 truncate">
-                {user?.isGuest ? 'Saved on this device' : (user?.email || 'Active Account')}
-              </p>
-            </div>
-          </button>
-
           {user?.isGuest && (
             <button
               type="button"
               onClick={onSignOut}
-              className="w-full mt-2 py-2 px-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl text-xs font-black shadow-md flex items-center justify-center gap-1.5 transition-all active:scale-95"
-            >
-              <ShieldCheck size={14} /> Sign In to Access All Features
-            </button>
-          )}
-        </div>
-      </aside>
-    </>
-  );
-}
-
-        {/* Footer: User controls, backup, theme, sign out (pinned to bottom) */}
-        <div className="shrink-0 p-4 border-t border-gray-100 dark:border-slate-800 space-y-3 bg-white dark:bg-slate-900">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1 bg-gray-50 dark:bg-slate-800/80 p-1 rounded-xl border border-gray-200/60 dark:border-slate-700">
-              <button
-                onClick={onExportBackup}
-                className="p-1.5 text-gray-400 hover:text-blue-600 rounded-lg transition-colors"
-                title="Export Backup JSON"
-              >
-                <DownloadCloud size={16} />
-              </button>
-              <div className="w-px h-4 bg-gray-200 dark:bg-slate-700"></div>
-              <button
-                onClick={onImportClick}
-                className="p-1.5 text-gray-400 hover:text-blue-600 rounded-lg transition-colors"
-                title="Restore Backup"
-              >
-                <UploadCloud size={16} />
-              </button>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setIsDarkMode(!isDarkMode)}
-                className="p-2 text-gray-500 dark:text-amber-400 bg-gray-50 dark:bg-slate-800/80 border border-gray-200/60 dark:border-slate-700 rounded-xl hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
-                title={isDarkMode ? "Light Mode" : "Dark Mode"}
-              >
-                {isDarkMode ? <Sun size={16} /> : <Moon size={16} />}
-              </button>
-              <button
-                onClick={onSignOut}
-                className="p-2 text-gray-400 hover:text-red-600 bg-gray-50 dark:bg-slate-800/80 border border-gray-200/60 dark:border-slate-700 hover:border-red-200 rounded-xl transition-colors"
-                title="Sign Out"
-              >
-                <LogOut size={16} />
-              </button>
-            </div>
-          </div>
-
-          {/* Apex Tier Badge or Upgrade CTA */}
-          {!user?.isGuest && (
-            isApex ? (
-              <div className="p-2.5 rounded-2xl bg-gradient-to-r from-amber-500/15 via-violet-500/15 to-purple-500/15 border border-amber-400/30 flex items-center justify-between">
-                <div className="flex items-center gap-1.5 text-xs font-black text-amber-500 dark:text-amber-300">
-                  <Sparkles size={13} className="text-amber-400" />
-                  <span>Apex Prestige</span>
-                </div>
-                <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/30">
-                  Active
-                </span>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => { onOpenApexModal?.(); onClose?.(); }}
-                className="w-full p-2.5 rounded-2xl bg-gradient-to-r from-amber-500/15 via-violet-500/15 to-purple-500/15 border border-amber-400/30 hover:border-amber-400/60 text-slate-800 dark:text-amber-200 transition-all text-left flex items-center justify-between group active:scale-95"
-              >
-                <div className="flex items-center gap-1.5">
-                  <Sparkles size={13} className="text-amber-500 group-hover:scale-110 transition-transform" />
-                  <span className="text-xs font-black">Apex Preview</span>
-                </div>
-                <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 text-amber-950 shadow-xs">
-                  ✦ Prestige
-                </span>
-              </button>
-            )
-          )}
-
-          <button
-            type="button"
-            onClick={() => { setActiveTab('profile'); onClose?.(); }}
-            className={`w-full flex items-center gap-2.5 p-2 rounded-2xl transition-all text-left ${
-              activeTab === 'profile'
-                ? 'bg-blue-50 dark:bg-blue-900/40 ring-2 ring-blue-500/30'
-                : 'hover:bg-gray-100 dark:hover:bg-slate-800'
-            }`}
-            title="View & Edit Account Profile"
-          >
-            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white font-extrabold text-xs flex items-center justify-center shrink-0 shadow-sm">
-              {user?.displayName ? user.displayName.charAt(0).toUpperCase() : 'G'}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-bold text-gray-800 dark:text-white truncate">
-                {user?.isGuest ? 'Guest User' : (user?.displayName || 'Active User')}
-              </p>
-              <p className="text-[10px] text-gray-400 dark:text-slate-500 truncate">
-                {user?.isGuest ? 'Saved on this device' : (user?.email || 'Active Account')}
-              </p>
-            </div>
-          </button>
-
-          {user?.isGuest && (
-            <button
-              type="button"
-              onClick={onSignOut}
-              className="w-full mt-2 py-2 px-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl text-xs font-black shadow-md flex items-center justify-center gap-1.5 transition-all active:scale-95"
+              className="w-full py-2 px-3 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white rounded-xl text-xs font-black shadow-md flex items-center justify-center gap-1.5 transition-all active:scale-95"
             >
               <ShieldCheck size={14} /> Sign In to Access All Features
             </button>

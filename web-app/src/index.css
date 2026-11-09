@@ -1,11 +1,22 @@
 @import "tailwindcss";
 
-/* Forces Tailwind v4 to listen to our Dark Mode toggle switch */
-@custom-variant dark (&:is(.dark *));
+/* Force Tailwind v4 to listen to .dark on html and all descendants */
+@variant dark (&:where(.dark, .dark *));
 
-/* Hide scrollbar for a cleaner SaaS look */
+/* Hide scrollbar for clean SaaS aesthetics */
 .hide-scrollbar::-webkit-scrollbar { display: none; }
 .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Remove number input spinners / stepper scrollbars */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
 
 /* Pinterest / Dribbble SaaS Aesthetic Foundations */
 :root {
@@ -16,28 +27,32 @@
 }
 
 html.dark {
-  --bg-dark: #090d16;
-  --card-dark: #101625;
-  --border-dark: #1c2538;
+  --bg-dark: #080b12;
+  --card-dark: #0f1523;
+  --border-dark: #1b2438;
 }
 
 html.dark body {
-  background-color: #090d16 !important;
+  background-color: #080b12 !important;
+  background-image: 
+    radial-gradient(at 50% 0%, rgba(99, 102, 241, 0.08) 0px, transparent 65%),
+    radial-gradient(at 100% 0%, rgba(6, 182, 212, 0.05) 0px, transparent 50%) !important;
+  background-attachment: fixed !important;
 }
 
 /* Glassmorphism effects */
 .frosted-glass {
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
 /* Card Glow & Elevation Shadows */
 .card-elevation {
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 6px 16px -2px rgba(0, 0, 0, 0.03);
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 8px 24px -4px rgba(0, 0, 0, 0.04);
 }
 
 html.dark .card-elevation {
-  box-shadow: 0 2px 10px -2px rgba(0, 0, 0, 0.5), 0 10px 25px -4px rgba(15, 23, 42, 0.6);
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.6), 0 12px 32px -4px rgba(15, 23, 42, 0.7);
 }
 
 .glow-indigo {

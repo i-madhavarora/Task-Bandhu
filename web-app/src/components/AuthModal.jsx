@@ -216,8 +216,8 @@ export default function AuthModal({ onGuestLogin, showToast }) {
       <div className="bg-white dark:bg-slate-800/95 backdrop-blur-xl border border-gray-100 dark:border-slate-700/80 rounded-3xl p-6 sm:p-10 max-w-md w-full shadow-2xl relative z-10 transition-all">
         {/* Brand Header with Box-Fitted Logo */}
         <div className="text-center mb-6">
-          <div className="w-28 h-28 sm:w-32 sm:h-32 mx-auto mb-3.5 rounded-3xl bg-white dark:bg-slate-900 border border-gray-200/80 dark:border-slate-700 shadow-xl flex items-center justify-center p-3 overflow-hidden">
-            <img src={logoDark} alt="Task Bandhu Logo" className="w-full h-full object-contain rounded-2xl" />
+          <div className="w-24 h-24 sm:w-28 sm:h-28 mx-auto mb-3.5 rounded-3xl overflow-hidden shadow-xl flex items-center justify-center border border-slate-200/80 dark:border-slate-700/60">
+            <img src={logoDark} alt="Task Bandhu Logo" className="w-full h-full object-cover" />
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 dark:text-white tracking-tight">
             Task Bandhu

@@ -1,22 +1,25 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
-  Plus, Clock, CheckCircle2, AlertOctagon, ListTodo, Calendar as CalendarIcon, Tag,
+  Plus, Clock, CheckCircle2, AlertOctagon, ListTodo, Calendar as CalendarIcon,
   Trash2, ChevronDown, Check, Zap, Flame, Timer, Play, Pause, Square, Send, Search,
-  Edit2, Kanban, List as ListIcon, GripVertical, Pin, PinOff,
+  Kanban, List as ListIcon, GripVertical,
   Wand2, Volume2, VolumeX, AlertTriangle, Info, WifiOff, Loader2, Presentation,
-  Copy, Repeat, Link as LinkIcon, Eraser, Folder, Users, MessageSquare, Menu,
-  Sparkles, CheckSquare, Settings2, Bell, CheckCircle, ShieldAlert, ShieldCheck,
-  UserPlus, Lock
+  Copy, Link as LinkIcon, Eraser, Folder, Users, MessageSquare, Menu,
+  Sparkles, Settings2, Bell, CheckCircle, ShieldAlert, ShieldCheck,
+  Award, Star, Lightbulb, ChevronRight, Sun, X,
+  LogOut, Lock
 } from 'lucide-react';
-import { collection, onSnapshot, query, doc, deleteDoc, updateDoc, addDoc, setDoc, getDoc, where, getDocs, writeBatch } from 'firebase/firestore';
+import { collection, onSnapshot, query, doc, deleteDoc, updateDoc, addDoc, setDoc, getDoc, where, getDocs, writeBatch, orderBy } from 'firebase/firestore';
 import { onAuthStateChanged, signOut, updateProfile } from 'firebase/auth';
 import { db, auth } from '../firebase';
-import { getLocalTodayStr, isTaskOverdue, isTaskDueToday } from '../utils/dateUtils';
+import { getLocalTodayStr, isTaskOverdue, isTaskDueToday, isTaskDueTomorrow, getTaskDueBucket } from '../utils/dateUtils';
 import TaskForm from './TaskForm';
+import TaskDetailDrawer from './TaskDetailDrawer';
 import Sidebar from './Sidebar';
 import AuthModal from './AuthModal';
 import EisenhowerMatrix from './EisenhowerMatrix';
 import ProjectsView from './ProjectsView';
+import ConnectView from './ConnectView';
 import AnalyticsView from './AnalyticsView';
 import AIAssistantModal from './AIAssistantModal';
 import TeamInviteModal from './TeamInviteModal';
@@ -26,6 +29,16 @@ import ApexUpgradeModal from './ApexUpgradeModal';
 import { isApexPlan, PLAN_LIMITS } from '../utils/planLimits';
 import logoDark from '../assets/logo_d.png';
 import logoLight from '../assets/logo_l.png';
+
+const PROJECT_COLOR_BG = {
+  blue: 'bg-blue-500',
+  emerald: 'bg-emerald-500',
+  purple: 'bg-purple-500',
+  amber: 'bg-amber-500',
+  rose: 'bg-rose-500',
+  indigo: 'bg-indigo-500',
+  cyan: 'bg-cyan-500'
+};
 
 const playSound = (type = 'pop') => {
   try {
@@ -149,39 +162,47 @@ const CustomDropdown = ({ options, value, onChange, className = '', onOpenChange
   );
 };
 
-const computeAllNotifications = (tasks, notifications, readAlertIds) => {
+const computeAllNotifications = (tasks, notifications, readAlertIds, dismissedAlertIds = new Set()) => {
   const deadlineNotifs = [];
   const dueTodayTasks = tasks.filter(t => isTaskDueToday(t));
   const overdueTasks = tasks.filter(t => isTaskOverdue(t));
 
   for (const t of overdueTasks) {
     const alertId = `alert_overdue_${t.id}_${t.deadline}`;
-    deadlineNotifs.push({
-      id: alertId,
-      type: 'overdue',
-      title: `🚨 Overdue Task: ${t.title}`,
-      message: `Task "${t.title}" passed its deadline (${t.deadline}${t.endTime ? ` at ${t.endTime}` : ''}). Click to reschedule or mark completed.`,
-      taskId: t.id,
-      project: t.project || 'General Workspace',
-      priority: 'Urgent',
-      createdAt: t.createdAt || t.deadline || '',
-      read: readAlertIds.has(alertId)
-    });
+    if (!dismissedAlertIds.has(alertId)) {
+      deadlineNotifs.push({
+        id: alertId,
+        type: 'overdue',
+        title: `🚨 Overdue Task: ${t.title}`,
+        message: `Task "${t.title}" passed its deadline (${t.deadline}${t.endTime ? ` at ${t.endTime}` : ''}). Click to reschedule or mark completed.`,
+        taskId: t.id,
+        project: t.project || 'General Workspace',
+        priority: 'Urgent',
+        createdAt: t.createdAt || t.deadline || '',
+        read: readAlertIds.has(alertId),
+        workspaceId: t.workspaceId,
+        authorUid: t.authorUid || t.creatorUid || t.userId
+      });
+    }
   }
 
   for (const t of dueTodayTasks) {
     const alertId = `alert_due_${t.id}_${t.deadline}`;
-    deadlineNotifs.push({
-      id: alertId,
-      type: 'due_today',
-      title: `⏰ Due Today: ${t.title}`,
-      message: `Today is the deadline for "${t.title}"${t.endTime ? ` (by ${t.endTime})` : ''}.`,
-      taskId: t.id,
-      project: t.project || 'General Workspace',
-      priority: t.priority || 'Medium',
-      createdAt: t.createdAt || t.deadline || '',
-      read: readAlertIds.has(alertId)
-    });
+    if (!dismissedAlertIds.has(alertId)) {
+      deadlineNotifs.push({
+        id: alertId,
+        type: 'due_today',
+        title: `⏰ Due Today: ${t.title}`,
+        message: `Today is the deadline for "${t.title}"${t.endTime ? ` (by ${t.endTime})` : ''}.`,
+        taskId: t.id,
+        project: t.project || 'General Workspace',
+        priority: t.priority || 'Medium',
+        createdAt: t.createdAt || t.deadline || '',
+        read: readAlertIds.has(alertId),
+        workspaceId: t.workspaceId,
+        authorUid: t.authorUid || t.creatorUid || t.userId
+      });
+    }
   }
 
   const merged = [...deadlineNotifs, ...notifications];
@@ -208,10 +229,87 @@ export default function Dashboard() {
   const appLogo = isDarkMode ? logoDark : logoLight;
 
   // App Navigation & Modal Controls
-  const [activeNavTab, setActiveNavTab] = useState('my-day'); // 'my-day' | 'inbox' | 'all-tasks' | 'eisenhower' | 'favorites' | 'projects' | 'team' | 'analytics' | 'automations'
+  const [activeNavTab, setActiveNavTab] = useState('my-day'); // 'my-day' | 'favorites' | 'upcoming' | 'all-tasks' | 'assigned-to-me' | 'inbox' | 'project' | 'team' | 'eisenhower' | 'projects' | 'analytics' | 'automations' | 'profile'
+  const [activeProject, setActiveProject] = useState('');
+  const [drawerTaskId, setDrawerTaskId] = useState(null);
+  const [isSuggestionsOpen, setIsSuggestionsOpen] = useState(false);
+  const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
+  const [newProjectInput, setNewProjectInput] = useState({ name: '', color: 'blue', description: '' });
+  const [inlineTitle, setInlineTitle] = useState('');
+  const [inlinePriority, setInlinePriority] = useState('Medium');
+  const [inlineDeadline, setInlineDeadline] = useState('');
+  const [showCompletedSection, setShowCompletedSection] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isAIModalOpen, setIsAIModalOpen] = useState(false);
   const [selectedTeamMember, setSelectedTeamMember] = useState('All');
+  const [projectMemberFilter, setProjectMemberFilter] = useState('All');
+  const [projectSubTab, setProjectSubTab] = useState('tasks');
+  const [projectMessages, setProjectMessages] = useState([]);
+  const [projectChatMessageText, setProjectChatMessageText] = useState('');
+  const [isSendingProjectMessage, setIsSendingProjectMessage] = useState(false);
+  const chatMessagesEndRef = useRef(null);
+  const [managingMembersProject, setManagingMembersProject] = useState(null);
+  const [managingMemberUids, setManagingMemberUids] = useState(new Set());
+  const [filter, setFilter] = useState('All');
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [editingTask, setEditingTask] = useState(null);
+  const [prefilledDate, setPrefilledDate] = useState('');
+  const [prefilledProject, setPrefilledProject] = useState('');
+  const [formInstanceKey, setFormInstanceKey] = useState(0);
+
+  // Uneditable 2-Segmented Workspace State ('personal' | 'team')
+  const [currentWorkspace, setCurrentWorkspace] = useState(() => {
+    try {
+      return localStorage.getItem('tb_workspace_mode') || 'personal';
+    } catch {
+      return 'personal';
+    }
+  });
+
+  const handleSwitchWorkspace = useCallback((mode) => {
+    setCurrentWorkspace(mode);
+    try {
+      localStorage.setItem('tb_workspace_mode', mode);
+    } catch {
+      /* ignore */
+    }
+    if (mode === 'personal' && activeNavTab === 'team') {
+      setActiveNavTab('my-day');
+    }
+  }, [activeNavTab]);
+
+  // Teammates Connections & Live Requests
+  const [connections, setConnections] = useState(() => {
+    try {
+      const uKey = effectiveUser?.uid || 'guest';
+      const saved = localStorage.getItem(`tb_connections_${uKey}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [incomingRequests, setIncomingRequests] = useState([]);
+  const [outgoingRequests, setOutgoingRequests] = useState([]);
+
+  // Top-level Firestore Projects
+  const [allProjects, setAllProjects] = useState(() => {
+    try {
+      const uKey = effectiveUser?.uid || 'guest';
+      const saved = localStorage.getItem(`tb_projects_${uKey}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const handleOpenEditTask = useCallback((task) => {
+    setPrefilledDate('');
+    setPrefilledProject('');
+    setEditingTask(task);
+    setFormInstanceKey(prev => prev + 1);
+    setIsFormOpen(true);
+  }, []);
 
   // Dialog & Toast States
   const [toast, setToast] = useState(null);
@@ -341,16 +439,7 @@ export default function Dashboard() {
   const [notifications, setNotifications] = useState(() => {
     try {
       const saved = localStorage.getItem('tb_notifications_' + (effectiveUser?.uid || 'guest'));
-      return saved ? JSON.parse(saved) : [
-        {
-          id: 'notif_welcome',
-          type: 'system',
-          title: 'Welcome to Task Bandhu!',
-          message: 'Invite your teammates via link or Team Code to assign tasks and collaborate in real-time.',
-          createdAt: new Date().toISOString(),
-          read: false
-        }
-      ];
+      return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
     }
@@ -360,6 +449,16 @@ export default function Dashboard() {
     try {
       const uKey = effectiveUser?.uid || 'guest';
       const saved = localStorage.getItem(`tb_read_alerts_${uKey}`);
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+
+  const [dismissedAlertIds, setDismissedAlertIds] = useState(() => {
+    try {
+      const uKey = effectiveUser?.uid || 'guest';
+      const saved = localStorage.getItem(`tb_dismissed_alerts_${uKey}`);
       return saved ? new Set(JSON.parse(saved)) : new Set();
     } catch {
       return new Set();
@@ -378,8 +477,502 @@ export default function Dashboard() {
     return [];
   });
 
+  // Real-time Firestore Listeners for Projects, Connections, and Connection Requests
+  useEffect(() => {
+    if (!effectiveUser || effectiveUser.isGuest) return;
+
+    // 1. Projects where user is a member
+    const qProj = query(
+      collection(db, 'projects'),
+      where('memberUids', 'array-contains', effectiveUser.uid)
+    );
+    const unsubProj = onSnapshot(qProj, (snapshot) => {
+      const projs = snapshot.docs.map(d => ({
+        ...d.data(),
+        id: d.id
+      }));
+      setAllProjects(projs);
+      try {
+        localStorage.setItem(`tb_projects_${effectiveUser.uid}`, JSON.stringify(projs));
+      } catch {
+        /* ignore */
+      }
+    }, (err) => {
+      console.warn("Projects sync error:", err);
+    });
+
+    // 2. Connections subcollection
+    const qConn = collection(db, 'users', effectiveUser.uid, 'connections');
+    const unsubConn = onSnapshot(qConn, (snapshot) => {
+      const conns = snapshot.docs.map(d => ({
+        ...d.data(),
+        id: d.id,
+        uid: d.id
+      }));
+      setConnections(conns);
+      try {
+        localStorage.setItem(`tb_connections_${effectiveUser.uid}`, JSON.stringify(conns));
+      } catch {
+        /* ignore */
+      }
+    }, (err) => {
+      console.warn("Connections sync error:", err);
+    });
+
+    // 3. Incoming Connection Requests
+    const userEmail = (effectiveUser.email || '').toLowerCase();
+    const qIn = query(
+      collection(db, 'connection_requests'),
+      where('toEmail', '==', userEmail),
+      where('status', '==', 'pending')
+    );
+    const unsubIn = onSnapshot(qIn, (snapshot) => {
+      const reqs = snapshot.docs.map(d => ({
+        ...d.data(),
+        id: d.id
+      }));
+      setIncomingRequests(reqs);
+    }, (err) => {
+      console.warn("Incoming requests sync error:", err);
+    });
+
+    // 4. Outgoing Connection Requests
+    const qOut = query(
+      collection(db, 'connection_requests'),
+      where('fromUid', '==', effectiveUser.uid),
+      where('status', '==', 'pending')
+    );
+    const unsubOut = onSnapshot(qOut, (snapshot) => {
+      const reqs = snapshot.docs.map(d => ({
+        ...d.data(),
+        id: d.id
+      }));
+      setOutgoingRequests(reqs);
+    }, (err) => {
+      console.warn("Outgoing requests sync error:", err);
+    });
+
+    return () => {
+      unsubProj();
+      unsubConn();
+      unsubIn();
+      unsubOut();
+    };
+  }, [effectiveUser]);
+
+  // Handlers for Connections
+  const handleSendConnectionRequest = useCallback(async (targetEmail) => {
+    if (!effectiveUser || effectiveUser.isGuest) {
+      showToast("Please sign in to connect with teammates.", "warning");
+      return;
+    }
+    const cleanEmail = targetEmail.trim().toLowerCase();
+    if (cleanEmail === (effectiveUser.email || '').toLowerCase()) {
+      showToast("You cannot connect with your own email.", "warning");
+      return;
+    }
+
+    try {
+      // 1. Strict Unregistered Email Check: Target must have an existing Task Bandhu account
+      const uSnap = await getDocs(query(collection(db, 'users'), where('email', '==', cleanEmail)));
+      if (uSnap.empty) {
+        showToast("No Task Bandhu account found with this email. The user must register first.", "warning");
+        return;
+      }
+      const targetUid = uSnap.docs[0].id;
+
+      // 2. Prevent duplicate connection
+      const isAlreadyConnected = connections.some(c => (c.email || '').toLowerCase() === cleanEmail);
+      if (isAlreadyConnected) {
+        showToast("You are already connected with this person.", "info");
+        return;
+      }
+
+      await addDoc(collection(db, 'connection_requests'), {
+        fromUid: effectiveUser.uid,
+        fromEmail: effectiveUser.email,
+        fromName: effectiveUser.displayName || 'Colleague',
+        toEmail: cleanEmail,
+        status: 'pending',
+        createdAt: new Date().toISOString()
+      });
+
+      // Deliver notification to recipient in Firestore
+      try {
+        await addDoc(collection(db, 'users', targetUid, 'notifications'), {
+          type: 'team_join',
+          title: 'New Connection Request',
+          message: `${effectiveUser.displayName || effectiveUser.email} invited you to connect on Task Bandhu!`,
+          project: 'Collaboration',
+          createdAt: new Date().toISOString(),
+          read: false
+        });
+      } catch {
+        /* ignore */
+      }
+
+      showToast(`Connection request sent to ${cleanEmail}!`, "success");
+    } catch (err) {
+      console.warn("Send connection request error:", err);
+      showToast("Could not send connection request.", "error");
+    }
+  }, [effectiveUser, connections, showToast]);
+
+  const handleAcceptConnectionRequest = useCallback(async (request) => {
+    if (!effectiveUser || effectiveUser.isGuest) return;
+    try {
+      await updateDoc(doc(db, 'connection_requests', request.id), {
+        status: 'accepted',
+        acceptedAt: new Date().toISOString()
+      });
+
+      const nowIso = new Date().toISOString();
+      await setDoc(doc(db, 'users', effectiveUser.uid, 'connections', request.fromUid), {
+        uid: request.fromUid,
+        email: request.fromEmail,
+        name: request.fromName || 'Colleague',
+        connectedAt: nowIso
+      });
+
+      await setDoc(doc(db, 'users', request.fromUid, 'connections', effectiveUser.uid), {
+        uid: effectiveUser.uid,
+        email: effectiveUser.email,
+        name: effectiveUser.displayName || 'Colleague',
+        connectedAt: nowIso
+      });
+
+      await addDoc(collection(db, 'users', request.fromUid, 'notifications'), {
+        type: 'team_join',
+        title: 'Connection Accepted! 🎉',
+        message: `${effectiveUser.displayName || effectiveUser.email} accepted your connection request. You can now add each other to Team Projects!`,
+        project: 'Collaboration',
+        createdAt: nowIso,
+        read: false
+      });
+
+      showToast(`Connected with ${request.fromName || request.fromEmail}!`, "success");
+    } catch (err) {
+      console.warn("Accept connection request error:", err);
+      showToast("Could not accept connection request.", "error");
+    }
+  }, [effectiveUser, showToast]);
+
+  const handleDeclineConnectionRequest = useCallback(async (request) => {
+    try {
+      await deleteDoc(doc(db, 'connection_requests', request.id));
+      showToast("Invitation declined.", "info");
+    } catch (err) {
+      console.warn("Decline connection request error:", err);
+    }
+  }, [showToast]);
+
+  const handleCancelConnectionRequest = useCallback(async (request) => {
+    try {
+      await deleteDoc(doc(db, 'connection_requests', request.id));
+      showToast("Connection request cancelled.", "info");
+    } catch (err) {
+      console.warn("Cancel connection request error:", err);
+    }
+  }, [showToast]);
+
+  const handleRemoveConnection = useCallback(async (connection) => {
+    if (!effectiveUser || effectiveUser.isGuest) return;
+    const targetUid = connection.uid || connection.id;
+    try {
+      await deleteDoc(doc(db, 'users', effectiveUser.uid, 'connections', targetUid));
+      try {
+        await deleteDoc(doc(db, 'users', targetUid, 'connections', effectiveUser.uid));
+      } catch {
+        /* ignore */
+      }
+      showToast(`Removed ${connection.name || connection.email} from connections.`, "info");
+    } catch (err) {
+      console.warn("Remove connection error:", err);
+      showToast("Could not remove connection.", "error");
+    }
+  }, [effectiveUser, showToast]);
+
+  // User Profile & Account Data (synced to Firestore for signed in users)
+  // Default tier is strictly 'Core' (Free). Upgrades to Apex Prestige are managed via VIP / Checkout.
+  const [userProfile, setUserProfile] = useState(() => {
+    try {
+      const uKey = effectiveUser?.isGuest ? 'guest' : (effectiveUser?.uid || 'guest');
+      const saved = localStorage.getItem(`tb_profile_${uKey}`);
+      return saved ? JSON.parse(saved) : {
+        displayName: effectiveUser?.displayName || '',
+        jobTitle: 'Productivity Champion',
+        bio: 'Organizing goals, driving deep focus, and managing team projects with Task Bandhu.',
+        plan: 'Core'
+      };
+    } catch {
+      return {
+        displayName: effectiveUser?.displayName || '',
+        jobTitle: 'Productivity Champion',
+        bio: 'Organizing goals, driving deep focus, and managing team projects with Task Bandhu.',
+        plan: 'Core'
+      };
+    }
+  });
+
+  const isApex = isApexPlan(userProfile?.plan);
+  const [isApexUpgradeModalOpen, setIsApexUpgradeModalOpen] = useState(false);
+
+  // Handlers for Projects
+  const handleCreateProject = useCallback(async (payload) => {
+    const maxProjects = isApex ? (PLAN_LIMITS.APEX.customProjects || 10) : (PLAN_LIMITS.CORE.customProjects || 2);
+    const myUid = effectiveUser?.uid || 'guest';
+    const ownedProjectsCount = allProjects.filter(p => p.creatorUid === myUid || (!p.creatorUid && p.members?.[0]?.uid === myUid)).length;
+    if (ownedProjectsCount >= maxProjects) {
+      showToast(`${isApex ? 'Apex' : 'Core'} Plan Limit: You can own up to ${maxProjects} projects. (Shared team projects don't count towards your limit).`, "warning");
+      return;
+    }
+
+    const projId = 'proj_' + Date.now();
+    const projData = {
+      ...payload,
+      id: projId,
+      creatorUid: payload.creatorUid || myUid,
+      creatorName: payload.creatorName || effectiveUser?.displayName || 'Owner',
+      updatedAt: new Date().toISOString()
+    };
+
+    if (effectiveUser && !effectiveUser.isGuest) {
+      try {
+        await setDoc(doc(db, 'projects', projId), projData);
+
+        // Send notifications to added team project members
+        if (payload.type === 'team' && Array.isArray(payload.members)) {
+          for (const m of payload.members) {
+            if (m.uid && m.uid !== effectiveUser.uid && m.uid !== 'guest') {
+              try {
+                await addDoc(collection(db, 'users', m.uid, 'notifications'), {
+                  type: 'team_join',
+                  title: 'Added to Team Project! 👥',
+                  message: `${effectiveUser.displayName || 'A colleague'} added you to the team project "${payload.name}".`,
+                  project: payload.name,
+                  createdAt: new Date().toISOString(),
+                  read: false,
+                  author: effectiveUser.displayName || 'Owner',
+                  authorUid: effectiveUser.uid
+                });
+              } catch {
+                /* ignore */
+              }
+            }
+          }
+        }
+
+        showToast(`Project "${payload.name}" created!`, "success");
+      } catch (err) {
+        console.warn("Create project error:", err);
+        showToast("Could not create project.", "error");
+      }
+    } else {
+      const updated = [...allProjects, projData];
+      setAllProjects(updated);
+      try {
+        localStorage.setItem('tb_projects_guest', JSON.stringify(updated));
+      } catch {
+        /* ignore */
+      }
+      showToast(`Project "${payload.name}" created!`, "success");
+    }
+  }, [allProjects, effectiveUser, isApex, showToast]);
+
+  const handleDeleteProject = useCallback(async (projectId, projectName) => {
+    confirmAction(`Are you sure you want to delete "${projectName}"?`, async () => {
+      if (effectiveUser && !effectiveUser.isGuest) {
+        try {
+          await deleteDoc(doc(db, 'projects', projectId));
+          showToast(`Project "${projectName}" deleted.`, "info");
+        } catch (err) {
+          console.warn("Delete project error:", err);
+        }
+      } else {
+        const updated = allProjects.filter(p => p.id !== projectId);
+        setAllProjects(updated);
+        try {
+          localStorage.setItem('tb_projects_guest', JSON.stringify(updated));
+        } catch {
+          /* ignore */
+        }
+        showToast(`Project "${projectName}" deleted.`, "info");
+      }
+    });
+  }, [effectiveUser, allProjects, confirmAction, showToast]);
+
+  const handleUpdateProjectMembers = useCallback(async (projectId, updatedMembers) => {
+    const memberUids = updatedMembers.map(m => m.uid).filter(Boolean);
+    const memberEmails = updatedMembers.map(m => (m.email || '').toLowerCase()).filter(Boolean);
+    const currentProj = allProjects.find(p => p.id === projectId);
+    const previousUids = new Set((currentProj?.members || []).map(m => m.uid).filter(Boolean));
+
+    if (effectiveUser && !effectiveUser.isGuest) {
+      try {
+        await updateDoc(doc(db, 'projects', projectId), {
+          members: updatedMembers,
+          memberUids,
+          memberEmails,
+          updatedAt: new Date().toISOString()
+        });
+
+        // Notify newly added members
+        const newlyAdded = updatedMembers.filter(m => m.uid && !previousUids.has(m.uid) && m.uid !== effectiveUser.uid);
+        for (const m of newlyAdded) {
+          try {
+            await addDoc(collection(db, 'users', m.uid, 'notifications'), {
+              type: 'team_join',
+              title: 'Added to Team Project! 👥',
+              message: `${effectiveUser.displayName || 'A colleague'} added you to the team project "${currentProj?.name || 'Team Project'}".`,
+              project: currentProj?.name || 'Team Project',
+              createdAt: new Date().toISOString(),
+              read: false,
+              author: effectiveUser.displayName || 'Owner',
+              authorUid: effectiveUser.uid
+            });
+          } catch {
+            /* ignore */
+          }
+        }
+
+        showToast("Team project members updated!", "success");
+      } catch (err) {
+        console.warn("Update project members error:", err);
+        showToast("Failed to update members.", "error");
+      }
+    } else {
+      const updated = allProjects.map(p => p.id === projectId ? {
+        ...p,
+        members: updatedMembers,
+        memberUids,
+        memberEmails
+      } : p);
+      setAllProjects(updated);
+      try {
+        localStorage.setItem('tb_projects_guest', JSON.stringify(updated));
+      } catch {
+        /* ignore */
+      }
+      showToast("Team project members updated!", "success");
+    }
+  }, [effectiveUser, allProjects, showToast]);
+
+  const handleLeaveProject = useCallback(async (projectId, projectName) => {
+    confirmAction(`Are you sure you want to leave team project "${projectName}"?`, async () => {
+      const currentProj = allProjects.find(p => p.id === projectId);
+      if (!currentProj) return;
+
+      const myUid = effectiveUser?.uid || 'guest';
+      const myEmail = (effectiveUser?.email || '').toLowerCase();
+      const updatedMembers = (currentProj.members || []).filter(
+        m => m.uid !== myUid && (m.email || '').toLowerCase() !== myEmail
+      );
+      const memberUids = updatedMembers.map(m => m.uid).filter(Boolean);
+      const memberEmails = updatedMembers.map(m => (m.email || '').toLowerCase()).filter(Boolean);
+
+      if (effectiveUser && !effectiveUser.isGuest) {
+        try {
+          await updateDoc(doc(db, 'projects', projectId), {
+            members: updatedMembers,
+            memberUids,
+            memberEmails,
+            updatedAt: new Date().toISOString()
+          });
+
+          // Notify project owner
+          if (currentProj.creatorUid && currentProj.creatorUid !== myUid) {
+            try {
+              await addDoc(collection(db, 'users', currentProj.creatorUid, 'notifications'), {
+                type: 'team_join',
+                title: 'Teammate Left Project',
+                message: `${effectiveUser.displayName || effectiveUser.email} left the team project "${projectName}".`,
+                project: projectName,
+                createdAt: new Date().toISOString(),
+                read: false,
+                author: effectiveUser.displayName || 'Teammate',
+                authorUid: myUid
+              });
+            } catch {
+              /* ignore */
+            }
+          }
+
+          showToast(`You left "${projectName}".`, "info");
+        } catch (err) {
+          console.warn("Leave project error:", err);
+          showToast("Failed to leave project.", "error");
+        }
+      } else {
+        const updated = allProjects.map(p => p.id === projectId ? {
+          ...p,
+          members: updatedMembers,
+          memberUids,
+          memberEmails
+        } : p);
+        setAllProjects(updated);
+        try {
+          localStorage.setItem('tb_projects_guest', JSON.stringify(updated));
+        } catch {
+          /* ignore */
+        }
+        showToast(`You left "${projectName}".`, "info");
+      }
+    });
+  }, [effectiveUser, allProjects, confirmAction, showToast]);
+
+  const handleOpenManageMembers = useCallback((proj) => {
+    setManagingMembersProject(proj);
+    const myUid = effectiveUser?.uid || 'guest';
+    const creatorUid = proj.creatorUid || myUid;
+    const existingUids = new Set(
+      (proj.members || [])
+        .map(m => m.uid)
+        .filter(uid => uid && uid !== creatorUid && uid !== myUid)
+    );
+    setManagingMemberUids(existingUids);
+  }, [effectiveUser]);
+
+  const toggleManagingMemberUid = useCallback((uid) => {
+    setManagingMemberUids(prev => {
+      const next = new Set(prev);
+      if (next.has(uid)) {
+        next.delete(uid);
+      } else {
+        const maxMembersAllowed = isApex ? 50 : 20;
+        if (next.size + 1 >= maxMembersAllowed) {
+          showToast(`Limit reached: ${isApex ? 'Apex' : 'Core'} plan allows up to ${maxMembersAllowed} members in a team project.`, "warning");
+          return prev;
+        }
+        next.add(uid);
+      }
+      return next;
+    });
+  }, [isApex, showToast]);
+
+  const handleSaveManageMembers = useCallback(async () => {
+    if (!managingMembersProject) return;
+    const myUid = effectiveUser?.uid || 'guest';
+    const creatorMember = {
+      uid: managingMembersProject.creatorUid || myUid,
+      name: managingMembersProject.creatorName || effectiveUser?.displayName || 'Owner',
+      email: managingMembersProject.creatorEmail || effectiveUser?.email || '',
+      role: 'Owner'
+    };
+    const chosenTeammates = (connections || [])
+      .filter(c => managingMemberUids.has(c.uid || c.id) && (c.uid || c.id) !== creatorMember.uid)
+      .map(c => ({
+        uid: c.uid || c.id,
+        name: c.displayName || c.name || (c.email ? c.email.split('@')[0] : 'Teammate'),
+        email: c.email || '',
+        role: 'Member'
+      }));
+    const updatedMembers = [creatorMember, ...chosenTeammates];
+    await handleUpdateProjectMembers(managingMembersProject.id, updatedMembers);
+    setManagingMembersProject(null);
+  }, [managingMembersProject, effectiveUser, connections, managingMemberUids, handleUpdateProjectMembers]);
+
   // Explicit user action to create a team workspace
-  const handleCreateWorkspace = useCallback(async () => {
+  const _handleCreateWorkspace = useCallback(async () => {
     if (!effectiveUser || effectiveUser.isGuest) {
       showToast("Please sign in with an account to create a team workspace.", "info");
       return;
@@ -445,31 +1038,6 @@ export default function Dashboard() {
     }
   }, [effectiveUser, generateSecureCode, showToast]);
 
-  // User Profile & Account Data (synced to Firestore for signed in users)
-  // Default tier is strictly 'Core' (Free). Upgrades to Apex Prestige are managed via VIP / Checkout.
-  const [userProfile, setUserProfile] = useState(() => {
-    try {
-      const uKey = effectiveUser?.isGuest ? 'guest' : (effectiveUser?.uid || 'guest');
-      const saved = localStorage.getItem(`tb_profile_${uKey}`);
-      return saved ? JSON.parse(saved) : {
-        displayName: effectiveUser?.displayName || '',
-        jobTitle: 'Productivity Champion',
-        bio: 'Organizing goals, driving deep focus, and managing team projects with Task Bandhu.',
-        plan: 'Core'
-      };
-    } catch {
-      return {
-        displayName: effectiveUser?.displayName || '',
-        jobTitle: 'Productivity Champion',
-        bio: 'Organizing goals, driving deep focus, and managing team projects with Task Bandhu.',
-        plan: 'Core'
-      };
-    }
-  });
-
-  const isApex = isApexPlan(userProfile?.plan);
-  const [isApexUpgradeModalOpen, setIsApexUpgradeModalOpen] = useState(false);
-
   const handleActivateApex = useCallback(async (tierName = 'Apex') => {
     const uKey = effectiveUser?.isGuest ? 'guest' : (effectiveUser?.uid || 'guest');
     setUserProfile(prev => {
@@ -530,16 +1098,19 @@ export default function Dashboard() {
     priority,
     project,
     author,
-    authorUid
+    authorUid,
+    workspaceId: notifWsId
   }) => {
     const timestamp = new Date().toISOString();
     const uniqueId = `notif_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const effectiveWsId = notifWsId || activeWorkspaceId || workspaceId;
     const newNotif = {
       id: uniqueId,
       type,
       title: title || (type === 'task_completed' ? 'Task Completed! ✅' : type === 'comment' ? 'New Message 💬' : 'New Task Assigned 📋'),
       message: message || `Notification regarding "${title || 'task'}"`,
       taskId,
+      workspaceId: effectiveWsId,
       assignee,
       priority,
       project: project || 'Team Workspace',
@@ -588,17 +1159,41 @@ export default function Dashboard() {
           }
         });
 
-        // 2. Deliver to specific assignee if matched
+        // 2. Deliver to team project members if task belongs to a team project
+        if (project) {
+          const matchedProj = allProjects.find(p => p.type === 'team' && (
+            (p.name && p.name.trim().toLowerCase() === project.trim().toLowerCase()) ||
+            p.id === project
+          ));
+          if (matchedProj && Array.isArray(matchedProj.members)) {
+            matchedProj.members.forEach(pm => {
+              if (pm.uid && pm.uid !== effectiveUser.uid) {
+                targetRecipients.add(pm.uid);
+              }
+            });
+          }
+        }
+
+        // 3. Deliver to specific assignee if matched across teamMembers, connections, or project members
         if (assignee && assignee !== 'Me' && assignee.toLowerCase() !== currentUserName) {
           const targetMember = teamMembers.find(m => m.name?.toLowerCase() === assignee.toLowerCase());
           if (targetMember && targetMember.id && targetMember.id !== effectiveUser.uid) {
             targetRecipients.add(targetMember.id);
+          }
+          const targetConn = (connections || []).find(c =>
+            (c.displayName && c.displayName.toLowerCase() === assignee.toLowerCase()) ||
+            (c.name && c.name.toLowerCase() === assignee.toLowerCase()) ||
+            (c.email && c.email.toLowerCase() === assignee.toLowerCase())
+          );
+          if (targetConn && targetConn.uid && targetConn.uid !== effectiveUser.uid) {
+            targetRecipients.add(targetConn.uid);
           }
         }
 
         for (const recipientUid of targetRecipients) {
           await addDoc(collection(db, 'users', recipientUid, 'notifications'), {
             ...newNotif,
+            workspaceId: effectiveWsId,
             author: effectiveUser.displayName || 'Teammate',
             authorUid: effectiveUser.uid
           });
@@ -615,7 +1210,7 @@ export default function Dashboard() {
     } else if (type === 'comment') {
       showToast(`💬 Message posted to task discussion!`, 'success');
     }
-  }, [effectiveUser, showToast, appLogo, teamMembers]);
+  }, [effectiveUser, showToast, appLogo, teamMembers, activeWorkspaceId, workspaceId, allProjects, connections]);
 
   const handleMarkNotificationRead = async (notifId) => {
     setNotifications(prev => {
@@ -693,30 +1288,76 @@ export default function Dashboard() {
     showToast("All notifications marked as read.", "success");
   };
 
-  const handleClearNotifications = () => {
+  const handleClearNotifications = async () => {
     setNotifications([]);
+    const uKey = effectiveUser?.uid || 'guest';
     try {
-      localStorage.removeItem('tb_notifications_' + (effectiveUser?.uid || 'guest'));
+      localStorage.removeItem('tb_notifications_' + uKey);
     } catch {
       /* ignore */
     }
+
+    // Dismiss any synthetic deadline/overdue alerts currently displayed
+    setDismissedAlertIds(prev => {
+      const next = new Set(prev);
+      allNotifications.forEach(n => {
+        if (n.id && n.id.startsWith('alert_')) {
+          next.add(n.id);
+        }
+      });
+      try {
+        localStorage.setItem(`tb_dismissed_alerts_${uKey}`, JSON.stringify(Array.from(next)));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+
+    // Delete cloud notifications in Firestore
+    if (effectiveUser && !effectiveUser.isGuest) {
+      try {
+        const notifSnap = await getDocs(collection(db, 'users', effectiveUser.uid, 'notifications'));
+        if (!notifSnap.empty) {
+          const batch = writeBatch(db);
+          notifSnap.docs.forEach(d => batch.delete(d.ref));
+          await batch.commit();
+        }
+      } catch (err) {
+        console.warn("Firestore batch clear notifications error:", err);
+      }
+    }
+
     showToast("Notifications cleared.", "info");
   };
 
-  const handleSelectTaskFromNotification = async (taskId) => {
-    if (!taskId) return;
-    let target = tasks.find(t => t.id === taskId);
-    if (!target && activeWorkspaceId && activeWorkspaceId !== 'local_workspace') {
-      try {
-        const wsTaskSnap = await getDoc(doc(db, 'workspaces', activeWorkspaceId, 'tasks', taskId));
-        if (wsTaskSnap.exists()) {
-          target = { ...wsTaskSnap.data(), id: wsTaskSnap.id, isWorkspaceTask: true, workspaceId: activeWorkspaceId };
+  const handleSelectTaskFromNotification = useCallback(async (taskId, notifMeta = {}) => {
+    if (!taskId && !notifMeta?.title && !notifMeta?.message) return;
+    let target = tasks.find(t => String(t.id) === String(taskId));
+
+    const candidateWsIds = new Set();
+    if (notifMeta?.workspaceId && notifMeta.workspaceId !== 'local_workspace') candidateWsIds.add(notifMeta.workspaceId);
+    if (activeWorkspaceId && activeWorkspaceId !== 'local_workspace') candidateWsIds.add(activeWorkspaceId);
+    if (workspaceId && workspaceId !== 'local_workspace') candidateWsIds.add(workspaceId);
+    if (effectiveUser?.uid) candidateWsIds.add(`ws_${effectiveUser.uid}`);
+    if (notifMeta?.authorUid) candidateWsIds.add(`ws_${notifMeta.authorUid}`);
+
+    // 1. Look in workspace collections
+    if (!target && taskId) {
+      for (const wsId of candidateWsIds) {
+        try {
+          const wsTaskSnap = await getDoc(doc(db, 'workspaces', wsId, 'tasks', taskId));
+          if (wsTaskSnap.exists()) {
+            target = { ...wsTaskSnap.data(), id: wsTaskSnap.id, isWorkspaceTask: true, workspaceId: wsId };
+            break;
+          }
+        } catch (err) {
+          console.warn("Fetch workspace task from notif error:", err);
         }
-      } catch (err) {
-        console.warn("Fetch workspace task from notif error:", err);
       }
     }
-    if (!target && effectiveUser?.uid) {
+
+    // 2. Look in current user's personal tasks
+    if (!target && taskId && effectiveUser?.uid) {
       try {
         const userTaskSnap = await getDoc(doc(db, 'users', effectiveUser.uid, 'tasks', taskId));
         if (userTaskSnap.exists()) {
@@ -727,12 +1368,81 @@ export default function Dashboard() {
       }
     }
 
+    // 3. Look in author's personal tasks if different
+    if (!target && taskId && notifMeta?.authorUid && notifMeta.authorUid !== effectiveUser?.uid) {
+      try {
+        const authorTaskSnap = await getDoc(doc(db, 'users', notifMeta.authorUid, 'tasks', taskId));
+        if (authorTaskSnap.exists()) {
+          target = { ...authorTaskSnap.data(), id: authorTaskSnap.id, isWorkspaceTask: false, creatorUid: notifMeta.authorUid };
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
+    // 4. Look across teammates' task subcollections
+    if (!target && taskId && teamMembers && teamMembers.length > 0) {
+      for (const m of teamMembers) {
+        if (m.id && m.id !== effectiveUser?.uid && m.id !== notifMeta?.authorUid) {
+          try {
+            const mTaskSnap = await getDoc(doc(db, 'users', m.id, 'tasks', taskId));
+            if (mTaskSnap.exists()) {
+              target = { ...mTaskSnap.data(), id: mTaskSnap.id, isWorkspaceTask: false, creatorUid: m.id };
+              break;
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    }
+
+    // 5. Intelligent title fallback in memory tasks
+    if (!target && (notifMeta?.title || notifMeta?.message)) {
+      target = tasks.find(t =>
+        (t.title && notifMeta.message && notifMeta.message.toLowerCase().includes(`"${t.title.toLowerCase()}"`)) ||
+        (t.title && notifMeta.title && notifMeta.title.toLowerCase().includes(t.title.toLowerCase()))
+      );
+    }
+
+    // 6. Graceful synthesized fallback from notification details so user is never blocked
+    if (!target && (notifMeta?.title || notifMeta?.message || taskId)) {
+      const cleanTitle = (notifMeta.title || '')
+        .replace(/^(🚨|⏰|✅|💬|📋)\s*/, '')
+        .replace(/^(Task Completed!|New Message|New Task Assigned|Overdue Task:?|Due Today:?)\s*/i, '')
+        .trim();
+      target = {
+        id: taskId || `task_${Date.now()}`,
+        title: cleanTitle || notifMeta.taskTitle || 'Shared Task',
+        project: notifMeta.project || 'General Workspace',
+        priority: notifMeta.priority || 'Medium',
+        assignee: notifMeta.assignee || (effectiveUser?.displayName || 'Me'),
+        status: notifMeta.type === 'task_completed' ? 'Completed' : 'To Do',
+        deadline: notifMeta.deadline || '',
+        endTime: notifMeta.endTime || '',
+        isWorkspaceTask: true,
+        workspaceId: notifMeta.workspaceId || activeWorkspaceId,
+        comments: notifMeta.commentText ? [{
+          id: `c_${Date.now()}`,
+          text: notifMeta.commentText,
+          author: notifMeta.author || 'Teammate',
+          date: new Date(notifMeta.createdAt || Date.now()).toLocaleString()
+        }] : []
+      };
+    }
+
     if (target) {
+      // Keep task accessible in in-memory state
+      setTasks(prev => (prev.some(t => t.id === target.id) ? prev : [target, ...prev]));
+      // Clear filters so the selected task is visible in the background
+      setFilter('All');
+      setSelectedTeamMember('All');
       handleOpenEditTask(target);
+      setDrawerTaskId(target.id);
     } else {
       showToast("Task not found or has been completed/deleted.", "warning");
     }
-  };
+  }, [tasks, activeWorkspaceId, workspaceId, effectiveUser, teamMembers, showToast, handleOpenEditTask]);
 
   const handleInviteMemberByEmail = useCallback(async ({ name, email, role }) => {
     if (!isApex && teamMembers.length >= PLAN_LIMITS.CORE.teamMembers) {
@@ -990,15 +1700,12 @@ export default function Dashboard() {
     return 'Task Novice 🌱';
   };
 
-  // Modal Form States
-  const [isFormOpen, setIsFormOpen] = useState(false);
-  const [editingTask, setEditingTask] = useState(null);
-  const [prefilledDate, setPrefilledDate] = useState('');
-  const [prefilledProject, setPrefilledProject] = useState('');
-  const [formInstanceKey, setFormInstanceKey] = useState(0);
-
   const handleOpenNewTask = ({ date = '', project = '' } = {}) => {
     let resolvedProject = project;
+    // Auto-inherit active project when inside a project view
+    if (!resolvedProject && activeNavTab === 'project' && activeProject) {
+      resolvedProject = activeProject;
+    }
     if (!resolvedProject && searchQuery) {
       const match = allProjectNames.find(p => p.toLowerCase() === searchQuery.trim().toLowerCase());
       if (match) resolvedProject = match;
@@ -1010,16 +1717,7 @@ export default function Dashboard() {
     setIsFormOpen(true);
   };
 
-  const handleOpenEditTask = (task) => {
-    setPrefilledDate('');
-    setPrefilledProject('');
-    setEditingTask(task);
-    setFormInstanceKey(prev => prev + 1);
-    setIsFormOpen(true);
-  };
-
   // Workspace Filters & View Mode
-  const [filter, setFilter] = useState('All');
   const [assigneeFilter, setAssigneeFilter] = useState('All Members');
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState('list');
@@ -1069,7 +1767,7 @@ export default function Dashboard() {
   const fileInputRef = useRef(null);
   const noiseNodeRef = useRef(null);
   const audioCtxRef = useRef(null);
-  const todayStr = getLocalTodayStr();
+  const todayStr = useMemo(() => getLocalTodayStr(), []);
 
   useEffect(() => {
     if (isDarkMode) {
@@ -1176,7 +1874,7 @@ export default function Dashboard() {
                 try { localStorage.setItem(`tb_team_code_${uKey}`, wsData.inviteCode); } catch { /* ignore */ }
               }
             }
-          }).catch(() => {});
+          }).catch(() => { });
 
           // 2. Notifications for this user
           try {
@@ -1233,11 +1931,11 @@ export default function Dashboard() {
                 plan: 'Core',
                 createdAt: new Date().toISOString()
               };
-              setDoc(doc(db, 'users', uKey), initP, { merge: true }).catch(() => {});
+              setDoc(doc(db, 'users', uKey), initP, { merge: true }).catch(() => { });
               setUserProfile(initP);
               try { localStorage.setItem(`tb_profile_${uKey}`, JSON.stringify(initP)); } catch { /* ignore */ }
             }
-          }).catch(() => {});
+          }).catch(() => { });
         }
       }
       setIsAuthLoading(false);
@@ -1268,7 +1966,7 @@ export default function Dashboard() {
   }, [handleJoinTeamByCode, confirmAction]);
 
   // Dynamic Notifications Engine (combines live deadline & overdue alerts with team activity)
-  const allNotifications = computeAllNotifications(tasks, notifications, readAlertIds);
+  const allNotifications = computeAllNotifications(tasks, notifications, readAlertIds, dismissedAlertIds);
 
   const handleGuestLogin = (customInfo = null) => {
     const guest = {
@@ -1310,7 +2008,19 @@ export default function Dashboard() {
     showToast("Signed out successfully.", "info");
   };
 
-  // Fetch tasks: unified stream of personal tasks + team workspace tasks
+  // Team projects scoped to the user
+  const teamProjects = useMemo(() => allProjects.filter(p => p.type === 'team'), [allProjects]);
+  const teamProjectIdsKey = useMemo(() => teamProjects.map(p => p.id).sort().join(','), [teamProjects]);
+
+  const currentActiveProjectObj = useMemo(() => {
+    if (activeNavTab !== 'project' || !activeProject) return null;
+    return allProjects.find(p =>
+      p.id === activeProject ||
+      (p.name && p.name.trim().toLowerCase() === activeProject.trim().toLowerCase())
+    ) || null;
+  }, [allProjects, activeNavTab, activeProject]);
+
+  // Fetch tasks: unified stream of personal tasks + team workspace tasks + team project tasks
   useEffect(() => {
     if (!effectiveUser) {
       return;
@@ -1348,13 +2058,22 @@ export default function Dashboard() {
 
     let personalTasks = [];
     let workspaceTasks = [];
+    const teamProjectTasksMap = new Map();
 
     const sortAndSet = () => {
       const taskMap = new Map();
-      // First populate workspace tasks
+      // 1. Populate legacy workspace tasks
       workspaceTasks.forEach(t => taskMap.set(t.id, t));
-      // Then personal tasks (ensures personal tasks remain private and can co-exist)
-      personalTasks.forEach(t => taskMap.set(t.id, t));
+      // 2. Populate shared team project tasks
+      for (const pTasks of teamProjectTasksMap.values()) {
+        pTasks.forEach(t => taskMap.set(t.id, t));
+      }
+      // 3. Populate personal tasks (do not overwrite if already synced to a team project)
+      personalTasks.forEach(t => {
+        if (!taskMap.has(t.id)) {
+          taskMap.set(t.id, t);
+        }
+      });
 
       const merged = Array.from(taskMap.values());
       merged.sort((a, b) => {
@@ -1370,11 +2089,32 @@ export default function Dashboard() {
       setLoading(false);
     };
 
-    // 1. Listen to personal tasks
+    // 1. Listen to personal tasks and auto-migrate any tasks belonging to team projects
     const qPersonal = query(collection(db, 'users', effectiveUser.uid, 'tasks'));
     const unsubPersonal = onSnapshot(qPersonal, (snapshot) => {
       personalTasks = snapshot.docs.map(d => {
         const data = d.data();
+
+        // Check if task belongs to a team project for auto-migration
+        if (teamProjects.length > 0) {
+          const matchingTeamProj = teamProjects.find(p =>
+            (data.projectId && data.projectId === p.id) ||
+            (data.project && p.name && data.project.trim().toLowerCase() === p.name.trim().toLowerCase())
+          );
+          if (matchingTeamProj) {
+            setDoc(doc(db, 'projects', matchingTeamProj.id, 'tasks', d.id), {
+              ...data,
+              id: d.id,
+              projectId: matchingTeamProj.id,
+              project: matchingTeamProj.name,
+              workspaceType: 'team',
+              isWorkspaceTask: true
+            }, { merge: true }).then(() => {
+              deleteDoc(doc(db, 'users', effectiveUser.uid, 'tasks', d.id)).catch(() => { });
+            }).catch(err => console.warn("Team project task auto-migration error:", err));
+          }
+        }
+
         return {
           ...data,
           id: d.id,
@@ -1388,8 +2128,8 @@ export default function Dashboard() {
       setLoading(false);
     });
 
-    // 2. Listen to workspace tasks if active workspace exists
-    let unsubWorkspace = () => {};
+    // 2. Listen to workspace tasks if active workspace exists (legacy)
+    let unsubWorkspace = () => { };
     if (activeWorkspaceId && activeWorkspaceId !== 'local_workspace') {
       const qWorkspace = query(collection(db, 'workspaces', activeWorkspaceId, 'tasks'));
       unsubWorkspace = onSnapshot(qWorkspace, (snapshot) => {
@@ -1407,12 +2147,38 @@ export default function Dashboard() {
       }, (err) => console.warn("Workspace tasks sync error:", err));
     }
 
+    // 3. Listen to all team projects shared tasks in real-time
+    const unsubTeamProjects = teamProjects.map(proj => {
+      const qProjTasks = query(collection(db, 'projects', proj.id, 'tasks'));
+      return onSnapshot(qProjTasks, (snapshot) => {
+        const pTasks = snapshot.docs.map(d => {
+          const data = d.data();
+          return {
+            ...data,
+            id: d.id,
+            projectId: proj.id,
+            project: data.project || proj.name,
+            workspaceType: 'team',
+            isWorkspaceTask: true,
+            status: data.status === 'Pending' ? 'To Do' : (data.status || 'To Do')
+          };
+        });
+        teamProjectTasksMap.set(proj.id, pTasks);
+        sortAndSet();
+      }, (err) => {
+        console.warn(`Team project tasks sync error for ${proj.name}:`, err);
+      });
+    });
+
     return () => {
       unsubPersonal();
       unsubWorkspace();
+      unsubTeamProjects.forEach(u => {
+        if (typeof u === 'function') u();
+      });
       setTasks([]);
     };
-  }, [effectiveUser, activeWorkspaceId, todayStr]);
+  }, [effectiveUser, activeWorkspaceId, todayStr, teamProjects, teamProjectIdsKey]);
 
   // Real-time Firestore sync for Team Workspace members & metadata
   useEffect(() => {
@@ -1513,6 +2279,128 @@ export default function Dashboard() {
 
     return () => unsubscribeNotifs();
   }, [effectiveUser]);
+
+  // Real-time Firestore sync for Project Team Chat messages
+  useEffect(() => {
+    if (activeNavTab !== 'project' || !currentActiveProjectObj?.id) {
+      return;
+    }
+
+    const projId = currentActiveProjectObj.id;
+
+    if (effectiveUser?.isGuest) {
+      const loadGuestMessages = () => {
+        try {
+          const raw = localStorage.getItem(`tb_proj_chat_${projId}`);
+          setProjectMessages(raw ? JSON.parse(raw) : []);
+        } catch {
+          setProjectMessages([]);
+        }
+      };
+      const timer = setTimeout(loadGuestMessages, 0);
+      window.addEventListener('tb_guest_chat_updated', loadGuestMessages);
+      return () => {
+        clearTimeout(timer);
+        window.removeEventListener('tb_guest_chat_updated', loadGuestMessages);
+        setProjectMessages([]);
+      };
+    }
+
+    const q = query(
+      collection(db, 'projects', projId, 'messages'),
+      orderBy('createdAt', 'asc')
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const msgs = snapshot.docs.map(d => ({
+        id: d.id,
+        ...d.data()
+      }));
+      setProjectMessages(msgs);
+    }, (err) => {
+      console.warn("Project messages sync error:", err);
+      try {
+        const raw = localStorage.getItem(`tb_proj_chat_${projId}`);
+        if (raw) setProjectMessages(JSON.parse(raw));
+      } catch { /* ignore */ }
+    });
+
+    return () => {
+      unsubscribe();
+      setProjectMessages([]);
+    };
+  }, [activeNavTab, currentActiveProjectObj?.id, effectiveUser?.isGuest]);
+
+  useEffect(() => {
+    if (projectSubTab === 'chat') {
+      chatMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [projectMessages, projectSubTab]);
+
+  const handleSendProjectChatMessage = async (e) => {
+    e?.preventDefault();
+    const cleanText = projectChatMessageText.trim();
+    if (!cleanText || isSendingProjectMessage || !currentActiveProjectObj) return;
+
+    setIsSendingProjectMessage(true);
+    const projId = currentActiveProjectObj.id;
+    const authorName = effectiveUser?.displayName || effectiveUser?.name || 'Teammate';
+    const authorUid = effectiveUser?.uid || 'guest';
+    const authorEmail = effectiveUser?.email || '';
+    const isOwner = currentActiveProjectObj.creatorUid === authorUid;
+
+    const newMsg = {
+      text: cleanText,
+      author: authorName,
+      authorUid,
+      authorEmail,
+      role: isOwner ? 'Owner' : 'Contributor',
+      createdAt: new Date().toISOString()
+    };
+
+    try {
+      if (effectiveUser?.isGuest) {
+        const local = [...projectMessages, { ...newMsg, id: 'msg_' + Date.now() }];
+        setProjectMessages(local);
+        localStorage.setItem(`tb_proj_chat_${projId}`, JSON.stringify(local));
+      } else {
+        await addDoc(collection(db, 'projects', projId, 'messages'), newMsg);
+      }
+
+      setProjectChatMessageText('');
+
+      handleDispatchNotification({
+        type: 'chat_message',
+        title: `💬 New message in ${currentActiveProjectObj.name}`,
+        message: `${authorName}: "${cleanText.length > 60 ? cleanText.slice(0, 60) + '...' : cleanText}"`,
+        project: currentActiveProjectObj.name,
+        projectId: projId,
+        author: authorName,
+        authorUid
+      });
+    } catch (err) {
+      console.error("Failed to send project message:", err);
+      showToast("Failed to send message.", "error");
+    } finally {
+      setIsSendingProjectMessage(false);
+    }
+  };
+
+  const handleDeleteProjectChatMessage = async (msgId) => {
+    if (!currentActiveProjectObj?.id || !msgId) return;
+    try {
+      if (effectiveUser?.isGuest) {
+        const updated = projectMessages.filter(m => m.id !== msgId);
+        setProjectMessages(updated);
+        localStorage.setItem(`tb_proj_chat_${currentActiveProjectObj.id}`, JSON.stringify(updated));
+      } else {
+        await deleteDoc(doc(db, 'projects', currentActiveProjectObj.id, 'messages', msgId));
+      }
+      showToast("Message deleted", "info");
+    } catch (err) {
+      console.error("Delete message error:", err);
+    }
+  };
 
   const calculateRealStreak = () => {
     if (tasks.length === 0) return 0;
@@ -1664,14 +2552,26 @@ export default function Dashboard() {
   // Helper CRUD methods supporting both Guest and Auth modes
   const handleUpdateStatus = async (taskId, newStatus, currentTask) => {
     playSound(newStatus === 'Completed' ? 'success' : 'pop');
+
     let updatedDeadline = currentTask?.deadline;
-    if (newStatus === 'Completed' && currentTask?.recurrence && currentTask.recurrence !== 'None' && currentTask.deadline) {
-      const d = new Date(currentTask.deadline);
-      if (currentTask.recurrence === 'Daily') d.setDate(d.getDate() + 1);
-      if (currentTask.recurrence === 'Weekly') d.setDate(d.getDate() + 7);
-      if (currentTask.recurrence === 'Monthly') d.setMonth(d.getMonth() + 1);
-      updatedDeadline = d.toISOString().split('T')[0];
-      showToast(`Recurring task pushed to ${updatedDeadline}`, "info");
+    const isRecurring = newStatus === 'Completed' && currentTask?.recurrence && currentTask.recurrence !== 'None';
+    let statusToSave = newStatus;
+    let completedAtToSave = newStatus === 'Completed' ? new Date().toISOString() : null;
+
+    if (isRecurring) {
+      const baseDate = currentTask?.deadline ? new Date(currentTask.deadline) : new Date();
+      const nextDate = isNaN(baseDate.getTime()) ? new Date() : new Date(baseDate);
+      if (currentTask.recurrence === 'Daily') nextDate.setDate(nextDate.getDate() + 1);
+      else if (currentTask.recurrence === 'Weekly') nextDate.setDate(nextDate.getDate() + 7);
+      else if (currentTask.recurrence === 'Monthly') nextDate.setMonth(nextDate.getMonth() + 1);
+
+      const yyyy = nextDate.getFullYear();
+      const mm = String(nextDate.getMonth() + 1).padStart(2, '0');
+      const dd = String(nextDate.getDate()).padStart(2, '0');
+      updatedDeadline = `${yyyy}-${mm}-${dd}`;
+      statusToSave = 'To Do';
+      completedAtToSave = null;
+      showToast(`Recurring task completed! Next occurrence rolled over to ${updatedDeadline}.`, "success");
     }
 
     // Lifetime Gamification XP & Level Progression
@@ -1684,7 +2584,7 @@ export default function Dashboard() {
         setDoc(doc(db, 'users', effectiveUser.uid), {
           lifetimeCompleted: nextCount,
           updatedAt: new Date().toISOString()
-        }, { merge: true }).catch(() => {});
+        }, { merge: true }).catch(() => { });
       }
       const oldLvl = Math.floor(lifetimeCompleted / 5) + 1;
       const newLvl = Math.floor(nextCount / 5) + 1;
@@ -1706,6 +2606,7 @@ export default function Dashboard() {
           title: 'Task Completed! ✅',
           message: `${effectiveUser?.displayName || 'Teammate'} marked "${currentTask?.title || 'Task'}" as Completed in ${currentTask?.project || 'Team Workspace'}.`,
           taskId,
+          workspaceId: currentTask?.workspaceId || activeWorkspaceId || workspaceId,
           assignee: currentTask?.assignee,
           project: currentTask?.project,
           priority: currentTask?.priority,
@@ -1716,9 +2617,9 @@ export default function Dashboard() {
     }
 
     const payload = {
-      status: newStatus,
-      completedAt: newStatus === 'Completed' ? new Date().toISOString() : null,
-      ...(updatedDeadline !== currentTask?.deadline ? { deadline: updatedDeadline } : {})
+      status: statusToSave,
+      completedAt: completedAtToSave,
+      ...(updatedDeadline ? { deadline: updatedDeadline } : {})
     };
 
     if (effectiveUser?.isGuest) {
@@ -1731,13 +2632,30 @@ export default function Dashboard() {
   };
 
   const getTaskDocRef = useCallback((targetTask, taskId) => {
+    // 1. Team Project check (shared team tasks live in projects/{projectId}/tasks)
+    const matchedTeamProj = allProjects.find(p =>
+      p.type === 'team' && (
+        p.id === targetTask?.projectId ||
+        (targetTask?.project && p.name && targetTask.project.trim().toLowerCase() === p.name.trim().toLowerCase())
+      )
+    );
+    if (matchedTeamProj) {
+      return doc(db, 'projects', matchedTeamProj.id, 'tasks', taskId);
+    }
+    if (targetTask?.projectId && allProjects.some(p => p.id === targetTask.projectId && p.type === 'team')) {
+      return doc(db, 'projects', targetTask.projectId, 'tasks', taskId);
+    }
+
+    // 2. Legacy workspace check
     const isWs = targetTask?.isWorkspaceTask || targetTask?.workspaceId;
     const wsId = targetTask?.workspaceId || activeWorkspaceId;
     if (isWs && wsId && wsId !== 'local_workspace') {
       return doc(db, 'workspaces', wsId, 'tasks', taskId);
     }
+
+    // 3. Default to personal user subcollection
     return doc(db, 'users', effectiveUser.uid, 'tasks', taskId);
-  }, [activeWorkspaceId, effectiveUser]);
+  }, [allProjects, activeWorkspaceId, effectiveUser]);
 
   const handleUpdateTaskField = async (taskId, fields) => {
     const targetTask = tasks.find(t => t.id === taskId);
@@ -1786,6 +2704,24 @@ export default function Dashboard() {
     showToast(newPinned ? "Task pinned to top" : "Task unpinned", "info");
   };
 
+  const handleToggleMyDay = (e, task) => {
+    e?.stopPropagation?.();
+    playSound('pop');
+    const isInMyDay = !!task.inMyDay || (task.myDayDate === todayStr) || isTaskDueToday(task);
+    const nextVal = !isInMyDay;
+    handleUpdateTaskField(task.id, {
+      inMyDay: nextVal,
+      myDayDate: nextVal ? todayStr : null
+    });
+    showToast(nextVal ? "Added to My Day" : "Removed from My Day", "info");
+  };
+
+  const handleToggleComplete = (e, task) => {
+    e?.stopPropagation?.();
+    const nextStatus = task.status === 'Completed' ? 'To Do' : 'Completed';
+    handleUpdateStatus(task.id, nextStatus, task);
+  };
+
   const handleDuplicate = async (task) => {
     const { id: _ignore, ...taskData } = task;
     const duplicatePayload = {
@@ -1826,20 +2762,45 @@ export default function Dashboard() {
       setTasks(updated);
       localStorage.setItem('tb_guest_tasks', JSON.stringify(updated));
     } else if (effectiveUser?.uid) {
-      if (activeNavTab === 'team' && activeWorkspaceId && activeWorkspaceId !== 'local_workspace') {
-        await addDoc(collection(db, 'workspaces', activeWorkspaceId, 'tasks'), {
+      // Find if this task belongs to a team project
+      const matchedTeamProj = allProjects.find(p =>
+        p.type === 'team' && (
+          p.id === payload.projectId ||
+          (payload.project && p.name && payload.project.trim().toLowerCase() === p.name.trim().toLowerCase())
+        )
+      ) || (currentWorkspace === 'team' || activeNavTab === 'team' ? allProjects.find(p => p.type === 'team') : null);
+
+      if (matchedTeamProj) {
+        await addDoc(collection(db, 'projects', matchedTeamProj.id, 'tasks'), {
           ...payload,
-          workspaceId: activeWorkspaceId,
-          project: 'Team Workspace',
+          projectId: matchedTeamProj.id,
+          project: matchedTeamProj.name,
+          workspaceType: 'team',
+          isWorkspaceTask: true,
+          creatorUid: effectiveUser.uid,
+          creatorName: effectiveUser.displayName || 'Teammate'
+        });
+      } else if (currentWorkspace === 'team' || activeNavTab === 'team') {
+        const wsId = activeWorkspaceId && activeWorkspaceId !== 'local_workspace' ? activeWorkspaceId : 'team_workspace';
+        await addDoc(collection(db, 'workspaces', wsId, 'tasks'), {
+          ...payload,
+          workspaceId: wsId,
+          workspaceType: 'team',
+          isWorkspaceTask: true,
+          project: payload.project || 'Team Workspace',
           creatorUid: effectiveUser.uid,
           creatorName: effectiveUser.displayName || 'Teammate'
         });
       } else {
-        await addDoc(collection(db, 'users', effectiveUser.uid, 'tasks'), payload);
+        await addDoc(collection(db, 'users', effectiveUser.uid, 'tasks'), {
+          ...payload,
+          workspaceType: 'personal',
+          isWorkspaceTask: false
+        });
       }
     }
     showToast("Task added successfully!", "success");
-  }, [effectiveUser, tasks, activeNavTab, activeWorkspaceId, showToast]);
+  }, [effectiveUser, tasks, allProjects, currentWorkspace, activeNavTab, activeWorkspaceId, showToast]);
 
   const handleBulkClear = () => {
     const completedTasks = tasks.filter(t => t.status === 'Completed');
@@ -1858,34 +2819,21 @@ export default function Dashboard() {
     });
   };
 
-  const toggleSubtask = async (e, task, lineIndex) => {
-    e.stopPropagation();
-    if (!task.description) return;
-    const lines = task.description.split('\n');
-    let lineCount = 0;
-    const newLines = lines.map((line) => {
-      if (line.trim().startsWith('- [ ]') || line.trim().startsWith('- [x]')) {
-        if (lineCount === lineIndex) {
-          const isDone = line.trim().startsWith('- [x]');
-          line = isDone ? line.replace('- [x]', '- [ ]') : line.replace('- [ ]', '- [x]');
-        }
-        lineCount++;
-      }
-      return line;
-    });
-
-    const newDescription = newLines.join('\n');
-    await handleUpdateTaskField(task.id, { description: newDescription });
-  };
-
   const submitQuickTask = async () => {
     if (!quickTaskTitle.trim()) return;
     try {
+      const targetProj = currentWorkspace === 'personal'
+        ? (activeNavTab === 'inbox' ? 'Personal Inbox' : 'General Workspace')
+        : (teamProjects[0]?.name || 'Team Workspace');
+
       await handleAddNewTaskDirectly({
         title: quickTaskTitle.trim(),
         priority: quickPriority,
         deadline: todayStr,
-        project: activeNavTab === 'inbox' ? 'Inbox' : 'General Workspace'
+        project: targetProj,
+        workspaceType: currentWorkspace,
+        isWorkspaceTask: currentWorkspace === 'team',
+        assignee: currentWorkspace === 'personal' ? (effectiveUser?.displayName || 'Me') : 'Unassigned'
       });
       setQuickTaskTitle('');
     } catch {
@@ -1965,58 +2913,116 @@ export default function Dashboard() {
     });
   };
 
-  const stats = {
-    total: tasks.length,
-    pending: tasks.filter(t => t.status !== 'Completed').length,
-    completed: tasks.filter(t => t.status === 'Completed').length,
-    overdue: tasks.filter(t => isTaskOverdue(t)).length
-  };
-
-  // Discover all unique team members exclusively from the genuine team roster
+  // Discover all unique team members: Owner + Connected Teammates + active team workspace members
   const allAssignees = useMemo(() => {
     const ownerName = (effectiveUser?.displayName || 'Me').trim();
-    // Strictly real team members from the active workspace roster
-    const memberNames = teamMembers.map(m => m.name?.trim()).filter(Boolean);
-    if (!memberNames.some(n => n.toLowerCase() === ownerName.toLowerCase())) {
-      memberNames.unshift(ownerName);
-    }
-    // Filter out redundant 'Me' if the user's real name is present
-    return Array.from(new Set(memberNames)).filter(name => {
+    const connNames = (connections || []).map(c => c.name?.trim() || c.email?.trim()).filter(Boolean);
+    const tmNames = (teamMembers || []).map(m => m.name?.trim()).filter(Boolean);
+    const combined = [ownerName, ...connNames, ...tmNames];
+    return Array.from(new Set(combined)).filter(name => {
       if (name.toLowerCase() === 'me' && ownerName.toLowerCase() !== 'me') {
         return false;
       }
       return true;
     });
-  }, [teamMembers, effectiveUser]);
+  }, [connections, teamMembers, effectiveUser]);
   const teamFilterOptions = ['All Members', ...allAssignees];
 
-  // Discover all projects (tasks + custom created projects strictly scoped per user)
-  let customProjectsList = [];
-  try {
-    const uKey = effectiveUser?.isGuest ? 'guest' : (effectiveUser?.uid || 'guest');
-    const saved = localStorage.getItem(`tb_projects_${uKey}`);
-    if (saved) customProjectsList = JSON.parse(saved);
-  } catch {
-    customProjectsList = [];
-  }
+  // Discover all projects segregated by workspace
   const taskProjects = Array.from(new Set(tasks.map(t => t.project?.trim()).filter(Boolean)));
-  const allProjectNames = Array.from(new Set(['General Workspace', ...taskProjects, ...customProjectsList.map(p => p?.name?.trim()).filter(Boolean)]));
+  const allProjectNames = Array.from(new Set(['General Workspace', ...taskProjects, ...allProjects.map(p => p?.name?.trim()).filter(Boolean)]));
+
+  const sidebarProjects = useMemo(() => {
+    return allProjects.map(p => {
+      const pName = p.name || 'Untitled';
+      const count = tasks.filter(t => (t.projectId === p.id || (t.project && t.project.trim().toLowerCase() === pName.trim().toLowerCase())) && t.status !== 'Completed').length;
+      return {
+        id: p.id || pName,
+        name: pName,
+        color: p.color || 'blue',
+        type: p.type || 'personal',
+        taskCount: count
+      };
+    });
+  }, [allProjects, tasks]);
+
+  const workspaceTasks = useMemo(() => {
+    const pNames = new Set();
+    const tNames = new Set();
+    const tIds = new Set();
+    for (const p of allProjects) {
+      if (p.type === 'team') {
+        if (p.id) tIds.add(p.id);
+        if (p.name) tNames.add(p.name.trim().toLowerCase());
+      } else {
+        if (p.name) pNames.add(p.name.trim().toLowerCase());
+      }
+    }
+
+    return tasks.filter(task => {
+      if (currentWorkspace === 'personal') {
+        if (task.projectId && tIds.has(task.projectId)) return false;
+        if (task.project && tNames.has(task.project.trim().toLowerCase())) return false;
+        if (task.workspaceType === 'team' || task.isWorkspaceTask) return false;
+        return true;
+      } else {
+        if (task.projectId && tIds.has(task.projectId)) return true;
+        if (task.project && tNames.has(task.project.trim().toLowerCase())) return true;
+        if (task.workspaceType === 'personal') return false;
+        if (task.project && pNames.has(task.project.trim().toLowerCase())) return false;
+        return task.workspaceType === 'team' || task.isWorkspaceTask;
+      }
+    });
+  }, [tasks, currentWorkspace, allProjects]);
+
+  const stats = useMemo(() => ({
+    total: workspaceTasks.length,
+    pending: workspaceTasks.filter(t => t.status !== 'Completed').length,
+    completed: workspaceTasks.filter(t => t.status === 'Completed').length,
+    overdue: workspaceTasks.filter(t => isTaskOverdue(t)).length
+  }), [workspaceTasks]);
+
+  const upcomingCount = useMemo(() => workspaceTasks.filter(t => t.status !== 'Completed' && t.deadline).length, [workspaceTasks]);
+  const assignedCount = useMemo(() => {
+    const myName = (effectiveUser?.displayName || '').trim().toLowerCase();
+    const myEmail = (effectiveUser?.email || '').trim().toLowerCase();
+    return workspaceTasks.filter(t => {
+      if (t.status === 'Completed') return false;
+      const a = (t.assignee || '').trim().toLowerCase();
+      return a === 'me' || (myName && a === myName) || (myEmail && a === myEmail);
+    }).length;
+  }, [workspaceTasks, effectiveUser]);
 
   // Filter tasks based on active navigation tab & workspace filters
-  const displayTasks = tasks.filter(task => {
+  const displayTasks = workspaceTasks.filter(task => {
     const tStatus = task.status || 'To Do';
 
-    // Navigation tab scoping
+    // Navigation tab scoping (Todoist & Microsoft To Do structure)
     if (activeNavTab === 'my-day') {
       const isDueToday = isTaskDueToday(task);
       const isOverdue = isTaskOverdue(task);
-      if (!isDueToday && !isOverdue) return false;
+      const isInMyDay = !!task.inMyDay || (task.myDayDate === todayStr);
+      if (!isDueToday && !isOverdue && !isInMyDay) return false;
     } else if (activeNavTab === 'inbox') {
-      if (task.project && task.project !== 'Inbox' && task.project !== 'General Workspace') return false;
+      if (task.project && task.project !== 'Inbox' && task.project !== 'General Workspace' && task.project !== 'Personal Inbox') return false;
     } else if (activeNavTab === 'favorites') {
       if (!task.pinned) return false;
-    } else if (activeNavTab === 'team' && selectedTeamMember !== 'All') {
-      if (task.assignee !== selectedTeamMember) return false;
+    } else if (activeNavTab === 'upcoming') {
+      if (!task.deadline) return false;
+    } else if (activeNavTab === 'assigned-to-me') {
+      const myName = (effectiveUser?.displayName || '').trim().toLowerCase();
+      const myEmail = (effectiveUser?.email || '').trim().toLowerCase();
+      const a = (task.assignee || '').trim().toLowerCase();
+      if (!a || (a !== 'me' && a !== myName && a !== myEmail)) return false;
+    } else if (activeNavTab === 'project') {
+      const matchProj = (task.projectId && task.projectId === activeProject) ||
+        (task.project && activeProject && task.project.trim().toLowerCase() === activeProject.trim().toLowerCase());
+      if (!matchProj) return false;
+      if (projectMemberFilter && projectMemberFilter !== 'All') {
+        const a = (task.assignee || '').trim().toLowerCase();
+        const f = projectMemberFilter.trim().toLowerCase();
+        if (a !== f) return false;
+      }
     }
 
     const matchesStatus = filter === 'All'
@@ -2040,6 +3046,47 @@ export default function Dashboard() {
 
     return matchesStatus && matchesAssignee && matchesSearch;
   });
+
+  const uncompletedTasksList = displayTasks.filter(t => t.status !== 'Completed');
+  const completedTasksList = displayTasks.filter(t => t.status === 'Completed');
+
+  const noDeadlineTasks = (activeNavTab !== 'my-day') ? [] : workspaceTasks.filter(task => {
+    if (task.status === 'Completed') return false;
+    if (task.deadline && task.deadline.trim() !== '') return false;
+    const isInMyDay = !!task.inMyDay || (task.myDayDate === todayStr);
+    if (isInMyDay) return false;
+
+    if (filter !== 'All') {
+      if (filter === 'Overdue') return false;
+      if ((task.status || 'To Do') !== filter) return false;
+    }
+
+    if (assigneeFilter !== 'All Members') {
+      if (task.assignee !== assigneeFilter) return false;
+    }
+
+    const q = searchQuery.toLowerCase().trim();
+    if (q) {
+      const matchesSearch = (
+        (task.title || '').toLowerCase().includes(q) ||
+        (task.description || '').toLowerCase().includes(q) ||
+        (task.category || '').toLowerCase().includes(q) ||
+        (task.project || '').toLowerCase().includes(q) ||
+        (task.assignee || '').toLowerCase().includes(q)
+      );
+      if (!matchesSearch) return false;
+    }
+
+    return true;
+  });
+
+  const upcomingBuckets = (activeNavTab !== 'upcoming') ? null : {
+    overdue: uncompletedTasksList.filter(t => isTaskOverdue(t)),
+    today: uncompletedTasksList.filter(t => !isTaskOverdue(t) && isTaskDueToday(t)),
+    tomorrow: uncompletedTasksList.filter(t => !isTaskOverdue(t) && !isTaskDueToday(t) && isTaskDueTomorrow(t)),
+    thisWeek: uncompletedTasksList.filter(t => getTaskDueBucket(t) === 'this_week'),
+    later: uncompletedTasksList.filter(t => getTaskDueBucket(t) === 'later' || getTaskDueBucket(t) === 'no_date')
+  };
 
   const getPriorityColor = (priority) => {
     switch (priority) {
@@ -2068,6 +3115,80 @@ export default function Dashboard() {
   const currentLevel = Math.floor(totalCompletedCount / 5) + 1;
   const currentXP = (totalCompletedCount % 5) * 20;
 
+  const drawerTask = useMemo(() => tasks.find(t => t.id === drawerTaskId) || null, [tasks, drawerTaskId]);
+
+  const myDaySuggestions = useMemo(() => {
+    if (activeNavTab !== 'my-day') return [];
+    return tasks.filter(t => {
+      if (t.status === 'Completed') return false;
+      const isDueToday = isTaskDueToday(t);
+      const isOverdue = isTaskOverdue(t);
+      const isInMyDay = !!t.inMyDay || (t.myDayDate === todayStr);
+      return !isDueToday && !isOverdue && !isInMyDay;
+    }).slice(0, 8);
+  }, [tasks, activeNavTab, todayStr]);
+
+  const handleCreateProjectFromSidebar = async (e) => {
+    e?.preventDefault?.();
+    const cleanName = newProjectInput.name.trim();
+    if (!cleanName) return;
+
+    await handleCreateProject({
+      name: cleanName,
+      color: newProjectInput.color || 'blue',
+      description: newProjectInput.description || '',
+      type: currentWorkspace === 'team' ? 'team' : 'personal',
+      members: [{ uid: effectiveUser?.uid || 'guest', name: effectiveUser?.displayName || 'Owner', email: effectiveUser?.email || '', role: 'Owner' }],
+      memberUids: [effectiveUser?.uid || 'guest']
+    });
+
+    setNewProjectInput({ name: '', color: 'blue', description: '' });
+    setIsNewProjectModalOpen(false);
+    setActiveNavTab('project');
+    setActiveProject(cleanName);
+  };
+
+  const handleInlineCreateTask = async (e) => {
+    e?.preventDefault?.();
+    const cleanTitle = inlineTitle.trim();
+    if (!cleanTitle) return;
+
+    let targetProject = currentWorkspace === 'personal' ? 'Personal Inbox' : (teamProjects[0]?.name || 'Team Workspace');
+    if (activeNavTab === 'project' && activeProject) {
+      targetProject = activeProject;
+    } else if (activeNavTab === 'inbox') {
+      targetProject = currentWorkspace === 'personal' ? 'Personal Inbox' : 'Inbox';
+    }
+
+    let targetDeadline = inlineDeadline;
+    let targetInMyDay = false;
+    if (activeNavTab === 'my-day') {
+      targetDeadline = targetDeadline || todayStr;
+      targetInMyDay = true;
+    }
+
+    const payload = {
+      title: cleanTitle,
+      priority: inlinePriority || 'Medium',
+      deadline: targetDeadline,
+      inMyDay: targetInMyDay,
+      myDayDate: targetInMyDay ? todayStr : null,
+      project: targetProject,
+      workspaceType: currentWorkspace,
+      isWorkspaceTask: currentWorkspace === 'team',
+      assignee: currentWorkspace === 'personal' ? (effectiveUser?.displayName || 'Me') : 'Unassigned',
+      status: 'To Do',
+      pinned: activeNavTab === 'favorites',
+      steps: [],
+      comments: []
+    };
+
+    await handleAddNewTaskDirectly(payload);
+    setInlineTitle('');
+    setInlineDeadline('');
+    setInlinePriority('Medium');
+  };
+
   const getIndianFestivals = (year) => {
     const fixed = { '01-26': 'Republic Day 🇮🇳', '08-15': 'Independence Day 🇮🇳', '10-02': 'Gandhi Jayanti 🕊️', '12-25': 'Christmas 🎄', '01-01': 'New Year ✨' };
     const lunar = {
@@ -2077,209 +3198,325 @@ export default function Dashboard() {
     return { ...fixed, ...(lunar[year] || {}) };
   };
 
-  const renderDescription = (task) => {
-    if (!task.description) return null;
-    return task.description.split('\n').map((line, i) => {
-      if (line.trim().startsWith('- [ ]') || line.trim().startsWith('- [x]')) {
-        const isDone = line.trim().startsWith('- [x]');
-        const text = line.replace('- [ ]', '').replace('- [x]', '').trim();
-        return (
-          <div key={i} className="flex items-center gap-2 mt-2 cursor-pointer group" onClick={(e) => toggleSubtask(e, task, i)}>
-            <div className={`w-4 h-4 rounded flex items-center justify-center border transition-colors ${isDone ? 'bg-green-500 border-green-500' : 'border-gray-400 group-hover:border-blue-500'}`}>
-              {isDone && <Check size={12} className="text-white" />}
-            </div>
-            <span className={`text-xs md:text-sm ${isDone ? 'line-through text-gray-400 dark:text-slate-500' : 'text-gray-700 dark:text-slate-300'}`}>
-              {text}
-            </span>
-          </div>
-        );
-      }
-      return <p key={i} className="text-xs md:text-sm text-gray-600 dark:text-slate-400 leading-relaxed">{line}</p>;
-    });
-  };
-
   const TaskCard = ({ task }) => {
-    const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+    const [isStepsExpanded, setIsStepsExpanded] = useState(false);
+    const [inlineStepText, setInlineStepText] = useState('');
+    const isCompleted = task.status === 'Completed';
     const isOverdue = isTaskOverdue(task);
     const isDueToday = isTaskDueToday(task);
-    const tags = Array.isArray(task.category) ? task.category : (task.category ? [task.category] : []);
+    const isDueTomorrow = isTaskDueTomorrow(task);
+    const isInMyDay = !!task.inMyDay || (task.myDayDate === todayStr) || isDueToday;
+    const steps = Array.isArray(task.steps) ? task.steps : [];
+    const completedSteps = steps.filter(s => s.completed).length;
     const commentCount = task.comments?.length || 0;
+    const isKanban = viewMode === 'kanban';
+
+    const isTeamTask = Boolean(
+      task.workspaceType === 'team' ||
+      task.isWorkspaceTask ||
+      (currentWorkspace === 'team' && !task.workspaceType) ||
+      (allProjects && Array.isArray(allProjects) && allProjects.some(p =>
+        p.type === 'team' && (
+          p.id === task.projectId ||
+          (task.project && p.name && p.name.trim().toLowerCase() === task.project.trim().toLowerCase())
+        )
+      ))
+    );
 
     return (
       <div
-        draggable={viewMode === 'kanban'}
+        draggable={isKanban}
         onDragStart={(e) => handleDragStart(e, task.id)}
-        className={`bg-white dark:bg-[#101625] border p-4 md:p-5 rounded-2xl md:rounded-3xl shadow-xs hover:shadow-md transition-all flex flex-col justify-between gap-4 relative group ${isDropdownOpen ? 'z-[80]' : 'z-10'
-          } ${task.status === 'Completed'
-            ? 'border-slate-200/60 dark:border-slate-800/60 bg-slate-50/60 dark:bg-slate-900/40 opacity-70'
-            : isOverdue
-              ? 'border-rose-200 dark:border-rose-900/60 bg-rose-50/20 dark:bg-rose-950/20'
-              : 'border-slate-200/80 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700'
-          } ${viewMode === 'kanban' ? 'w-full' : 'md:flex-row md:items-center'}`}
+        onClick={() => setDrawerTaskId(task.id)}
+        className={`bg-white dark:bg-[#101625] border p-3.5 sm:p-4 rounded-2xl md:rounded-3xl shadow-xs hover:shadow-md transition-all flex flex-col justify-between gap-2.5 relative group cursor-pointer w-full ${isCompleted
+          ? 'border-slate-200/60 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-900/30 opacity-75'
+          : isOverdue
+            ? 'border-rose-200/90 dark:border-rose-900/50 bg-rose-50/15 dark:bg-rose-950/15'
+            : 'border-slate-200/80 dark:border-white/[0.06] hover:border-indigo-400/50 dark:hover:border-indigo-500/40'
+          }`}
       >
-        {viewMode === 'kanban' && (
-          <div className="absolute top-3 right-3 text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing">
+        {isKanban && (
+          <div className="absolute top-3 right-3 text-slate-300 hover:text-slate-500 cursor-grab active:cursor-grabbing">
             <GripVertical size={16} />
           </div>
         )}
 
-        {/* Task Details Section */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-2 flex-wrap pr-6 md:pr-0">
-            {task.pinned && <Pin size={16} className="text-amber-500 fill-amber-500 shrink-0" />}
-            <h3 className={`text-base md:text-lg font-bold break-words ${task.status === 'Completed' ? 'text-gray-400 dark:text-slate-500 line-through' : 'text-gray-800 dark:text-white'}`}>
-              {task.title}
-            </h3>
-            {isOverdue && (
-              <span className="bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-400 text-[10px] md:text-xs px-2 py-0.5 rounded-full font-black animate-pulse flex items-center gap-1 border border-red-200 dark:border-red-800 shrink-0">
-                <AlertOctagon size={12} /> OVERDUE
-              </span>
-            )}
-            {isDueToday && (
-              <span className="bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 text-[10px] md:text-xs px-2 py-0.5 rounded-full font-bold shrink-0">
-                Due Today
-              </span>
-            )}
-            <span className={`px-2 py-0.5 rounded-full text-[10px] md:text-xs font-semibold border shrink-0 ${getPriorityColor(task.priority)}`}>
-              {task.priority}
-            </span>
-            {task.recurrence && task.recurrence !== 'None' && (
-              <span className="text-blue-500 dark:text-blue-400 flex items-center gap-1 text-[10px] font-bold shrink-0">
-                <Repeat size={10} /> {task.recurrence}
-              </span>
-            )}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 w-full">
+          {/* Left Checkbox & Task Details */}
+          <div className="flex items-start gap-3 flex-1 min-w-0">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleToggleComplete(e, task);
+              }}
+              className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5 transition-all ${isCompleted
+                ? 'bg-emerald-500 border-emerald-500 text-white shadow-xs'
+                : 'border-slate-400 dark:border-slate-500 hover:border-emerald-500 hover:bg-emerald-500/10'
+                }`}
+              title={isCompleted ? "Mark Incomplete" : "Mark Complete"}
+            >
+              {isCompleted && <Check size={11} className="stroke-[3]" />}
+            </button>
+
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                <h3 className={`text-sm sm:text-base font-bold break-words ${isCompleted ? 'text-slate-400 dark:text-slate-500 line-through' : 'text-slate-900 dark:text-white'
+                  }`}>
+                  {task.title}
+                </h3>
+
+                {isOverdue && (
+                  <span className="bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-400 text-[10px] px-2 py-0.5 rounded-full font-black flex items-center gap-1 border border-rose-200 dark:border-rose-900/60 shrink-0">
+                    <AlertOctagon size={11} /> OVERDUE
+                  </span>
+                )}
+                {!isOverdue && isDueToday && (
+                  <span className="bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300 text-[10px] px-2 py-0.5 rounded-full font-extrabold shrink-0 border border-amber-200 dark:border-amber-900/40">
+                    Due Today
+                  </span>
+                )}
+                {!isOverdue && !isDueToday && isDueTomorrow && (
+                  <span className="bg-purple-100 text-purple-800 dark:bg-purple-950/50 dark:text-purple-300 text-[10px] px-2 py-0.5 rounded-full font-extrabold shrink-0 border border-purple-200 dark:border-purple-900/40">
+                    Tomorrow
+                  </span>
+                )}
+
+                {/* Priority badge */}
+                <span className={`px-2 py-0.2 rounded-full text-[10px] font-extrabold border shrink-0 ${getPriorityColor(task.priority)}`}>
+                  {task.priority || 'Medium'}
+                </span>
+
+                {/* Steps badge */}
+                {steps.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsStepsExpanded(prev => !prev);
+                    }}
+                    className="text-[10px] font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-white/[0.05] hover:bg-slate-200 dark:hover:bg-white/[0.1] px-2 py-0.5 rounded-md flex items-center gap-1 shrink-0 transition-colors cursor-pointer"
+                    title="Toggle subtask steps checklist"
+                  >
+                    <CheckCircle2 size={11} className="text-emerald-500" />
+                    <span>{completedSteps}/{steps.length} Steps</span>
+                    <ChevronDown size={10} className={`transition-transform duration-200 ${isStepsExpanded ? 'rotate-180' : ''}`} />
+                  </button>
+                )}
+              </div>
+
+              {/* Project, Assignee, Date, Comments pills */}
+              <div className="flex flex-wrap items-center gap-2 text-[10px] sm:text-xs text-slate-500 dark:text-slate-400">
+                {task.project && (
+                  <span className="flex items-center gap-1 bg-slate-100 dark:bg-white/[0.04] text-slate-700 dark:text-slate-300 px-2 py-0.5 rounded-md font-semibold">
+                    <Folder size={11} className="text-indigo-500" /> {task.project}
+                  </span>
+                )}
+                {isTeamTask && task.assignee && (
+                  <span className="flex items-center gap-1 bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 px-2 py-0.5 rounded-md font-semibold">
+                    <Users size={11} className="text-purple-500" /> {task.assignee}
+                  </span>
+                )}
+                {task.deadline && (
+                  <span className="flex items-center gap-1 font-medium">
+                    <CalendarIcon size={11} /> {task.deadline} {task.endTime ? `(${task.endTime})` : ''}
+                  </span>
+                )}
+                {task.attachmentLink && (
+                  <span className="flex items-center gap-1 text-indigo-500 font-medium">
+                    <LinkIcon size={11} /> File
+                  </span>
+                )}
+                {commentCount > 0 && (
+                  <span className="flex items-center gap-1 text-slate-400 font-medium">
+                    <MessageSquare size={11} /> {commentCount}
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
 
-          {(task.project || task.assignee) && (
-            <div className="flex items-center gap-2 md:gap-3 text-[10px] md:text-xs text-indigo-500 dark:text-indigo-400 font-bold mb-2.5 flex-wrap">
-              {task.project && (
-                <span className="flex items-center gap-1 bg-indigo-50 dark:bg-indigo-900/30 px-2 py-1 rounded-md">
-                  <Folder size={12} /> {task.project}
-                </span>
-              )}
-              {task.assignee && (
-                <span className="flex items-center gap-1 bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 px-2 py-1 rounded-md">
-                  <Users size={12} /> {task.assignee}
-                </span>
-              )}
-            </div>
-          )}
+          {/* Right Row Actions: Steps, Sun (My Day), Star (Important), Duplicate, Delete */}
+          <div className="flex items-center gap-1 shrink-0 justify-end pt-2 md:pt-0 border-t md:border-t-0 border-slate-100 dark:border-white/[0.04]">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsStepsExpanded(prev => !prev);
+              }}
+              className={`p-1.5 rounded-xl transition-colors ${isStepsExpanded
+                  ? 'text-indigo-600 bg-indigo-50 dark:bg-indigo-950/40 dark:text-indigo-400'
+                  : 'text-slate-400 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-white/[0.04]'
+                }`}
+              title="Subtask Steps Checklist"
+            >
+              <CheckCircle2 size={16} />
+            </button>
 
-          {task.description && <div className="mb-2.5">{renderDescription(task)}</div>}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleToggleMyDay(e, task);
+              }}
+              className={`p-1.5 rounded-xl transition-colors ${isInMyDay
+                ? 'text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40'
+                : 'text-slate-400 hover:text-amber-500 hover:bg-slate-100 dark:hover:bg-white/[0.04]'
+                }`}
+              title={isInMyDay ? "Remove from My Day" : "Add to My Day"}
+            >
+              <Sun size={16} className={isInMyDay ? 'fill-amber-500' : ''} />
+            </button>
 
-          {(tags.length > 0 || task.deadline || task.attachmentLink || commentCount > 0) && (
-            <div className="flex flex-wrap items-center gap-2 md:gap-3 text-[10px] md:text-xs text-gray-500 dark:text-slate-400 mt-1">
-              {tags.map((tag, idx) => (
-                <div key={idx} className="flex items-center gap-1 bg-gray-100 dark:bg-slate-700 px-2 py-1 rounded-md font-medium">
-                  <Tag size={10} />{tag}
-                </div>
-              ))}
-              {task.deadline && (
-                <div className="flex items-center gap-1 font-semibold">
-                  <CalendarIcon size={12} />{task.deadline} {task.startTime && `(${task.startTime})`}
-                </div>
-              )}
-              {task.attachmentLink && (
-                <a href={task.attachmentLink} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-blue-500 hover:underline font-medium">
-                  <LinkIcon size={12} /> {task.attachmentName || 'Link'}
-                </a>
-              )}
-              {commentCount > 0 && (
-                <button
-                  type="button"
-                  onClick={() => handleOpenEditTask(task)}
-                  className="flex items-center gap-1 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded-md font-semibold hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
-                  title="Team Activity / Comments"
-                >
-                  <MessageSquare size={11} /> {commentCount}
-                </button>
-              )}
-            </div>
-          )}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleTogglePin(task);
+              }}
+              className={`p-1.5 rounded-xl transition-colors ${task.pinned
+                ? 'text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40'
+                : 'text-slate-400 hover:text-amber-500 hover:bg-slate-100 dark:hover:bg-white/[0.04]'
+                }`}
+              title={task.pinned ? "Remove from Important" : "Star as Important"}
+            >
+              <Star size={16} className={task.pinned ? 'fill-amber-500' : ''} />
+            </button>
+
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleDuplicate(task);
+              }}
+              className="p-1.5 rounded-xl text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-white/[0.04] transition-colors"
+              title="Duplicate Task"
+            >
+              <Copy size={15} />
+            </button>
+
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleDelete(task.id);
+              }}
+              className="p-1.5 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
+              title="Delete Task"
+            >
+              <Trash2 size={15} />
+            </button>
+          </div>
         </div>
 
-        {/* Actions & Status Controls Section - Separate handling for Kanban & List View */}
-        {viewMode === 'kanban' ? (
-          <div className="pt-3 mt-1 border-t border-gray-100 dark:border-slate-700/80 flex flex-col gap-2.5 w-full">
-            <div className="w-full">
-              <CustomDropdown
-                options={['To Do', 'In Progress', 'Review', 'Completed']}
-                value={task.status}
-                onChange={(val) => handleUpdateStatus(task.id, val, task)}
-                onOpenChange={setIsDropdownOpen}
+        {/* Inline Steps Checklist Dropdown on the Card */}
+        {isStepsExpanded && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full mt-1 pt-3 border-t border-slate-100 dark:border-white/[0.06] space-y-2.5"
+          >
+            <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 dark:text-slate-400">
+              <span className="flex items-center gap-1.5">
+                <CheckCircle2 size={13} className="text-indigo-500" />
+                <span>STEPS ({completedSteps} of {steps.length} completed)</span>
+              </span>
+              <span className="text-[10px] text-slate-400 font-medium">Click to check off</span>
+            </div>
+
+            {/* Steps Progress Bar */}
+            {steps.length > 0 && (
+              <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                <div
+                  className="bg-gradient-to-r from-indigo-500 to-emerald-400 h-full rounded-full transition-all duration-300"
+                  style={{ width: `${(completedSteps / steps.length) * 100}%` }}
+                />
+              </div>
+            )}
+
+            {/* Steps List */}
+            {steps.length > 0 && (
+              <div className="space-y-1.5 max-h-40 overflow-y-auto hide-scrollbar pt-0.5">
+                {steps.map(step => (
+                  <div
+                    key={step.id}
+                    className="flex items-center justify-between gap-2 p-1.5 rounded-xl hover:bg-slate-50 dark:hover:bg-white/[0.03] transition-colors group/step"
+                  >
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const nextSteps = steps.map(s => s.id === step.id ? { ...s, completed: !s.completed } : s);
+                        handleUpdateTaskField(task.id, { steps: nextSteps });
+                      }}
+                      className="flex items-center gap-2 text-left flex-1 min-w-0"
+                    >
+                      <span
+                        className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0 transition-all ${step.completed
+                            ? 'bg-emerald-500 border-emerald-500 text-white'
+                            : 'border-slate-400 dark:border-slate-600 hover:border-emerald-500'
+                          }`}
+                      >
+                        {step.completed && <Check size={9} className="stroke-[3]" />}
+                      </span>
+                      <span
+                        className={`text-xs font-semibold truncate ${step.completed
+                            ? 'line-through text-slate-400 dark:text-slate-500'
+                            : 'text-slate-800 dark:text-slate-200'
+                          }`}
+                      >
+                        {step.title}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const nextSteps = steps.filter(s => s.id !== step.id);
+                        handleUpdateTaskField(task.id, { steps: nextSteps });
+                      }}
+                      className="opacity-0 group-hover/step:opacity-100 p-1 text-slate-400 hover:text-rose-500 transition-opacity"
+                      title="Delete step"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Quick Add Step Input directly on card */}
+            <form
+              onSubmit={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                const trimmed = inlineStepText.trim();
+                if (!trimmed) return;
+                const newStep = {
+                  id: 'step_' + Date.now(),
+                  title: trimmed,
+                  completed: false
+                };
+                handleUpdateTaskField(task.id, { steps: [...steps, newStep] });
+                setInlineStepText('');
+              }}
+              className="flex items-center gap-2 pt-1"
+            >
+              <Plus size={13} className="text-slate-400 shrink-0" />
+              <input
+                type="text"
+                value={inlineStepText}
+                onChange={(e) => setInlineStepText(e.target.value)}
+                placeholder="Next step... (press Enter ↵)"
+                className="flex-1 bg-transparent text-xs font-medium outline-none text-slate-800 dark:text-white placeholder:text-slate-400"
               />
-            </div>
-            <div className="flex items-center justify-between bg-gray-50 dark:bg-slate-800/80 p-1.5 rounded-xl border border-gray-100 dark:border-slate-700 w-full">
               <button
-                onClick={() => handleTogglePin(task)}
-                className={`p-1.5 rounded-lg transition-colors flex-1 flex justify-center ${task.pinned ? 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400' : 'hover:bg-white dark:hover:bg-slate-700 text-gray-400 hover:text-amber-500'}`}
-                title={task.pinned ? "Unpin Task" : "Pin Task"}
+                type="submit"
+                disabled={!inlineStepText.trim()}
+                className="px-2.5 py-1 rounded-lg bg-indigo-600 text-white text-[10px] font-bold disabled:opacity-30 hover:bg-indigo-700 transition-colors shrink-0"
               >
-                {task.pinned ? <PinOff size={15} /> : <Pin size={15} />}
+                Add
               </button>
-              <button
-                onClick={() => handleDuplicate(task)}
-                className="p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-700 text-gray-400 hover:text-purple-500 transition-colors flex-1 flex justify-center"
-                title="Duplicate Task"
-              >
-                <Copy size={15} />
-              </button>
-              <button
-                onClick={() => handleOpenEditTask(task)}
-                className="p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-700 text-gray-400 hover:text-blue-500 transition-colors flex-1 flex justify-center"
-                title="Edit Task"
-              >
-                <Edit2 size={15} />
-              </button>
-              <button
-                onClick={() => handleDelete(task.id)}
-                className="p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-700 text-gray-400 hover:text-red-500 transition-colors flex-1 flex justify-center"
-                title="Delete Task"
-              >
-                <Trash2 size={15} />
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2.5 shrink-0 w-full md:w-auto justify-between md:justify-end pt-3 md:pt-0 border-t md:border-t-0 border-gray-100 dark:border-slate-700/60">
-            <div className="w-32 sm:w-36 flex-shrink-0">
-              <CustomDropdown
-                options={['To Do', 'In Progress', 'Review', 'Completed']}
-                value={task.status}
-                onChange={(val) => handleUpdateStatus(task.id, val, task)}
-                onOpenChange={setIsDropdownOpen}
-              />
-            </div>
-            <div className="flex items-center gap-1 bg-gray-50 dark:bg-slate-800/80 p-1 rounded-xl border border-gray-100 dark:border-slate-700">
-              <button
-                onClick={() => handleTogglePin(task)}
-                className={`p-1.5 md:p-2 rounded-lg transition-colors ${task.pinned ? 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400' : 'hover:bg-white dark:hover:bg-slate-700 text-gray-400 hover:text-amber-500'}`}
-                title={task.pinned ? "Unpin Task" : "Pin Task"}
-              >
-                {task.pinned ? <PinOff size={16} /> : <Pin size={16} />}
-              </button>
-              <button
-                onClick={() => handleDuplicate(task)}
-                className="p-1.5 md:p-2 rounded-lg hover:bg-white dark:hover:bg-slate-700 text-gray-400 hover:text-purple-500 transition-colors"
-                title="Duplicate Task"
-              >
-                <Copy size={16} />
-              </button>
-              <button
-                onClick={() => handleOpenEditTask(task)}
-                className="p-1.5 md:p-2 rounded-lg hover:bg-white dark:hover:bg-slate-700 text-gray-400 hover:text-blue-500 transition-colors"
-                title="Edit Task"
-              >
-                <Edit2 size={16} />
-              </button>
-              <button
-                onClick={() => handleDelete(task.id)}
-                className="p-1.5 md:p-2 rounded-lg hover:bg-white dark:hover:bg-slate-700 text-gray-400 hover:text-red-500 transition-colors"
-                title="Delete Task"
-              >
-                <Trash2 size={16} />
-              </button>
-            </div>
+            </form>
           </div>
         )}
       </div>
@@ -2449,7 +3686,7 @@ export default function Dashboard() {
     setActiveNavTab(tabId);
   };
 
-  const handleRemoveTeamMember = (memberId, memberName, memberEmail) => {
+  const _handleRemoveTeamMember = (memberId, memberName, memberEmail) => {
     if (memberName === 'Me' || memberName === effectiveUser?.displayName) return showToast("Cannot remove workspace owner", "warning");
     confirmAction(`Remove ${memberName} from team workspace?`, async () => {
       const updated = teamMembers.filter(m => {
@@ -2491,7 +3728,7 @@ export default function Dashboard() {
       setDoc(doc(db, 'users', effectiveUser.uid), {
         automationRules: updated,
         updatedAt: new Date().toISOString()
-      }, { merge: true }).catch(() => {});
+      }, { merge: true }).catch(() => { });
     }
     showToast("Automation preference updated", "success");
   };
@@ -2523,17 +3760,27 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Modern Collapsible SaaS Sidebar */}
+      {/* Modern Collapsible SaaS Sidebar (Todoist & Microsoft To Do structure) */}
       <Sidebar
         activeTab={activeNavTab}
         setActiveTab={handleNavTabChange}
+        activeProject={activeProject}
+        projects={sidebarProjects}
+        onSelectProject={(projName) => {
+          setActiveNavTab('project');
+          setActiveProject(projName);
+          setFilter('All');
+          setSearchQuery('');
+        }}
+        onOpenNewProject={() => setIsNewProjectModalOpen(true)}
         stats={{
           total: stats.total,
-          todayCount: todayTasks.length,
-          inboxCount: tasks.filter(t => !t.project || t.project === 'Inbox' || t.project === 'General Workspace').length,
-          pinnedCount: tasks.filter(t => t.pinned).length
+          todayCount: workspaceTasks.filter(t => t.status !== 'Completed' && (isTaskDueToday(t) || isTaskOverdue(t) || t.inMyDay || t.myDayDate === todayStr)).length,
+          inboxCount: workspaceTasks.filter(t => t.status !== 'Completed' && (!t.project || t.project === 'Inbox' || t.project === 'General Workspace' || t.project === 'Personal Inbox')).length,
+          pinnedCount: workspaceTasks.filter(t => t.status !== 'Completed' && t.pinned).length,
+          upcomingCount,
+          assignedCount
         }}
-        projectsCount={allProjectNames.length}
         teamCount={allAssignees.length}
         user={effectiveUser}
         isApex={isApex}
@@ -2545,6 +3792,9 @@ export default function Dashboard() {
         onImportClick={() => fileInputRef.current?.click()}
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
+        currentWorkspace={currentWorkspace}
+        onSwitchWorkspace={handleSwitchWorkspace}
+        pendingRequestsCount={incomingRequests.length}
       />
 
       {/* Main App Workspace Area */}
@@ -2558,8 +3808,8 @@ export default function Dashboard() {
             >
               <Menu size={22} />
             </button>
-            <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-white dark:bg-slate-800 border border-gray-200/80 dark:border-slate-700 shadow-md flex items-center justify-center p-1.5 shrink-0 overflow-hidden">
-              <img src={appLogo} alt="Task Bandhu Logo" className="w-full h-full object-contain rounded-xl" />
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl overflow-hidden shrink-0 shadow-sm flex items-center justify-center">
+              <img src={appLogo} alt="Task Bandhu Logo" className="w-full h-full object-cover" />
             </div>
             <div>
               <span className="font-extrabold text-base block leading-tight">Task Bandhu</span>
@@ -2655,44 +3905,84 @@ export default function Dashboard() {
         {/* View Routing Area */}
         <div className="p-4 md:p-6 lg:p-8 max-w-7xl w-full mx-auto space-y-6">
           {/* Top Bar with Title, AI Assistant quick launch & New Task button */}
-          <div className="hidden lg:flex justify-between items-center bg-white dark:bg-slate-800/80 backdrop-blur-md p-4 rounded-3xl border border-gray-100 dark:border-slate-700/80 shadow-sm relative z-[200]">
-            <div className="flex items-center gap-3.5">
-              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-white dark:bg-slate-800 border border-gray-200/80 dark:border-slate-700 shadow-md flex items-center justify-center p-2 shrink-0 overflow-hidden">
-                <img src={appLogo} alt="Task Bandhu Logo" className="w-full h-full object-contain rounded-xl" />
-              </div>
-              <div>
-                <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white capitalize tracking-tight mb-0.5">
-                  {activeNavTab.replace('-', ' ')}
+          <div className="hidden lg:flex justify-between items-center py-2 relative z-[200]">
+            <div>
+              <div className="flex items-center gap-3">
+                <h1 className="text-2xl font-black text-slate-900 dark:text-white capitalize tracking-tight">
+                  {activeNavTab === 'project'
+                    ? (activeProject || 'Project')
+                    : activeNavTab === 'my-day'
+                      ? 'My Day'
+                      : activeNavTab === 'favorites'
+                        ? 'Important'
+                        : activeNavTab === 'upcoming'
+                          ? 'Planned (Upcoming)'
+                          : activeNavTab === 'assigned-to-me'
+                            ? 'Assigned to Me'
+                            : activeNavTab.replace('-', ' ')}
                 </h1>
-                <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                  {effectiveUser.isGuest ? (
-                    <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-bold">
-                      <ShieldAlert size={12} /> Guest Mode • Sign in to save across devices
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-2">
-                      <span>Welcome, {effectiveUser.displayName || 'Friend'}</span>
-                      {isApex ? (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-amber-400/20 via-violet-500/20 to-purple-500/20 text-amber-300 border border-amber-400/30 shadow-xs">
-                          <Sparkles size={11} className="text-amber-400" /> Apex Prestige
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => setIsApexUpgradeModalOpen(true)}
-                          className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-700/80 hover:bg-amber-100 dark:hover:bg-amber-950/40 text-slate-700 dark:text-slate-200 hover:text-amber-600 dark:hover:text-amber-300 transition-all border border-slate-200 dark:border-slate-600 shadow-xs active:scale-95"
-                          title="Upgrade to Task Bandhu Apex"
-                        >
-                          Core Plan • <span className="font-extrabold text-amber-500 flex items-center gap-0.5">Upgrade <Sparkles size={10} /></span>
-                        </button>
-                      )}
-                    </span>
-                  )}
-                </p>
+                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 px-3 py-1 rounded-full bg-slate-100 dark:bg-white/[0.05] border border-slate-200/60 dark:border-white/[0.06]">
+                  {new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                </span>
+                {!effectiveUser?.isGuest && (
+                  <div className="p-0.5 bg-slate-100 dark:bg-white/[0.04] rounded-2xl border border-slate-200/60 dark:border-white/[0.06] flex items-center gap-1 shadow-xs ml-1">
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchWorkspace('personal')}
+                      className={`py-1 px-3 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
+                        currentWorkspace === 'personal'
+                          ? 'bg-white dark:bg-[#151e32] text-slate-900 dark:text-white shadow-xs'
+                          : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                      title="Personal Workspace (Your private projects & tasks)"
+                    >
+                      <Lock size={12} className={currentWorkspace === 'personal' ? 'text-indigo-500' : ''} />
+                      <span>Personal</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchWorkspace('team')}
+                      className={`py-1 px-3 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
+                        currentWorkspace === 'team'
+                          ? 'bg-white dark:bg-[#151e32] text-indigo-600 dark:text-indigo-400 shadow-xs'
+                          : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                      title="Team Workspace (Collaborative team projects & workload)"
+                    >
+                      <Users size={12} className={currentWorkspace === 'team' ? 'text-indigo-500' : ''} />
+                      <span>Team</span>
+                    </button>
+                  </div>
+                )}
+                {activeNavTab === 'my-day' && (
+                  <button
+                    type="button"
+                    onClick={() => setIsSuggestionsOpen(prev => !prev)}
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all border ${isSuggestionsOpen
+                      ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border-amber-300 dark:border-amber-800/60'
+                      : 'bg-slate-100 dark:bg-white/[0.05] text-slate-700 dark:text-slate-300 border-slate-200/80 dark:border-white/[0.08] hover:bg-slate-200 dark:hover:bg-white/[0.08]'
+                      }`}
+                  >
+                    <Lightbulb size={13} className="text-amber-500" />
+                    <span>Suggestions</span>
+                  </button>
+                )}
+                {effectiveUser?.isGuest ? (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/40 px-2.5 py-0.5 rounded-full">
+                    <ShieldAlert size={11} /> Guest Mode • On this device
+                  </span>
+                ) : isApex ? (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-amber-400/20 via-violet-500/20 to-purple-500/20 text-amber-300 border border-amber-400/30 shadow-xs">
+                    <Sparkles size={11} className="text-amber-400" /> Apex Prestige
+                  </span>
+                ) : null}
               </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-1">
+                {effectiveUser.isGuest ? 'Sign in to sync seamlessly with teammates across devices' : `Welcome back, ${(effectiveUser.displayName || 'friend').split(' ')[0]} • Have a focused and productive day`}
+              </p>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2.5">
               <NotificationCenter
                 notifications={allNotifications}
                 onMarkAsRead={handleMarkNotificationRead}
@@ -2704,43 +3994,103 @@ export default function Dashboard() {
               {!effectiveUser.isGuest && (
                 <button
                   onClick={() => setIsAIModalOpen(true)}
-                  className="flex items-center gap-2 bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 px-4 py-2.5 rounded-xl text-xs font-black shadow-sm hover:bg-purple-100 transition-colors active:scale-95"
+                  className="flex items-center gap-2 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-300 border border-purple-200/80 dark:border-purple-800/40 px-4 py-2.5 rounded-2xl text-xs font-extrabold shadow-xs transition-all active:scale-95"
                 >
-                  <Sparkles size={16} /> AI Assistant
+                  <Sparkles size={15} className="text-purple-500 animate-pulse" /> AI Assistant
                 </button>
               )}
               <button
                 onClick={() => { playSound('start'); setIsFocusModeActive(true); }}
-                className="flex items-center gap-2 bg-slate-800 dark:bg-slate-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold shadow-md hover:bg-slate-700 active:scale-95 transition-all"
+                className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 dark:bg-white/[0.05] dark:hover:bg-white/[0.08] text-slate-700 dark:text-slate-200 border border-slate-200/80 dark:border-white/[0.08] px-4 py-2.5 rounded-2xl text-xs font-extrabold shadow-xs transition-all active:scale-95"
               >
-                <Timer size={16} /> Deep Focus
+                <Timer size={15} className="text-indigo-500" /> Deep Focus
               </button>
               <button
                 onClick={() => handleOpenNewTask()}
-                className="flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl text-xs font-extrabold shadow-lg hover:bg-blue-700 active:scale-95 transition-all"
+                className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 via-blue-600 to-indigo-600 hover:from-indigo-500 hover:to-blue-500 text-white px-5 py-2.5 rounded-2xl text-xs font-black shadow-lg shadow-indigo-500/25 active:scale-95 transition-all"
               >
                 <Plus size={16} /> New Task
               </button>
             </div>
           </div>
 
+          {/* My Day Suggestions Tray (Microsoft To Do style) */}
+          {activeNavTab === 'my-day' && isSuggestionsOpen && (
+            <div className="bg-amber-50/70 dark:bg-[#131b2c] border border-amber-200/80 dark:border-amber-800/40 rounded-3xl p-5 shadow-sm space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Lightbulb size={16} className="text-amber-500" />
+                  <h3 className="text-sm font-black text-slate-900 dark:text-white">Suggestions for Today</h3>
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400">Select tasks from your backlog to focus on today</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsSuggestionsOpen(false)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                >
+                  <X size={15} />
+                </button>
+              </div>
+
+              {myDaySuggestions.length === 0 ? (
+                <p className="text-xs text-slate-500 dark:text-slate-400 italic">No pending tasks outside of today. Your schedule is clear!</p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                  {myDaySuggestions.map(task => (
+                    <div
+                      key={task.id}
+                      className="flex items-center justify-between p-3 rounded-2xl bg-white dark:bg-[#0c121e] border border-slate-200/80 dark:border-white/[0.06] shadow-xs"
+                    >
+                      <div className="min-w-0 flex-1 pr-2">
+                        <p className="text-xs font-bold text-slate-900 dark:text-white truncate">{task.title}</p>
+                        <p className="text-[10px] text-slate-400 truncate">{task.project || 'General Workspace'} • {task.deadline || 'No deadline'}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => handleToggleMyDay(e, task)}
+                        className="p-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/60 font-bold transition-colors shrink-0"
+                        title="Add to My Day"
+                      >
+                        <Plus size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* VIEW SWITCHER LOGIC */}
-          {activeNavTab === 'eisenhower' ? (
-            <EisenhowerMatrix
-              tasks={tasks}
-              onUpdateTask={handleUpdateTaskField}
-              onOpenNewTask={() => handleOpenNewTask()}
-              onEditTask={(t) => handleOpenEditTask(t)}
+          {activeNavTab === 'connect' ? (
+            <ConnectView
+              user={effectiveUser}
+              connections={connections}
+              incomingRequests={incomingRequests}
+              outgoingRequests={outgoingRequests}
+              onSendRequest={handleSendConnectionRequest}
+              onAcceptRequest={handleAcceptConnectionRequest}
+              onDeclineRequest={handleDeclineConnectionRequest}
+              onRemoveConnection={handleRemoveConnection}
+              onCancelRequest={handleCancelConnectionRequest}
+              _isApex={isApex}
+              _onOpenApexModal={() => setIsApexUpgradeModalOpen(true)}
+              showToast={showToast}
             />
           ) : activeNavTab === 'projects' ? (
             <ProjectsView
               key={effectiveUser?.uid || 'guest'}
+              projects={allProjects}
               tasks={tasks}
               user={effectiveUser}
+              currentWorkspace={currentWorkspace}
+              connections={connections}
+              onCreateProject={handleCreateProject}
+              onDeleteProject={handleDeleteProject}
+              onUpdateProjectMembers={handleUpdateProjectMembers}
+              onLeaveProject={handleLeaveProject}
               isApex={isApex}
               onOpenApexModal={() => setIsApexUpgradeModalOpen(true)}
               showToast={showToast}
-              workspaceId={workspaceId}
               onFilterProject={(projectName) => {
                 setFilter('All');
                 setSearchQuery(projectName);
@@ -2750,320 +4100,22 @@ export default function Dashboard() {
                 handleOpenNewTask({ project: projectName });
               }}
             />
+          ) : activeNavTab === 'eisenhower' ? (
+            <EisenhowerMatrix
+              tasks={tasks}
+              onUpdateTask={handleUpdateTaskField}
+              onOpenNewTask={() => handleOpenNewTask()}
+              onEditTask={(t) => handleOpenEditTask(t)}
+            />
           ) : activeNavTab === 'analytics' ? (
             <AnalyticsView
               tasks={tasks}
               realStreak={realStreak}
               currentLevel={currentLevel}
               currentXP={currentXP}
+              teamMembers={teamMembers}
+              currentUser={effectiveUser}
             />
-          ) : activeNavTab === 'team' ? (
-            effectiveUser.isGuest ? (
-              /* Guest Gate: Team features & cloud sync are account-exclusive */
-              <div className="space-y-6 animate-in fade-in">
-                <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 rounded-3xl p-6 sm:p-10 text-white shadow-2xl border border-indigo-800/40 relative overflow-hidden">
-                  <div className="max-w-2xl relative z-10 space-y-5">
-                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 text-xs font-black tracking-wide uppercase">
-                      <Lock size={13} /> Account Feature Only
-                    </div>
-                    <h2 className="text-2xl sm:text-3xl font-black tracking-tight leading-snug">
-                      Team Workspaces & Real-Time Collaboration
-                    </h2>
-                    <p className="text-slate-300 text-xs sm:text-sm leading-relaxed">
-                      You are currently using <strong>Guest Mode</strong>. Guest tasks are stored directly on this device. To invite teammates, assign work, receive live notifications, and maintain cross-device data consistency, sign in with an account.
-                    </p>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                      <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10 flex items-start gap-3">
-                        <div className="p-2 rounded-xl bg-cyan-500/20 text-cyan-400 shrink-0">
-                          <Users size={18} />
-                        </div>
-                        <div>
-                          <h4 className="font-extrabold text-xs text-white">Team Workspaces</h4>
-                          <p className="text-[11px] text-slate-400 mt-0.5">Invite teammates with shareable links and 6-digit Team Codes.</p>
-                        </div>
-                      </div>
-
-                      <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10 flex items-start gap-3">
-                        <div className="p-2 rounded-xl bg-blue-500/20 text-blue-400 shrink-0">
-                          <CheckSquare size={18} />
-                        </div>
-                        <div>
-                          <h4 className="font-extrabold text-xs text-white">Task Assignment</h4>
-                          <p className="text-[11px] text-slate-400 mt-0.5">Delegate tasks directly to connected teammates with live status.</p>
-                        </div>
-                      </div>
-
-                      <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10 flex items-start gap-3">
-                        <div className="p-2 rounded-xl bg-purple-500/20 text-purple-400 shrink-0">
-                          <Bell size={18} />
-                        </div>
-                        <div>
-                          <h4 className="font-extrabold text-xs text-white">Team Activity & Discussion</h4>
-                          <p className="text-[11px] text-slate-400 mt-0.5">Get notified when colleagues complete tasks or post comments.</p>
-                        </div>
-                      </div>
-
-                      <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10 flex items-start gap-3">
-                        <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 shrink-0">
-                          <ShieldCheck size={18} />
-                        </div>
-                        <div>
-                          <h4 className="font-extrabold text-xs text-white">Cross-Device Sync</h4>
-                          <p className="text-[11px] text-slate-400 mt-0.5">Continuous data consistency across PC, phone, and tablet.</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="pt-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={handleSignOut}
-                        className="px-5 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black text-xs rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2"
-                      >
-                        <UserPlus size={16} /> Sign In to Enable Team Features
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setActiveNavTab('my-day')}
-                        className="px-4 py-3 bg-white/10 hover:bg-white/15 text-slate-200 font-bold text-xs rounded-xl transition-all flex items-center justify-center"
-                      >
-                        Back to My Day
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              /* Team Workspaces View */
-              <div className="space-y-6 animate-in fade-in">
-              <div className="bg-gradient-to-r from-cyan-600 via-blue-600 to-indigo-600 rounded-3xl p-6 md:p-8 text-white shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-                <div>
-                  <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                    <h2 className="text-2xl font-black flex items-center gap-2">
-                      <Users size={26} /> Team Workspaces & Directory
-                    </h2>
-                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-white/20 border border-white/30 text-white">
-                      {teamMembers.length} {isApex ? 'Members (Apex Unlimited)' : `/${PLAN_LIMITS.CORE.teamMembers} Members (Core)`}
-                    </span>
-                    {!isApex && (
-                      <button
-                        type="button"
-                        onClick={() => setIsApexUpgradeModalOpen(true)}
-                        className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-400 text-amber-950 hover:bg-amber-300 shadow-sm transition-all"
-                      >
-                        Upgrade to 50 Members ✦
-                      </button>
-                    )}
-                  </div>
-                  <p className="text-cyan-100 text-xs sm:text-sm max-w-xl leading-relaxed">
-                    Connected collaboration. Share your invite link or Team Code so teammates can join, receive assigned tasks, and get instant notifications.
-                  </p>
-                </div>
-
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full md:w-auto shrink-0">
-                  {inviteCode && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        navigator.clipboard.writeText(inviteCode);
-                        showToast(`Team Code ${inviteCode} copied!`, "success");
-                      }}
-                      className="px-3.5 py-2.5 rounded-2xl bg-white/15 hover:bg-white/25 border border-white/30 text-white font-mono text-xs font-black transition-all flex items-center justify-center gap-1.5 shadow-sm"
-                      title="Click to Copy Team Code"
-                    >
-                      <Copy size={13} /> Code: {inviteCode}
-                    </button>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => setIsInviteModalOpen(true)}
-                    className="bg-white text-blue-700 px-5 py-2.5 rounded-2xl text-xs font-black shadow-lg hover:bg-cyan-50 active:scale-95 transition-all flex items-center justify-center gap-1.5"
-                  >
-                    <UserPlus size={15} /> Invite Teammates
-                  </button>
-                </div>
-              </div>
-
-              {/* Team Members Grid or Empty State */}
-              {teamMembers.length === 0 ? (
-                <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 sm:p-12 border border-gray-100 dark:border-slate-700 text-center max-w-2xl mx-auto shadow-sm space-y-5 animate-in fade-in">
-                  <div className="w-16 h-16 rounded-3xl bg-cyan-50 dark:bg-cyan-900/30 text-cyan-600 dark:text-cyan-400 flex items-center justify-center mx-auto shadow-inner">
-                    <Users size={32} />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-extrabold text-gray-900 dark:text-white">
-                      No Team Workspace Created Yet
-                    </h3>
-                    <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400 mt-2 max-w-md mx-auto leading-relaxed">
-                      Team workspaces are completely private. Create your workspace to generate an invite code, add teammates, and delegate tasks in real time.
-                    </p>
-                  </div>
-                  <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
-                    <button
-                      type="button"
-                      onClick={handleCreateWorkspace}
-                      className="w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 text-white rounded-2xl font-bold text-xs shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2"
-                    >
-                      <Plus size={16} /> Create Team Workspace
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setIsInviteModalOpen(true)}
-                      className="w-full sm:w-auto px-5 py-3 bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 dark:hover:bg-slate-600 text-gray-800 dark:text-white rounded-2xl font-bold text-xs transition-all flex items-center justify-center gap-1.5"
-                    >
-                      <UserPlus size={15} /> Join with Code
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  {teamMembers.map((member) => {
-                    const memberTasks = tasks.filter(t => t.assignee === member.name);
-                    const memberCompleted = memberTasks.filter(t => t.status === 'Completed').length;
-                    const memberPending = memberTasks.length - memberCompleted;
-                    const memberRate = memberTasks.length > 0 ? Math.round((memberCompleted / memberTasks.length) * 100) : 0;
-                    const isSelected = selectedTeamMember === member.name;
-
-                    return (
-                      <div
-                        key={member.id || member.name}
-                        onClick={() => setSelectedTeamMember(isSelected ? 'All' : member.name)}
-                        className={`p-5 rounded-3xl border transition-all cursor-pointer relative group flex flex-col justify-between ${isSelected
-                          ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-400 dark:border-blue-600 ring-2 ring-blue-500/20 shadow-md'
-                          : 'bg-white dark:bg-slate-800 border-gray-100 dark:border-slate-700 hover:shadow-md'
-                          }`}
-                      >
-                        <div>
-                          <div className="flex items-center justify-between mb-3">
-                            <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-cyan-500 to-blue-600 text-white font-black flex items-center justify-center text-sm shadow-sm">
-                              {member.name.charAt(0).toUpperCase()}
-                            </div>
-                            <div className="flex items-center gap-1.5 flex-wrap justify-end">
-                              <span className={`text-[9px] px-2 py-0.5 rounded-full font-extrabold uppercase tracking-wider border ${
-                                member.status === 'Owner'
-                                  ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/40'
-                                  : member.status === 'Connected'
-                                  ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/40'
-                                  : 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800/40'
-                              }`}>
-                                {member.status === 'Owner' ? '⭐ Owner' : member.status === 'Connected' ? '🟢 Connected' : '✉️ Invited'}
-                              </span>
-                              {member.status !== 'Owner' && member.name !== 'Me' && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleRemoveTeamMember(member.id, member.name, member.email);
-                                  }}
-                                  className="p-1 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
-                                  title={member.status === 'Invited' ? "Cancel Invite" : "Remove Teammate"}
-                                >
-                                  <Trash2 size={13} />
-                                </button>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="mb-2">
-                            <h3 className="font-bold text-gray-900 dark:text-white text-sm mb-0.5 truncate">{member.name}</h3>
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-slate-300">
-                                {member.role || 'Member'}
-                              </span>
-                              <p className="text-[10px] text-gray-400 dark:text-slate-500 truncate">{member.email}</p>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center justify-between text-xs font-semibold text-gray-600 dark:text-slate-400 mb-3">
-                            <span>{memberPending} Active</span>
-                            <span>{memberCompleted} Done</span>
-                          </div>
-
-                          <div className="space-y-1 mb-4">
-                            <div className="flex justify-between text-[10px] font-bold text-gray-400 dark:text-slate-500">
-                              <span>Completion</span>
-                              <span>{memberRate}%</span>
-                            </div>
-                            <div className="w-full bg-gray-100 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
-                              <div className="bg-blue-600 h-full rounded-full transition-all" style={{ width: `${memberRate}%` }}></div>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="pt-2 border-t border-gray-100 dark:border-slate-700/60 flex items-center justify-between gap-2">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedTeamMember(member.name);
-                            }}
-                            className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
-                          >
-                            {isSelected ? '✓ Filtering' : 'Filter Tasks'}
-                          </button>
-                          {member.status === 'Invited' ? (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleRemoveTeamMember(member.id, member.name, member.email);
-                              }}
-                              className="text-[11px] px-2.5 py-1 text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/50 rounded-lg font-bold hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
-                            >
-                              Cancel Invite
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setPrefilledDate('');
-                                setPrefilledProject('Team Workspace');
-                                setEditingTask({ assignee: member.name, project: 'Team Workspace', priority: 'Medium' });
-                                setFormInstanceKey(prev => prev + 1);
-                                setIsFormOpen(true);
-                              }}
-                              className="text-[11px] px-2.5 py-1 bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-slate-200 rounded-lg font-bold hover:bg-blue-50 dark:hover:bg-slate-600 hover:text-blue-600 transition-colors"
-                            >
-                              + Assign Task
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Filtered Team Tasks Workspace */}
-              <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm space-y-4">
-                <div className="flex justify-between items-center pb-4 border-b border-gray-100 dark:border-slate-700">
-                  <h3 className="font-extrabold text-lg text-gray-900 dark:text-white flex items-center gap-2">
-                    <CheckSquare size={20} className="text-blue-600" />
-                    Tasks for: <span className="text-blue-600 dark:text-blue-400">{selectedTeamMember}</span>
-                  </h3>
-                  {selectedTeamMember !== 'All' && (
-                    <button
-                      onClick={() => setSelectedTeamMember('All')}
-                      className="text-xs font-bold text-gray-500 hover:text-blue-600 transition-colors"
-                    >
-                      Show All Teammates
-                    </button>
-                  )}
-                </div>
-
-                {displayTasks.length === 0 ? (
-                  <p className="text-sm text-gray-400 dark:text-slate-500 py-8 text-center">No tasks assigned to this member.</p>
-                ) : (
-                  <div className="space-y-3">
-                    {displayTasks.map(t => <TaskCard key={t.id} task={t} />)}
-                  </div>
-                )}
-              </div>
-            </div>
-            )
           ) : activeNavTab === 'automations' ? (
             /* Automations & Workflow Builder Panel */
             <div className="space-y-6 animate-in fade-in">
@@ -3173,62 +4225,463 @@ export default function Dashboard() {
               showToast={showToast}
             />
           ) : (
-            /* DEFAULT WORKSPACE TABS ('my-day', 'inbox', 'all-tasks', 'favorites') */
+            /* DEFAULT WORKSPACE TABS ('my-day', 'inbox', 'all-tasks', 'favorites', 'project') */
             <div className="space-y-6">
-              {/* Daily Mission & Progress Bar (Always visible on My Day or top of workspace) */}
-              <div className="bg-white/90 dark:bg-[#101625]/90 backdrop-blur-xl p-5 sm:p-6 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm flex flex-col xl:flex-row gap-5 items-stretch xl:items-center justify-between relative overflow-hidden">
-                <div className="flex-1 min-w-0 pr-0 xl:pr-4">
-                  <div className="flex justify-between items-end mb-3">
-                    <div>
-                      <h2 className="text-base md:text-lg font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-                        Today's Mission <span className="text-[10px] md:text-xs bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60 px-2 py-0.5 rounded-md font-bold">XP: {currentXP}/100</span>
-                      </h2>
-                      <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 font-medium">{todayCompleted} of {todayTasks.length} tasks for today done.</p>
+              {/* Project Header Banner & Team Directory (Scoped to active project) */}
+              {activeNavTab === 'project' && currentActiveProjectObj ? (
+                <div className="space-y-5 animate-in fade-in">
+                  <div className="bg-white/95 dark:bg-[#0f1523]/95 backdrop-blur-xl p-5 sm:p-6 rounded-3xl border border-slate-200/80 dark:border-white/[0.08] shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2.5 flex-wrap">
+                        <div className={`w-3.5 h-3.5 rounded-full ${PROJECT_COLOR_BG[currentActiveProjectObj.color] || 'bg-indigo-500'}`} />
+                        <h2 className="text-xl md:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+                          {currentActiveProjectObj.name}
+                        </h2>
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${currentActiveProjectObj.type === 'team'
+                          ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60'
+                          : 'bg-slate-100 dark:bg-white/[0.06] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-white/[0.06]'
+                          }`}>
+                          {currentActiveProjectObj.type === 'team' ? 'Team Project' : 'Personal Project'}
+                        </span>
+                        {currentActiveProjectObj.type === 'team' && (
+                          <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-white/[0.05] border border-slate-200/60 dark:border-white/[0.06]">
+                            {Array.isArray(currentActiveProjectObj.members) ? currentActiveProjectObj.members.length : 1} Members
+                          </span>
+                        )}
+                      </div>
+                      {currentActiveProjectObj.description && (
+                        <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                          {currentActiveProjectObj.description}
+                        </p>
+                      )}
                     </div>
-                    <span className="text-lg md:text-xl font-black text-blue-600 dark:text-blue-400">{dailyCompletionRate}%</span>
-                  </div>
-                  <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2.5 md:h-3 overflow-hidden p-0.5">
-                    <div className="bg-gradient-to-r from-blue-500 via-indigo-500 to-cyan-400 h-full rounded-full transition-all duration-500 shadow-xs" style={{ width: `${dailyCompletionRate}%` }}></div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2.5 sm:gap-3 w-full xl:w-auto shrink-0 justify-start sm:justify-end flex-wrap sm:flex-nowrap">
-                  <div className="bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/50 px-3.5 sm:px-4 py-2.5 sm:py-3 rounded-2xl flex items-center gap-2.5 shrink-0 shadow-xs">
-                    <div className="bg-indigo-600 text-white p-1.5 rounded-xl shadow-xs">
-                      <Zap size={16} className="sm:w-4 sm:h-4" />
-                    </div>
-                    <div>
-                      <p className="text-[9px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Level</p>
-                      <p className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-white whitespace-nowrap">
-                        Lv. {currentLevel} • {getRankTitle(currentLevel)}
-                      </p>
-                    </div>
-                  </div>
-                  <div className={`border px-3.5 sm:px-4 py-2.5 sm:py-3 rounded-2xl flex items-center gap-2.5 shrink-0 shadow-xs transition-colors ${realStreak > 0 ? 'bg-orange-50/80 dark:bg-orange-950/40 border-orange-200/80 dark:border-orange-900/50' : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200/60 dark:border-slate-800'}`}>
-                    <div className={`p-1.5 rounded-xl ${realStreak > 0 ? 'bg-orange-500 text-white shadow-xs' : 'bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400'}`}>
-                      <Flame size={16} className="sm:w-4 sm:h-4" />
-                    </div>
-                    <div>
-                      <p className={`text-[9px] font-black uppercase tracking-wider ${realStreak > 0 ? 'text-orange-600 dark:text-orange-400' : 'text-slate-500 dark:text-slate-400'}`}>Streak</p>
-                      <p className={`text-xs sm:text-sm font-extrabold whitespace-nowrap ${realStreak > 0 ? 'text-slate-900 dark:text-white' : 'text-slate-700 dark:text-slate-300'}`}>{realStreak} {realStreak === 1 ? 'Day' : 'Days'}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
 
-              {/* Quick Capture Input */}
-              <div className={`relative flex flex-col sm:flex-row items-stretch sm:items-center bg-white dark:bg-[#101625] border border-slate-200/90 dark:border-slate-800 rounded-2xl p-1.5 md:p-2 focus-within:ring-2 focus-within:ring-blue-500/40 focus-within:border-blue-500 shadow-sm gap-2 sm:gap-0 transition-all ${isQuickPriorityOpen ? 'z-50' : 'z-20'}`}>
+                    <div className="flex items-center gap-2 flex-wrap self-stretch md:self-auto">
+                      <button
+                        type="button"
+                        onClick={() => setProjectSubTab(prev => prev === 'chat' ? 'tasks' : 'chat')}
+                        className={`px-3.5 py-2 rounded-2xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs border ${
+                          projectSubTab === 'chat'
+                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-indigo-500/20'
+                            : 'bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/50'
+                        }`}
+                      >
+                        <MessageSquare size={14} />
+                        <span>{projectSubTab === 'chat' ? 'View Tasks' : 'Team Chat'}</span>
+                        {projectMessages.length > 0 && projectSubTab !== 'chat' && (
+                          <span className="ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-600 text-white font-extrabold">
+                            {projectMessages.length}
+                          </span>
+                        )}
+                      </button>
+
+                      {currentActiveProjectObj.type === 'team' && (
+                        (currentActiveProjectObj.creatorUid === effectiveUser?.uid || !currentActiveProjectObj.creatorUid) ? (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenManageMembers(currentActiveProjectObj)}
+                            className="px-3.5 py-2 rounded-2xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/50 text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs"
+                          >
+                            <Users size={14} /> Manage Members
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleLeaveProject(currentActiveProjectObj.id, currentActiveProjectObj.name)}
+                            className="px-3.5 py-2 rounded-2xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/40 text-rose-600 dark:text-rose-400 border border-rose-200/80 dark:border-rose-900/40 text-xs font-bold transition-all flex items-center gap-1.5"
+                          >
+                            <LogOut size={14} /> Leave Team
+                          </button>
+                        )
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleOpenNewTask({ project: currentActiveProjectObj.name })}
+                        className="px-4 py-2 rounded-2xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white text-xs font-black shadow-md shadow-indigo-500/20 active:scale-95 transition-all flex items-center gap-1.5"
+                      >
+                        <Plus size={14} /> Add Task
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Project View Tabs: Tasks vs Team Chat */}
+                  <div className="flex items-center gap-2 border-b border-slate-200/80 dark:border-white/[0.08] pb-1">
+                    <button
+                      type="button"
+                      onClick={() => setProjectSubTab('tasks')}
+                      className={`flex items-center gap-2 px-4 py-2 font-black text-xs sm:text-sm rounded-2xl transition-all ${
+                        projectSubTab === 'tasks'
+                          ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md shadow-indigo-500/20'
+                          : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/[0.05]'
+                      }`}
+                    >
+                      <ListTodo size={15} />
+                      <span>Project Tasks</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setProjectSubTab('chat')}
+                      className={`flex items-center gap-2 px-4 py-2 font-black text-xs sm:text-sm rounded-2xl transition-all ${
+                        projectSubTab === 'chat'
+                          ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md shadow-indigo-500/20'
+                          : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/[0.05]'
+                      }`}
+                    >
+                      <MessageSquare size={15} />
+                      <span>Team Chat</span>
+                      {projectMessages.length > 0 && (
+                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                          projectSubTab === 'chat'
+                            ? 'bg-white/20 text-white'
+                            : 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300'
+                        }`}>
+                          {projectMessages.length}
+                        </span>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Real-Time Team Chat for Every Project */}
+                  {projectSubTab === 'chat' && (
+                    <div className="bg-white dark:bg-[#0f1523] rounded-3xl border border-slate-200/80 dark:border-white/[0.08] shadow-sm flex flex-col h-[600px] overflow-hidden animate-in fade-in">
+                      {/* Chat Header */}
+                      <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-white/[0.06] flex items-center justify-between gap-3 bg-slate-50/70 dark:bg-[#111827]/70">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-white font-black text-sm shadow-md ${
+                            PROJECT_COLOR_BG[currentActiveProjectObj.color] || 'bg-indigo-500'
+                          }`}>
+                            #
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h3 className="font-extrabold text-base text-slate-900 dark:text-white">
+                                #{currentActiveProjectObj.name} Team Chat
+                              </h3>
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/60 flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Live Chat
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-400">
+                              Real-time project discussions, updates, and collaboration with teammates
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-500 dark:text-slate-400 font-bold hidden sm:inline">
+                            {Array.isArray(currentActiveProjectObj.members) ? currentActiveProjectObj.members.length : 1} Members in project
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Messages Feed Area */}
+                      <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 hide-scrollbar">
+                        {projectMessages.length === 0 ? (
+                          <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-3">
+                            <div className="w-14 h-14 rounded-3xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shadow-inner">
+                              <MessageSquare size={26} />
+                            </div>
+                            <div>
+                              <h4 className="font-extrabold text-base text-slate-900 dark:text-white">
+                                Welcome to #{currentActiveProjectObj.name} Team Chat!
+                              </h4>
+                              <p className="text-xs text-slate-400 max-w-sm mt-1">
+                                No messages have been sent yet. Break the ice and discuss project goals, updates, or roadblocks with your team.
+                              </p>
+                            </div>
+                          </div>
+                        ) : (
+                          projectMessages.map((msg, index) => {
+                            const isMe = msg.authorUid === effectiveUser?.uid || (!msg.authorUid && msg.author === (effectiveUser?.displayName || 'Me'));
+                            const showAvatar = index === 0 || projectMessages[index - 1]?.authorUid !== msg.authorUid;
+
+                            return (
+                              <div
+                                key={msg.id || index}
+                                className={`flex gap-3 group ${isMe ? 'justify-end' : 'justify-start'}`}
+                              >
+                                {!isMe && (
+                                  <div className={`w-8 h-8 rounded-xl font-black text-xs flex items-center justify-center shrink-0 mt-0.5 shadow-xs ${
+                                    showAvatar
+                                      ? 'bg-gradient-to-tr from-indigo-500 to-purple-500 text-white'
+                                      : 'opacity-0'
+                                  }`}>
+                                    {(msg.author || 'T').charAt(0).toUpperCase()}
+                                  </div>
+                                )}
+
+                                <div className={`space-y-1 max-w-[80%] sm:max-w-[70%] ${isMe ? 'items-end' : 'items-start'}`}>
+                                  {showAvatar && (
+                                    <div className={`flex items-center gap-2 text-[10px] font-bold ${isMe ? 'justify-end text-slate-400' : 'text-slate-500 dark:text-slate-400'}`}>
+                                      <span>{isMe ? 'You' : msg.author}</span>
+                                      {msg.role === 'Owner' && (
+                                        <span className="text-[9px] px-1.5 py-0.2 rounded-md bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 font-black">
+                                          OWNER
+                                        </span>
+                                      )}
+                                      <span className="text-[10px] text-slate-400 font-normal">
+                                        {msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                                      </span>
+                                    </div>
+                                  )}
+
+                                  <div className="flex items-center gap-1.5 group/bubble">
+                                    {isMe && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDeleteProjectChatMessage(msg.id)}
+                                        className="opacity-0 group-hover/bubble:opacity-100 p-1 text-slate-400 hover:text-rose-500 transition-opacity"
+                                        title="Delete message"
+                                      >
+                                        <Trash2 size={12} />
+                                      </button>
+                                    )}
+
+                                    <div
+                                      className={`px-4 py-2.5 rounded-2xl text-xs sm:text-sm leading-relaxed shadow-xs break-words ${
+                                        isMe
+                                          ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white rounded-tr-xs'
+                                          : 'bg-slate-100 dark:bg-[#161f33] text-slate-900 dark:text-slate-100 border border-slate-200/60 dark:border-white/[0.06] rounded-tl-xs'
+                                      }`}
+                                    >
+                                      {msg.text}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {isMe && (
+                                  <div className={`w-8 h-8 rounded-xl font-black text-xs flex items-center justify-center shrink-0 mt-0.5 shadow-xs ${
+                                    showAvatar
+                                      ? 'bg-gradient-to-tr from-blue-600 to-cyan-500 text-white'
+                                      : 'opacity-0'
+                                  }`}>
+                                    {(effectiveUser?.displayName || 'Me').charAt(0).toUpperCase()}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })
+                        )}
+                        <div ref={chatMessagesEndRef} />
+                      </div>
+
+                      {/* Message Composer Bar */}
+                      <form
+                        onSubmit={handleSendProjectChatMessage}
+                        className="p-3 sm:p-4 border-t border-slate-100 dark:border-white/[0.06] bg-slate-50/50 dark:bg-[#111827]/50 flex items-center gap-2.5"
+                      >
+                        <input
+                          type="text"
+                          placeholder={`Message #${currentActiveProjectObj.name}... (Press Enter ↵)`}
+                          value={projectChatMessageText}
+                          onChange={(e) => setProjectChatMessageText(e.target.value)}
+                          className="flex-1 bg-white dark:bg-[#151e32] border border-slate-200/80 dark:border-white/[0.08] rounded-2xl px-4 py-3 text-xs sm:text-sm outline-none text-slate-900 dark:text-white placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500/30 transition-all font-medium"
+                        />
+                        <button
+                          type="submit"
+                          disabled={!projectChatMessageText.trim() || isSendingProjectMessage}
+                          className="h-11 px-5 rounded-2xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 disabled:opacity-40 text-white font-black text-xs shadow-md shadow-indigo-500/25 flex items-center gap-2 active:scale-95 transition-all shrink-0"
+                        >
+                          <Send size={15} />
+                          <span className="hidden sm:inline">Send</span>
+                        </button>
+                      </form>
+                    </div>
+                  )}
+
+                  {/* Team Members & Workload Directory (Strictly inside Team Projects when on Tasks tab) */}
+                  {projectSubTab === 'tasks' && currentActiveProjectObj.type === 'team' && (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between px-1">
+                        <div className="flex items-center gap-2">
+                          <Users size={16} className="text-indigo-600 dark:text-indigo-400" />
+                          <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                            Team Members & Workload ({Array.isArray(currentActiveProjectObj.members) ? currentActiveProjectObj.members.length : 1})
+                          </h3>
+                        </div>
+                        {projectMemberFilter !== 'All' && (
+                          <button
+                            type="button"
+                            onClick={() => setProjectMemberFilter('All')}
+                            className="text-xs font-extrabold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+                          >
+                            Show All Teammates
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
+                        {(currentActiveProjectObj.members || [
+                          { uid: currentActiveProjectObj.creatorUid || 'guest', name: currentActiveProjectObj.creatorName || 'Owner', email: '', role: 'Owner' }
+                        ]).map((member, idx) => {
+                          const mName = (member.name || member.displayName || (member.email ? member.email.split('@')[0] : 'Teammate')).trim();
+                          const memberTasks = tasks.filter(t =>
+                            (t.projectId === currentActiveProjectObj.id || (t.project && t.project.trim().toLowerCase() === currentActiveProjectObj.name.trim().toLowerCase())) &&
+                            (t.assignee && (
+                              t.assignee.toLowerCase() === mName.toLowerCase() ||
+                              (member.displayName && t.assignee.toLowerCase() === member.displayName.toLowerCase()) ||
+                              (member.email && t.assignee.toLowerCase() === member.email.toLowerCase())
+                            ))
+                          );
+                          const mPending = memberTasks.filter(t => t.status !== 'Completed').length;
+                          const mCompleted = memberTasks.filter(t => t.status === 'Completed').length;
+                          const mTotal = memberTasks.length;
+                          const mRate = mTotal > 0 ? Math.round((mCompleted / mTotal) * 100) : 0;
+                          const isOwner = member.role === 'Owner' || member.uid === currentActiveProjectObj.creatorUid;
+                          const isSelected = projectMemberFilter.toLowerCase() === mName.toLowerCase();
+
+                          return (
+                            <div
+                              key={member.uid || idx}
+                              className={`bg-white dark:bg-[#0f1523] rounded-2xl p-4 border transition-all duration-200 flex flex-col justify-between gap-3 shadow-xs ${isSelected
+                                ? 'border-indigo-500 ring-2 ring-indigo-500/20 bg-indigo-50/30 dark:bg-indigo-950/20'
+                                : 'border-slate-200/80 dark:border-white/[0.08] hover:border-indigo-300 dark:hover:border-indigo-500/40'
+                                }`}
+                            >
+                              <div>
+                                <div className="flex items-center justify-between gap-2 mb-2">
+                                  <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 via-blue-600 to-cyan-500 text-white font-extrabold text-xs flex items-center justify-center shadow-xs">
+                                    {mName.charAt(0).toUpperCase()}
+                                  </div>
+                                  {isOwner ? (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-900/50 px-2 py-0.5 rounded-full">
+                                      <Star size={10} className="fill-amber-500 text-amber-500" /> Owner
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-white/[0.05] px-2 py-0.5 rounded-full">
+                                      Contributor
+                                    </span>
+                                  )}
+                                </div>
+
+                                <h4 className="text-xs font-black text-slate-900 dark:text-white truncate">{mName}</h4>
+                                {member.email && (
+                                  <p className="text-[10px] text-slate-400 truncate">{member.email}</p>
+                                )}
+
+                                <div className="flex items-center justify-between text-[11px] font-extrabold text-slate-600 dark:text-slate-300 my-2.5 bg-slate-50 dark:bg-white/[0.03] px-2.5 py-1.5 rounded-xl border border-slate-100 dark:border-white/[0.04]">
+                                  <span><strong className="text-slate-900 dark:text-white font-black">{mPending}</strong> Active</span>
+                                  <span><strong className="text-emerald-600 dark:text-emerald-400 font-black">{mCompleted}</strong> Done</span>
+                                </div>
+
+                                <div className="space-y-1">
+                                  <div className="flex justify-between text-[9px] font-bold text-slate-400">
+                                    <span>Completion</span>
+                                    <span className="text-slate-700 dark:text-slate-300 font-black">{mRate}%</span>
+                                  </div>
+                                  <div className="w-full bg-slate-100 dark:bg-white/[0.06] h-1.5 rounded-full overflow-hidden">
+                                    <div className="bg-gradient-to-r from-indigo-500 to-cyan-400 h-full rounded-full transition-all duration-300" style={{ width: `${mRate}%` }} />
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="pt-2 border-t border-slate-100 dark:border-white/[0.06] flex items-center justify-between gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setProjectMemberFilter(isSelected ? 'All' : mName)}
+                                  className={`text-[11px] font-extrabold px-2.5 py-1 rounded-lg transition-colors ${isSelected
+                                    ? 'bg-indigo-600 text-white'
+                                    : 'text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50'
+                                    }`}
+                                >
+                                  {isSelected ? '✓ Filtering' : 'Filter Tasks'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setPrefilledProject(currentActiveProjectObj.name);
+                                    setEditingTask({ assignee: mName, project: currentActiveProjectObj.name, priority: 'Medium' });
+                                    setFormInstanceKey(prev => prev + 1);
+                                    setIsFormOpen(true);
+                                  }}
+                                  className="text-[11px] font-bold text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-white/[0.05] px-2 py-1 rounded-lg transition-colors"
+                                >
+                                  + Assign
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* Daily Focus & Mission Strip for other views */
+                <div className="bg-white/90 dark:bg-[#0f1523]/90 backdrop-blur-xl p-4 sm:p-5 rounded-3xl border border-slate-200/80 dark:border-white/[0.08] shadow-sm flex flex-col md:flex-row gap-4 md:gap-6 items-stretch md:items-center justify-between relative overflow-hidden">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex justify-between items-center mb-2">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-500 to-cyan-400 text-white flex items-center justify-center font-extrabold text-xs shadow-md shadow-indigo-500/20">
+                          <Zap size={16} />
+                        </div>
+                        <div>
+                          <h2 className="text-sm font-extrabold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+                            Daily Mission
+                            <span className="text-[10px] bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60 px-2 py-0.5 rounded-md font-extrabold">
+                              XP: {currentXP}/100
+                            </span>
+                          </h2>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                            {todayCompleted} of {todayTasks.length} tasks completed today
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-base sm:text-lg font-black text-indigo-600 dark:text-indigo-400">{dailyCompletionRate}%</span>
+                    </div>
+                    <div className="w-full bg-slate-100 dark:bg-slate-800/80 rounded-full h-2.5 overflow-hidden p-0.5">
+                      <div className="bg-gradient-to-r from-indigo-500 via-blue-500 to-cyan-400 h-full rounded-full transition-all duration-500 shadow-xs" style={{ width: `${dailyCompletionRate}%` }}></div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2.5 shrink-0 self-start md:self-auto">
+                    <div className="bg-slate-50 dark:bg-[#151e32] border border-slate-200/70 dark:border-white/[0.06] px-3.5 py-2 rounded-2xl flex items-center gap-2.5">
+                      <div className="bg-indigo-600 text-white p-1.5 rounded-xl shadow-xs">
+                        <Award size={14} />
+                      </div>
+                      <div>
+                        <p className="text-[9px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Level</p>
+                        <p className="text-xs font-extrabold text-slate-900 dark:text-white whitespace-nowrap">
+                          Lv. {currentLevel} • {getRankTitle(currentLevel)}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className={`border px-3.5 py-2 rounded-2xl flex items-center gap-2.5 transition-colors ${realStreak > 0
+                      ? 'bg-amber-50/80 dark:bg-amber-950/40 border-amber-200/80 dark:border-amber-900/50'
+                      : 'bg-slate-50 dark:bg-[#151e32] border-slate-200/70 dark:border-white/[0.06]'
+                      }`}>
+                      <div className={`p-1.5 rounded-xl ${realStreak > 0 ? 'bg-gradient-to-tr from-amber-500 to-orange-500 text-white shadow-xs' : 'bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400'}`}>
+                        <Flame size={14} />
+                      </div>
+                      <div>
+                        <p className={`text-[9px] font-black uppercase tracking-wider ${realStreak > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`}>Streak</p>
+                        <p className={`text-xs font-extrabold whitespace-nowrap ${realStreak > 0 ? 'text-slate-900 dark:text-white' : 'text-slate-600 dark:text-slate-400'}`}>
+                          {realStreak} {realStreak === 1 ? 'Day' : 'Days'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {!(activeNavTab === 'project' && projectSubTab === 'chat') && (
+                <>
+                  {/* Quick Capture Input - Floating Raycast / Linear style */}
+              <div className={`relative flex flex-col sm:flex-row items-stretch sm:items-center bg-white dark:bg-[#0f1523] border border-slate-200/90 dark:border-white/[0.08] rounded-2xl p-1.5 md:p-2 focus-within:ring-2 focus-within:ring-indigo-500/30 focus-within:border-indigo-500/80 shadow-sm gap-2 sm:gap-0 transition-all ${isQuickPriorityOpen ? 'z-50' : 'z-20'}`}>
                 <div className="flex items-center flex-1 px-2 sm:px-0">
-                  <Plus size={18} className="text-slate-400 hidden sm:block mx-2 shrink-0" />
+                  <Plus size={18} className="text-indigo-500 hidden sm:block mx-2 shrink-0" />
                   <input
                     type="text"
-                    className="flex-1 w-full py-2.5 sm:py-3 px-2 sm:px-3 text-slate-900 dark:text-white bg-transparent outline-none font-medium text-sm md:text-base min-w-0 placeholder:text-slate-400 dark:placeholder:text-slate-500"
+                    className="flex-1 w-full py-2 sm:py-2.5 px-2 sm:px-3 text-slate-900 dark:text-white bg-transparent outline-none font-medium text-sm min-w-0 placeholder:text-slate-400 dark:placeholder:text-slate-400"
                     placeholder="Quick capture a task... Press Enter ↵"
                     value={quickTaskTitle}
                     onChange={(e) => setQuickTaskTitle(e.target.value)}
                     onKeyDown={handleQuickAddKeyDown}
                   />
                 </div>
-                <div className="flex items-center gap-2 sm:border-l border-slate-200/80 dark:border-slate-800 sm:pl-3 pr-1 w-full sm:w-auto justify-end">
+                <div className="flex items-center gap-2 sm:border-l border-slate-200/80 dark:border-white/[0.06] sm:pl-3 pr-1 w-full sm:w-auto justify-end">
                   <CustomDropdown
                     options={['Urgent', 'High', 'Medium', 'Low']}
                     value={quickPriority}
@@ -3238,64 +4691,97 @@ export default function Dashboard() {
                   />
                   <button
                     onClick={submitQuickTask}
-                    className="h-10 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl w-full sm:w-auto flex items-center justify-center transition-all shadow-sm active:scale-95"
+                    className="h-9 px-3.5 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white rounded-xl w-full sm:w-auto flex items-center justify-center transition-all shadow-md shadow-indigo-500/20 active:scale-95"
                     title="Add Task"
                   >
-                    <Send size={15} />
+                    <Send size={14} />
                   </button>
                 </div>
               </div>
 
-              {/* 4 Stats Cards */}
+              {/* 4 Stats Cards (Dribbble Mortgage CRM 4-column KPI strip) */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-5 relative">
-                <div className="bg-white dark:bg-[#101625] p-5 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 shadow-xs relative overflow-hidden group hover:border-slate-300 dark:hover:border-slate-700 transition-all">
-                  <div className="absolute top-0 right-0 p-3 opacity-5 group-hover:opacity-10 transition-opacity">
-                    <ListTodo size={54} className="dark:text-white text-slate-900" />
+                {/* Total Tasks */}
+                <div className="bg-white dark:bg-[#0f1523] p-5 rounded-3xl border border-slate-200/80 dark:border-white/[0.08] shadow-sm hover:border-indigo-400/40 dark:hover:border-indigo-500/40 transition-all flex flex-col justify-between">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-slate-400 dark:text-slate-400 font-bold text-[10px] uppercase tracking-wider">Total Tasks</span>
+                    <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 flex items-center justify-center border border-blue-100 dark:border-blue-900/50">
+                      <ListTodo size={16} />
+                    </div>
                   </div>
-                  <h2 className="text-slate-400 dark:text-slate-500 font-extrabold text-[10px] md:text-xs uppercase tracking-wider mb-1">Total Tasks</h2>
-                  <p className="text-2xl md:text-3xl font-black text-slate-900 dark:text-white tracking-tight">{stats.total}</p>
-                </div>
-                <div className="bg-white dark:bg-[#101625] p-5 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 shadow-xs relative overflow-hidden group hover:border-slate-300 dark:hover:border-slate-700 transition-all">
-                  <div className="absolute top-0 right-0 p-3 opacity-5 text-emerald-500 group-hover:opacity-10 transition-opacity">
-                    <CheckCircle2 size={54} />
-                  </div>
-                  <h2 className="text-emerald-600 dark:text-emerald-400 font-extrabold text-[10px] md:text-xs uppercase tracking-wider mb-1">Completed</h2>
-                  <p className="text-2xl md:text-3xl font-black text-slate-900 dark:text-white tracking-tight">{stats.completed}</p>
-                </div>
-                  </div>
-                  <h2 className="text-green-600 dark:text-green-400 font-bold text-[10px] md:text-xs uppercase tracking-wider mb-1 md:mb-2">Done</h2>
-                  <p className="text-2xl md:text-4xl font-extrabold text-gray-900 dark:text-white">{stats.completed}</p>
-                </div>
-                <div
-                  className={`col-span-2 p-4 md:p-6 rounded-2xl md:rounded-3xl relative overflow-hidden flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 sm:gap-0 transition-all ${stats.overdue > 0
-                    ? 'bg-gradient-to-br from-red-500 to-rose-600 text-white shadow-lg'
-                    : 'bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 shadow-sm'
-                    }`}
-                >
                   <div>
-                    <h2
-                      className={`font-bold text-[10px] md:text-xs uppercase tracking-wider mb-1 md:mb-2 flex items-center gap-1.5 ${stats.overdue > 0 ? 'text-red-100' : 'text-gray-500 dark:text-slate-400'
-                        }`}
-                    >
-                      {stats.overdue > 0 ? <AlertOctagon size={16} className="animate-pulse" /> : <Clock size={16} />} OVERDUE ALERT
-                    </h2>
-                    <p className={`text-2xl md:text-4xl font-extrabold ${stats.overdue > 0 ? 'text-white' : 'text-gray-900 dark:text-white'}`}>
-                      {stats.overdue}
+                    <p className="text-2xl md:text-3xl font-black text-slate-900 dark:text-white tracking-tight">{stats.total}</p>
+                    <p className="text-[11px] text-slate-400 dark:text-slate-400 font-medium mt-1">Across all workspaces</p>
+                  </div>
+                </div>
+
+                {/* Completed */}
+                <div className="bg-white dark:bg-[#0f1523] p-5 rounded-3xl border border-slate-200/80 dark:border-white/[0.08] shadow-sm hover:border-emerald-400/40 dark:hover:border-emerald-500/40 transition-all flex flex-col justify-between">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-slate-400 dark:text-slate-400 font-bold text-[10px] uppercase tracking-wider">Completed</span>
+                    <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-100 dark:border-emerald-900/50">
+                      <CheckCircle2 size={16} />
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-2xl md:text-3xl font-black text-emerald-600 dark:text-emerald-400 tracking-tight">{stats.completed}</p>
+                    <p className="text-[11px] text-emerald-600/80 dark:text-emerald-400/80 font-bold mt-1">{dailyCompletionRate}% completion rate</p>
+                  </div>
+                </div>
+
+                {/* In Progress */}
+                <div className="bg-white dark:bg-[#0f1523] p-5 rounded-3xl border border-slate-200/80 dark:border-white/[0.08] shadow-sm hover:border-indigo-400/40 dark:hover:border-indigo-500/40 transition-all flex flex-col justify-between">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-slate-400 dark:text-slate-400 font-bold text-[10px] uppercase tracking-wider">In Progress</span>
+                    <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-100 dark:border-indigo-900/50">
+                      <Clock size={16} />
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-2xl md:text-3xl font-black text-slate-900 dark:text-white tracking-tight">{Math.max(0, stats.total - stats.completed)}</p>
+                    <p className="text-[11px] text-slate-400 dark:text-slate-400 font-medium mt-1">Active in queue</p>
+                  </div>
+                </div>
+
+                {/* Overdue / Schedule Risk */}
+                <div className={`p-5 rounded-3xl border transition-all flex flex-col justify-between ${stats.overdue > 0
+                  ? 'bg-rose-50/70 dark:bg-rose-950/30 border-rose-300 dark:border-rose-800/60 shadow-md shadow-rose-500/10'
+                  : 'bg-white dark:bg-[#0f1523] border-slate-200/80 dark:border-white/[0.08] shadow-sm'
+                  }`}>
+                  <div className="flex items-center justify-between mb-3">
+                    <span className={`font-bold text-[10px] uppercase tracking-wider ${stats.overdue > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400 dark:text-slate-400'}`}>
+                      Overdue
+                    </span>
+                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${stats.overdue > 0
+                      ? 'bg-rose-500 text-white shadow-xs'
+                      : 'bg-slate-100 dark:bg-white/[0.05] text-slate-400 dark:text-slate-400'
+                      }`}>
+                      <AlertOctagon size={16} className={stats.overdue > 0 ? "animate-pulse" : ""} />
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex items-baseline justify-between gap-2">
+                      <p className={`text-2xl md:text-3xl font-black tracking-tight ${stats.overdue > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-white'}`}>
+                        {stats.overdue}
+                      </p>
+                      {stats.overdue > 0 && (
+                        <button
+                          onClick={handleSmartReschedule}
+                          className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-[10px] font-black transition-transform active:scale-95 shadow-xs"
+                        >
+                          Reschedule
+                        </button>
+                      )}
+                    </div>
+                    <p className={`text-[11px] font-medium mt-1 ${stats.overdue > 0 ? 'text-rose-600 dark:text-rose-400 font-semibold' : 'text-slate-400 dark:text-slate-400'}`}>
+                      {stats.overdue > 0 ? "Past due deadline" : "All deadlines on schedule"}
                     </p>
                   </div>
-                  {stats.overdue > 0 && (
-                    <button
-                      onClick={handleSmartReschedule}
-                      className="bg-white text-red-600 px-4 md:px-6 py-2.5 md:py-3 rounded-xl md:rounded-2xl font-black text-xs md:text-sm hover:scale-105 active:scale-95 transition-transform shadow-xl flex items-center justify-center gap-2"
-                    >
-                      <Wand2 size={18} /> FIX NOW
-                    </button>
-                  )}
                 </div>
               </div>
 
               {/* Main Workspace Card */}
-              <div className="bg-white dark:bg-slate-800 p-4 md:p-8 rounded-2xl md:rounded-3xl shadow-sm border border-gray-100 dark:border-slate-700 min-h-[400px]">
+              <div className="bg-white dark:bg-[#0f1523] p-5 md:p-7 rounded-3xl shadow-sm border border-slate-200/80 dark:border-white/[0.08] min-h-[420px]">
                 {/* Workspace Header Toolbar */}
                 <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-8 gap-4 w-full relative z-[40]">
                   <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white shrink-0 capitalize">
@@ -3305,30 +4791,30 @@ export default function Dashboard() {
                   <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 w-full lg:w-auto">
                     {/* Search input */}
                     <div className="relative flex-1 min-w-[130px] sm:w-40 md:w-48">
-                      <Search size={14} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none" />
+                      <Search size={14} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 pointer-events-none" />
                       <input
                         type="text"
                         placeholder="Search tasks, team..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="h-10 pl-8 md:pl-9 pr-3 bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl text-xs md:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-full transition-all dark:text-white"
+                        className="h-10 pl-8 md:pl-9 pr-3 bg-slate-50 dark:bg-[#151e32] border border-slate-200/80 dark:border-white/[0.08] rounded-xl text-xs md:text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30 w-full transition-all text-slate-900 dark:text-white placeholder:text-slate-400"
                       />
                     </div>
 
                     {/* Clear Done button */}
                     <button
                       onClick={handleBulkClear}
-                      className="h-10 bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400 px-3.5 rounded-xl text-xs font-bold hover:bg-red-100 dark:hover:bg-red-900/50 flex items-center gap-1.5 shadow-sm shrink-0 transition-colors"
+                      className="h-10 bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400 border border-rose-200/60 dark:border-rose-900/40 px-3.5 rounded-xl text-xs font-bold hover:bg-rose-100 dark:hover:bg-rose-900/60 flex items-center gap-1.5 shadow-xs shrink-0 transition-all"
                       title="Delete all completed tasks"
                     >
                       <Eraser size={14} /> Clear Done
                     </button>
 
                     {/* View Switcher */}
-                    <div className="h-10 flex items-center bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl p-1 shrink-0">
+                    <div className="h-10 flex items-center bg-slate-50 dark:bg-[#151e32] border border-slate-200/80 dark:border-white/[0.08] rounded-xl p-1 shrink-0">
                       <button
                         onClick={() => setViewMode('list')}
-                        className={`h-8 w-8 flex items-center justify-center rounded-lg transition-colors ${viewMode === 'list' ? 'bg-white dark:bg-slate-800 shadow-sm text-blue-600' : 'text-gray-400 dark:text-slate-400 hover:text-gray-600 dark:hover:text-slate-200'
+                        className={`h-8 w-8 flex items-center justify-center rounded-lg transition-all ${viewMode === 'list' ? 'bg-white dark:bg-[#0c121e] shadow-xs text-indigo-600 dark:text-indigo-400 border border-slate-200/60 dark:border-white/[0.08]' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
                           }`}
                         title="List View"
                       >
@@ -3336,7 +4822,7 @@ export default function Dashboard() {
                       </button>
                       <button
                         onClick={() => setViewMode('kanban')}
-                        className={`h-8 w-8 flex items-center justify-center rounded-lg transition-colors ${viewMode === 'kanban' ? 'bg-white dark:bg-slate-800 shadow-sm text-blue-600' : 'text-gray-400 dark:text-slate-400 hover:text-gray-600 dark:hover:text-slate-200'
+                        className={`h-8 w-8 flex items-center justify-center rounded-lg transition-all ${viewMode === 'kanban' ? 'bg-white dark:bg-[#0c121e] shadow-xs text-indigo-600 dark:text-indigo-400 border border-slate-200/60 dark:border-white/[0.08]' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
                           }`}
                         title="Kanban Board"
                       >
@@ -3344,7 +4830,7 @@ export default function Dashboard() {
                       </button>
                       <button
                         onClick={() => setViewMode('timeline')}
-                        className={`h-8 w-8 flex items-center justify-center rounded-lg transition-colors ${viewMode === 'timeline' ? 'bg-white dark:bg-slate-800 shadow-sm text-blue-600' : 'text-gray-400 dark:text-slate-400 hover:text-gray-600 dark:hover:text-slate-200'
+                        className={`h-8 w-8 flex items-center justify-center rounded-lg transition-all ${viewMode === 'timeline' ? 'bg-white dark:bg-[#0c121e] shadow-xs text-indigo-600 dark:text-indigo-400 border border-slate-200/60 dark:border-white/[0.08]' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
                           }`}
                         title="Timeline View"
                       >
@@ -3352,7 +4838,7 @@ export default function Dashboard() {
                       </button>
                       <button
                         onClick={() => setViewMode('calendar')}
-                        className={`h-8 w-8 flex items-center justify-center rounded-lg transition-colors ${viewMode === 'calendar' ? 'bg-white dark:bg-slate-800 shadow-sm text-blue-600' : 'text-gray-400 dark:text-slate-400 hover:text-gray-600 dark:hover:text-slate-200'
+                        className={`h-8 w-8 flex items-center justify-center rounded-lg transition-all ${viewMode === 'calendar' ? 'bg-white dark:bg-[#0c121e] shadow-xs text-indigo-600 dark:text-indigo-400 border border-slate-200/60 dark:border-white/[0.08]' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
                           }`}
                         title="Calendar View"
                       >
@@ -3385,7 +4871,7 @@ export default function Dashboard() {
                   <div className="flex justify-center items-center py-20">
                     <Loader2 className="animate-spin text-blue-600 w-8 h-8" />
                   </div>
-                ) : displayTasks.length === 0 ? (
+                ) : (displayTasks.length === 0 && (activeNavTab !== 'my-day' || noDeadlineTasks.length === 0)) ? (
                   <div className="flex flex-col items-center justify-center py-16 text-center px-4">
                     <div className="bg-gray-50 dark:bg-slate-700 p-5 md:p-6 rounded-full mb-4">
                       <ListTodo size={32} className="text-gray-400 dark:text-slate-500" />
@@ -3398,29 +4884,186 @@ export default function Dashboard() {
                     </p>
                   </div>
                 ) : viewMode === 'list' ? (
-                  <div className="space-y-3 md:space-y-4">
-                    {displayTasks.map(t => <TaskCard key={t.id} task={t} />)}
+                  <div className="space-y-4">
+                    {/* Planned / Upcoming View with Date Sections (Todoist & MS To Do style) */}
+                    {activeNavTab === 'upcoming' && upcomingBuckets ? (
+                      <div className="space-y-6">
+                        {upcomingBuckets.overdue.length > 0 && (
+                          <div className="space-y-2.5">
+                            <h3 className="text-xs font-black uppercase tracking-wider text-rose-600 dark:text-rose-400 flex items-center gap-1.5">
+                              <AlertOctagon size={13} /> Overdue ({upcomingBuckets.overdue.length})
+                            </h3>
+                            <div className="space-y-2.5">
+                              {upcomingBuckets.overdue.map(t => <TaskCard key={t.id} task={t} />)}
+                            </div>
+                          </div>
+                        )}
+
+                        {upcomingBuckets.today.length > 0 && (
+                          <div className="space-y-2.5">
+                            <h3 className="text-xs font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                              <Sun size={13} /> Today ({upcomingBuckets.today.length})
+                            </h3>
+                            <div className="space-y-2.5">
+                              {upcomingBuckets.today.map(t => <TaskCard key={t.id} task={t} />)}
+                            </div>
+                          </div>
+                        )}
+
+                        {upcomingBuckets.tomorrow.length > 0 && (
+                          <div className="space-y-2.5">
+                            <h3 className="text-xs font-black uppercase tracking-wider text-purple-600 dark:text-purple-400 flex items-center gap-1.5">
+                              <CalendarIcon size={13} /> Tomorrow ({upcomingBuckets.tomorrow.length})
+                            </h3>
+                            <div className="space-y-2.5">
+                              {upcomingBuckets.tomorrow.map(t => <TaskCard key={t.id} task={t} />)}
+                            </div>
+                          </div>
+                        )}
+
+                        {upcomingBuckets.thisWeek.length > 0 && (
+                          <div className="space-y-2.5">
+                            <h3 className="text-xs font-black uppercase tracking-wider text-indigo-600 dark:text-indigo-400 flex items-center gap-1.5">
+                              <CheckCircle2 size={13} /> Next 7 Days ({upcomingBuckets.thisWeek.length})
+                            </h3>
+                            <div className="space-y-2.5">
+                              {upcomingBuckets.thisWeek.map(t => <TaskCard key={t.id} task={t} />)}
+                            </div>
+                          </div>
+                        )}
+
+                        {upcomingBuckets.later.length > 0 && (
+                          <div className="space-y-2.5">
+                            <h3 className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                              <Clock size={13} /> Later ({upcomingBuckets.later.length})
+                            </h3>
+                            <div className="space-y-2.5">
+                              {upcomingBuckets.later.map(t => <TaskCard key={t.id} task={t} />)}
+                            </div>
+                          </div>
+                        )}
+
+                        {displayTasks.length === 0 && (
+                          <p className="text-xs text-slate-400 italic">No scheduled tasks found.</p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {uncompletedTasksList.length > 0 ? (
+                          <div className="space-y-2.5">
+                            {uncompletedTasksList.map(t => <TaskCard key={t.id} task={t} />)}
+                          </div>
+                        ) : activeNavTab === 'my-day' ? (
+                          <div className="p-4 rounded-2xl bg-slate-50/70 dark:bg-white/[0.02] border border-slate-200/70 dark:border-white/[0.06] text-center">
+                            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 font-medium">
+                              ✨ All caught up on scheduled tasks for today!
+                            </p>
+                          </div>
+                        ) : (
+                          <p className="text-xs text-slate-400 italic py-2">No pending tasks.</p>
+                        )}
+
+                        {/* Free? Complete these (Tasks with no deadline in My Day) */}
+                        {activeNavTab === 'my-day' && noDeadlineTasks.length > 0 && (
+                          <div className="pt-5 border-t border-slate-100 dark:border-white/[0.06] space-y-3">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <div className="w-2.5 h-2.5 rounded-full bg-cyan-500 animate-pulse" />
+                                <h3 className="text-sm font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+                                  Free? Complete these
+                                  <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-cyan-50 dark:bg-cyan-950/50 text-cyan-700 dark:text-cyan-300 border border-cyan-200/60 dark:border-cyan-800/60">
+                                    {noDeadlineTasks.length} Flexible
+                                  </span>
+                                </h3>
+                              </div>
+                              <p className="text-[11px] text-slate-400 font-medium">Tasks with no deadline</p>
+                            </div>
+                            <div className="space-y-2.5">
+                              {noDeadlineTasks.map(t => <TaskCard key={t.id} task={t} />)}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Inline Task Quick-Add (Todoist signature feature) */}
+                    <form
+                      onSubmit={handleInlineCreateTask}
+                      className="flex items-center gap-2.5 p-3 rounded-2xl border border-dashed border-slate-300 dark:border-white/[0.08] hover:border-indigo-400 dark:hover:border-indigo-500/50 transition-colors bg-slate-50/40 dark:bg-white/[0.01]"
+                    >
+                      <button
+                        type="submit"
+                        className="w-5 h-5 rounded-full border border-slate-300 dark:border-slate-600 text-indigo-500 flex items-center justify-center shrink-0 hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
+                      >
+                        <Plus size={13} />
+                      </button>
+                      <input
+                        type="text"
+                        placeholder={`Add task to ${activeNavTab === 'my-day' ? 'My Day' : activeNavTab === 'project' ? activeProject : 'Inbox'}... (press Enter ↵)`}
+                        value={inlineTitle}
+                        onChange={(e) => setInlineTitle(e.target.value)}
+                        className="flex-1 text-xs sm:text-sm bg-transparent outline-none text-slate-900 dark:text-white placeholder:text-slate-400 font-medium"
+                      />
+                      <input
+                        type="date"
+                        value={inlineDeadline}
+                        onChange={(e) => setInlineDeadline(e.target.value)}
+                        className="text-[11px] font-semibold bg-slate-100 dark:bg-white/[0.05] text-slate-700 dark:text-slate-300 px-2 py-1 rounded-lg border border-slate-200 dark:border-white/[0.06] outline-none shrink-0"
+                      />
+                      <button
+                        type="submit"
+                        disabled={!inlineTitle.trim()}
+                        className="px-3 py-1 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white font-bold text-xs transition-colors shadow-xs shrink-0"
+                      >
+                        Add
+                      </button>
+                    </form>
+
+                    {/* Collapsible Completed Tasks Section (Microsoft To Do style) */}
+                    {completedTasksList.length > 0 && (
+                      <div className="pt-4 border-t border-slate-100 dark:border-white/[0.06]">
+                        <button
+                          type="button"
+                          onClick={() => setShowCompletedSection(prev => !prev)}
+                          className="flex items-center gap-2 text-xs font-extrabold text-slate-400 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors py-1"
+                        >
+                          <ChevronRight size={14} className={`transition-transform duration-200 ${showCompletedSection ? 'rotate-90' : ''}`} />
+                          <span>Completed ({completedTasksList.length})</span>
+                        </button>
+                        {showCompletedSection && (
+                          <div className="space-y-2 mt-3 pl-3 border-l-2 border-slate-200 dark:border-white/[0.06]">
+                            {completedTasksList.map(t => <TaskCard key={t.id} task={t} />)}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ) : viewMode === 'kanban' ? (
                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 md:gap-6 pb-6">
-                    {['To Do', 'In Progress', 'Review', 'Completed'].map(status => (
-                      <div
-                        key={status}
-                        onDragOver={(e) => e.preventDefault()}
-                        onDrop={(e) => handleDrop(e, status)}
-                        className="bg-gray-50 dark:bg-slate-900/50 p-4 rounded-3xl border border-gray-100 dark:border-slate-700 min-h-[300px] flex flex-col overflow-visible"
-                      >
-                        <h3 className="font-extrabold text-gray-700 dark:text-slate-300 mb-4 pb-3 border-b border-gray-200 dark:border-slate-700 text-sm md:text-base flex justify-between items-center">
-                          <span>{status}</span>
-                          <span className="text-xs px-2 py-0.5 rounded-full bg-white dark:bg-slate-800 font-bold text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700">
-                            {displayTasks.filter(t => t.status === status).length}
-                          </span>
-                        </h3>
-                        <div className="space-y-3 flex-1 pb-16">
-                          {displayTasks.filter(t => t.status === status).map(t => <TaskCard key={t.id} task={t} />)}
+                    {['To Do', 'In Progress', 'Review', 'Completed'].map(status => {
+                      const allKanbanTasks = activeNavTab === 'my-day'
+                        ? [...displayTasks, ...noDeadlineTasks]
+                        : displayTasks;
+                      const columnTasks = allKanbanTasks.filter(t => (t.status || 'To Do') === status);
+                      return (
+                        <div
+                          key={status}
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={(e) => handleDrop(e, status)}
+                          className="bg-gray-50 dark:bg-slate-900/50 p-4 rounded-3xl border border-gray-100 dark:border-slate-700 min-h-[300px] flex flex-col overflow-visible"
+                        >
+                          <h3 className="font-extrabold text-gray-700 dark:text-slate-300 mb-4 pb-3 border-b border-gray-200 dark:border-slate-700 text-sm md:text-base flex justify-between items-center">
+                            <span>{status}</span>
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-white dark:bg-slate-800 font-bold text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700">
+                              {columnTasks.length}
+                            </span>
+                          </h3>
+                          <div className="space-y-3 flex-1 pb-16">
+                            {columnTasks.map(t => <TaskCard key={t.id} task={t} />)}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : viewMode === 'timeline' ? (
                   renderTimeline()
@@ -3428,8 +5071,10 @@ export default function Dashboard() {
                   renderCalendar()
                 )}
               </div>
-            </div>
+            </>
           )}
+        </div>
+      )}
         </div>
       </main>
 
@@ -3451,9 +5096,11 @@ export default function Dashboard() {
           prefilledDate={prefilledDate}
           prefilledProject={prefilledProject}
           allAssignees={allAssignees}
-          allProjects={allProjectNames}
+          allProjects={allProjects}
           activeWorkspaceId={activeWorkspaceId}
           onNotifyTeammate={handleDispatchNotification}
+          currentWorkspace={currentWorkspace}
+          connections={connections}
         />
       )}
 
@@ -3472,6 +5119,110 @@ export default function Dashboard() {
         onInviteMemberByEmail={handleInviteMemberByEmail}
         showToast={showToast}
       />
+
+      {/* Microsoft To Do Task Detail Drawer */}
+      <TaskDetailDrawer
+        isOpen={!!drawerTaskId}
+        task={drawerTask}
+        onClose={() => setDrawerTaskId(null)}
+        onUpdateTaskField={handleUpdateTaskField}
+        onUpdateStatus={handleUpdateStatus}
+        onTogglePin={handleTogglePin}
+        onDeleteTask={handleDelete}
+        user={effectiveUser}
+        allAssignees={allAssignees}
+        allProjects={allProjects}
+        currentWorkspace={currentWorkspace}
+        showToast={showToast}
+        onNotifyTeammate={handleDispatchNotification}
+      />
+
+      {/* Quick Create Project Modal (Todoist style) */}
+      {isNewProjectModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-[250] flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-[#0c121e] border border-slate-200/90 dark:border-white/[0.08] rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl space-y-5 animate-in zoom-in-95">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                <Folder size={18} className="text-indigo-500" /> New Project
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsNewProjectModalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateProjectFromSidebar} className="space-y-4">
+              <div>
+                <label className="text-xs font-bold text-slate-500 dark:text-slate-400 block mb-1">
+                  Project Name
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Marketing, Personal Growth"
+                  value={newProjectInput.name}
+                  onChange={(e) => setNewProjectInput(prev => ({ ...prev, name: e.target.value }))}
+                  className="w-full text-xs md:text-sm bg-slate-50 dark:bg-white/[0.03] border border-slate-200/80 dark:border-white/[0.08] px-3.5 py-2.5 rounded-xl outline-none text-slate-900 dark:text-white font-medium"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-500 dark:text-slate-400 block mb-1.5">
+                  Color Tag
+                </label>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {['blue', 'emerald', 'purple', 'amber', 'rose', 'cyan', 'indigo'].map(color => (
+                    <button
+                      key={color}
+                      type="button"
+                      onClick={() => setNewProjectInput(prev => ({ ...prev, color }))}
+                      className={`w-7 h-7 rounded-full transition-transform ${color === 'blue' ? 'bg-blue-500' :
+                        color === 'emerald' ? 'bg-emerald-500' :
+                          color === 'purple' ? 'bg-purple-500' :
+                            color === 'amber' ? 'bg-amber-500' :
+                              color === 'rose' ? 'bg-rose-500' :
+                                color === 'cyan' ? 'bg-cyan-500' : 'bg-indigo-500'
+                        } ${newProjectInput.color === color ? 'ring-2 ring-offset-2 ring-indigo-500 scale-110' : 'opacity-80 hover:opacity-100'}`}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-500 dark:text-slate-400 block mb-1">
+                  Description (Optional)
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="Brief goals or summary of this project..."
+                  value={newProjectInput.description}
+                  onChange={(e) => setNewProjectInput(prev => ({ ...prev, description: e.target.value }))}
+                  className="w-full text-xs bg-slate-50 dark:bg-white/[0.03] border border-slate-200/80 dark:border-white/[0.08] p-3 rounded-xl outline-none text-slate-900 dark:text-white font-medium resize-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsNewProjectModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-white/[0.05]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl text-xs font-black bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-500/20 transition-all"
+                >
+                  Create Project
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* AI Assistant Modal */}
       {isAIModalOpen && (
@@ -3496,6 +5247,124 @@ export default function Dashboard() {
         showToast={showToast}
       />
 
+      {/* Manage Team Members Modal (In-Project) */}
+      {managingMembersProject && (
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-[250] flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-[#0c121e] border border-slate-200/90 dark:border-white/[0.08] rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl space-y-5 animate-in zoom-in-95 max-h-[90vh] overflow-y-auto hide-scrollbar">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                  <Users size={18} className="text-indigo-500" />
+                  Manage Team Members
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-semibold mt-0.5">
+                  Project: <span className="text-indigo-600 dark:text-indigo-400 font-bold">{managingMembersProject.name}</span>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setManagingMembersProject(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-white/[0.05] transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-600 dark:text-slate-400">
+                  Select teammates from your Connected People:
+                </span>
+                <span className="text-[11px] font-extrabold text-indigo-600 dark:text-indigo-400">
+                  {managingMemberUids.size + 1} / {isApex ? 50 : 20} Members
+                </span>
+              </div>
+
+              {/* Pinned Owner Card */}
+              <div className="p-3.5 rounded-2xl border border-indigo-200/80 dark:border-indigo-500/30 bg-indigo-50/50 dark:bg-indigo-950/30 flex items-center justify-between">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-cyan-500 text-white font-extrabold text-xs flex items-center justify-center shrink-0">
+                    {effectiveUser?.displayName ? effectiveUser.displayName.charAt(0).toUpperCase() : 'Y'}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-black text-slate-900 dark:text-white truncate">
+                      {effectiveUser?.displayName || 'You'} (Project Owner)
+                    </p>
+                    <p className="text-[11px] text-slate-400 truncate">{effectiveUser?.email || ''}</p>
+                  </div>
+                </div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-indigo-600 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-900/50 px-2.5 py-1 rounded-lg">
+                  Owner
+                </span>
+              </div>
+
+              {/* Teammates List */}
+              {connections.length === 0 ? (
+                <div className="p-6 rounded-2xl bg-slate-50 dark:bg-white/[0.03] border border-slate-200/60 dark:border-white/[0.06] text-center space-y-2">
+                  <Users size={24} className="text-slate-400 mx-auto" />
+                  <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                    No connected people yet
+                  </p>
+                  <p className="text-[11px] text-slate-400 max-w-xs mx-auto">
+                    Go to the <strong>Connect</strong> section to send invitations using email IDs.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                  {connections.map((conn) => {
+                    const connUid = conn.uid || conn.id;
+                    const isChecked = managingMemberUids.has(connUid);
+                    const cName = conn.displayName || conn.name || (conn.email ? conn.email.split('@')[0] : 'Teammate');
+                    return (
+                      <button
+                        key={connUid}
+                        type="button"
+                        onClick={() => toggleManagingMemberUid(connUid)}
+                        className={`w-full p-3 rounded-2xl border text-left flex items-center justify-between transition-all ${isChecked
+                          ? 'border-indigo-500 bg-indigo-50/60 dark:bg-indigo-950/40'
+                          : 'border-slate-200/70 dark:border-white/[0.06] bg-slate-50/60 dark:bg-white/[0.02] hover:bg-slate-100/70 dark:hover:bg-white/[0.04]'
+                          }`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-8 h-8 rounded-xl bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-extrabold text-xs flex items-center justify-center shrink-0">
+                            {cName.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-slate-900 dark:text-white truncate">{cName}</p>
+                            <p className="text-[11px] text-slate-400 truncate">{conn.email}</p>
+                          </div>
+                        </div>
+                        <div className={`w-5 h-5 rounded-lg flex items-center justify-center transition-colors shrink-0 ${isChecked ? 'bg-indigo-600 text-white' : 'border border-slate-300 dark:border-slate-600'
+                          }`}>
+                          {isChecked && <Check size={12} />}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 dark:border-white/[0.06] flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setManagingMembersProject(null)}
+                className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-white/[0.05] transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveManageMembers}
+                className="px-5 py-2.5 rounded-xl text-xs font-black bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white shadow-md shadow-indigo-500/20 active:scale-95 transition-all"
+              >
+                Save Team Members
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Fullscreen Focus Mode / Pomodoro */}
       {isFocusModeActive && (
         <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-xl flex flex-col items-center justify-between p-4 sm:p-6 z-[400] overflow-y-auto">
@@ -3503,8 +5372,8 @@ export default function Dashboard() {
           <div className="w-full max-w-2xl flex items-center justify-between gap-3 pt-2">
             <div className="flex items-center gap-2">
               <span className={`flex items-center gap-1.5 text-xs font-black px-3 py-1.5 rounded-full border transition-all ${distractionCount === 0
-                  ? 'bg-green-500/10 text-green-400 border-green-500/30'
-                  : 'bg-red-500/15 text-red-300 border-red-500/40 animate-pulse'
+                ? 'bg-green-500/10 text-green-400 border-green-500/30'
+                : 'bg-red-500/15 text-red-300 border-red-500/40 animate-pulse'
                 }`}>
                 {distractionCount === 0 ? <ShieldCheck size={14} className="text-green-400" /> : <ShieldAlert size={14} className="text-red-400" />}
                 Distractions: {distractionCount}
@@ -3519,8 +5388,8 @@ export default function Dashboard() {
                 type="button"
                 onClick={() => setIsStrictMode(!isStrictMode)}
                 className={`text-xs font-bold px-3 py-1.5 rounded-xl border transition-all ${isStrictMode
-                    ? 'bg-purple-900/40 text-purple-300 border-purple-700/60'
-                    : 'bg-slate-900 text-slate-400 border-slate-800'
+                  ? 'bg-purple-900/40 text-purple-300 border-purple-700/60'
+                  : 'bg-slate-900 text-slate-400 border-slate-800'
                   }`}
                 title="Strict Mode monitors tab switches and app changes"
               >
@@ -3529,8 +5398,8 @@ export default function Dashboard() {
               <button
                 onClick={toggleBrownNoise}
                 className={`p-2 rounded-xl border transition-all ${isNoisePlaying
-                    ? 'bg-blue-600 text-white border-blue-500 shadow-lg shadow-blue-500/40'
-                    : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                  ? 'bg-blue-600 text-white border-blue-500 shadow-lg shadow-blue-500/40'
+                  : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
                   }`}
                 title={isNoisePlaying ? "Mute Brown Noise" : "Play Brown Noise"}
               >
@@ -3577,7 +5446,7 @@ export default function Dashboard() {
                       setFocusMinutes(val);
                       setTimeLeft(val * 60);
                     }}
-                    className="bg-transparent border-b-4 border-slate-700 focus:border-blue-500 w-28 sm:w-36 text-center outline-none text-white"
+                    className="bg-transparent border-b-4 border-slate-700 focus:border-blue-500 w-28 sm:w-36 text-center outline-none text-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     min="1"
                     max="120"
                   />
