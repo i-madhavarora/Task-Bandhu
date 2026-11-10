@@ -86,9 +86,8 @@ export default function Sidebar({
       )}
 
       <aside
-        className={`fixed lg:sticky top-0 left-0 h-screen z-[160] w-72 bg-white/95 dark:bg-[#0c121e]/95 backdrop-blur-xl border-r border-slate-200/80 dark:border-slate-800/80 flex flex-col justify-between shrink-0 transition-transform duration-300 ease-in-out shadow-sm ${
-          isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
-        }`}
+        className={`fixed lg:sticky top-0 left-0 h-screen z-[160] w-72 bg-white/95 dark:bg-[#0c121e]/95 backdrop-blur-xl border-r border-slate-200/80 dark:border-slate-800/80 flex flex-col justify-between shrink-0 transition-transform duration-300 ease-in-out shadow-sm ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+          }`}
       >
         {/* Top Header */}
         <div className="shrink-0 p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
@@ -146,22 +145,20 @@ export default function Sidebar({
                   <button
                     key={item.id}
                     onClick={() => { setActiveTab(item.id); onClose?.(); }}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs transition-all relative group ${
-                      isActive
+                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs transition-all relative group ${isActive
                         ? 'bg-indigo-50/90 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-500/30 dark:shadow-[0_0_18px_rgba(99,102,241,0.2)] font-extrabold'
                         : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100/70 dark:hover:bg-white/[0.04] hover:text-slate-900 dark:hover:text-white font-medium'
-                    }`}
+                      }`}
                   >
                     <div className="flex items-center gap-2.5">
                       <Icon size={16} className={`${isActive ? 'text-indigo-600 dark:text-indigo-400' : item.color} transition-colors`} />
                       <span>{item.label}</span>
                     </div>
                     {typeof item.badge === 'number' && item.badge > 0 && (
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
-                        isActive
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${isActive
                           ? 'bg-indigo-600 text-white'
                           : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 group-hover:bg-slate-200 dark:group-hover:bg-slate-700'
-                      }`}>
+                        }`}>
                         {item.badge}
                       </span>
                     )}
@@ -193,11 +190,10 @@ export default function Sidebar({
                 <button
                   type="button"
                   onClick={() => onSwitchWorkspace?.('personal')}
-                  className={`py-1.5 px-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 ${
-                    currentWorkspace === 'personal'
+                  className={`py-1.5 px-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 ${currentWorkspace === 'personal'
                       ? 'bg-white dark:bg-[#151e32] text-slate-900 dark:text-white shadow-xs'
                       : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                  }`}
+                    }`}
                   title="Personal Workspace (Your private projects)"
                 >
                   <Lock size={12} className={currentWorkspace === 'personal' ? 'text-indigo-500' : ''} />
@@ -206,11 +202,10 @@ export default function Sidebar({
                 <button
                   type="button"
                   onClick={() => onSwitchWorkspace?.('team')}
-                  className={`py-1.5 px-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 ${
-                    currentWorkspace === 'team'
+                  className={`py-1.5 px-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 ${currentWorkspace === 'team'
                       ? 'bg-white dark:bg-[#151e32] text-indigo-600 dark:text-indigo-400 shadow-xs'
                       : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                  }`}
+                    }`}
                   title="Team Workspace (Collaborative team projects)"
                 >
                   <Users size={12} className={currentWorkspace === 'team' ? 'text-indigo-500' : ''} />
@@ -220,90 +215,87 @@ export default function Sidebar({
             )}
 
             <div className="space-y-1">
-                  {displayedProjects.length === 0 ? (
-                    <p className="px-3 py-1.5 text-[11px] text-slate-400 italic">
-                      No {currentWorkspace === 'personal' ? 'personal' : 'team'} projects yet
-                    </p>
-                  ) : (
-                    displayedProjects.map((proj) => {
-                      const isProjActive = activeTab === 'project' && activeProject === proj.name;
-                      const colorClass = PROJECT_COLOR_MAP[proj.color] || 'bg-indigo-500';
-                      return (
-                        <button
-                          key={proj.id || proj.name}
-                          onClick={() => { onSelectProject?.(proj.name); onClose?.(); }}
-                          className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-all relative group ${
-                            isProjActive
-                              ? 'bg-indigo-50/90 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-500/30 dark:shadow-[0_0_18px_rgba(99,102,241,0.2)] font-extrabold'
-                              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100/70 dark:hover:bg-white/[0.04] hover:text-slate-900 dark:hover:text-white font-medium'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2.5 truncate">
-                            <span className={`w-2.5 h-2.5 rounded-full ${colorClass} shrink-0 shadow-xs`} />
-                            <span className="truncate">{proj.name}</span>
-                          </div>
-                          {typeof proj.taskCount === 'number' && proj.taskCount > 0 && (
-                            <span className="text-[10px] px-1.5 py-0.2 rounded-full font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 shrink-0">
-                              {proj.taskCount}
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (onOpenProjectsView) {
-                        onOpenProjectsView(currentWorkspace);
-                      } else {
-                        setActiveTab('projects');
-                      }
-                      onClose?.();
-                    }}
-                    className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-all font-semibold ${
-                      activeTab === 'projects' && projectsFilter === currentWorkspace
-                        ? 'bg-indigo-50/90 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-500/30 font-bold'
-                        : 'text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100/60 dark:hover:bg-white/[0.03]'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      {currentWorkspace === 'personal' ? (
-                        <Lock size={14} className="text-indigo-500 shrink-0" />
-                      ) : (
-                        <Users size={14} className="text-indigo-500 shrink-0" />
+              {displayedProjects.length === 0 ? (
+                <p className="px-3 py-1.5 text-[11px] text-slate-400 italic">
+                  No {currentWorkspace === 'personal' ? 'personal' : 'team'} projects yet
+                </p>
+              ) : (
+                displayedProjects.map((proj) => {
+                  const isProjActive = activeTab === 'project' && activeProject === proj.name;
+                  const colorClass = PROJECT_COLOR_MAP[proj.color] || 'bg-indigo-500';
+                  return (
+                    <button
+                      key={proj.id || proj.name}
+                      onClick={() => { onSelectProject?.(proj.name); onClose?.(); }}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-all relative group ${isProjActive
+                          ? 'bg-indigo-50/90 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-500/30 dark:shadow-[0_0_18px_rgba(99,102,241,0.2)] font-extrabold'
+                          : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100/70 dark:hover:bg-white/[0.04] hover:text-slate-900 dark:hover:text-white font-medium'
+                        }`}
+                    >
+                      <div className="flex items-center gap-2.5 truncate">
+                        <span className={`w-2.5 h-2.5 rounded-full ${colorClass} shrink-0 shadow-xs`} />
+                        <span className="truncate">{proj.name}</span>
+                      </div>
+                      {typeof proj.taskCount === 'number' && proj.taskCount > 0 && (
+                        <span className="text-[10px] px-1.5 py-0.2 rounded-full font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 shrink-0">
+                          {proj.taskCount}
+                        </span>
                       )}
-                      <span>Manage {currentWorkspace === 'personal' ? 'Personal' : 'Team'} Projects</span>
-                    </div>
-                  </button>
+                    </button>
+                  );
+                })
+              )}
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (onOpenProjectsView) {
-                        onOpenProjectsView('all');
-                      } else {
-                        setActiveTab('projects');
-                      }
-                      onClose?.();
-                    }}
-                    className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-all font-semibold ${
-                      activeTab === 'projects' && projectsFilter === 'all'
-                        ? 'bg-indigo-50/90 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-500/30 font-bold'
-                        : 'text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100/60 dark:hover:bg-white/[0.03]'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <Layers size={14} className="text-slate-400 dark:text-slate-500 shrink-0" />
-                      <span>Manage All Projects</span>
-                    </div>
-                    <span className="text-[10px] font-black px-1.5 py-0.2 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
-                      Combined
-                    </span>
-                  </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (onOpenProjectsView) {
+                    onOpenProjectsView(currentWorkspace);
+                  } else {
+                    setActiveTab('projects');
+                  }
+                  onClose?.();
+                }}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-all font-semibold ${activeTab === 'projects' && projectsFilter === currentWorkspace
+                    ? 'bg-indigo-50/90 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-500/30 font-bold'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100/60 dark:hover:bg-white/[0.03]'
+                  }`}
+              >
+                <div className="flex items-center gap-2">
+                  {currentWorkspace === 'personal' ? (
+                    <Lock size={14} className="text-indigo-500 shrink-0" />
+                  ) : (
+                    <Users size={14} className="text-indigo-500 shrink-0" />
+                  )}
+                  <span>Manage {currentWorkspace === 'personal' ? 'Personal' : 'Team'} Projects</span>
                 </div>
-              </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (onOpenProjectsView) {
+                    onOpenProjectsView('all');
+                  } else {
+                    setActiveTab('projects');
+                  }
+                  onClose?.();
+                }}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-all font-semibold ${activeTab === 'projects' && projectsFilter === 'all'
+                    ? 'bg-indigo-50/90 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-500/30 font-bold'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100/60 dark:hover:bg-white/[0.03]'
+                  }`}
+              >
+                <div className="flex items-center gap-2">
+                  <Layers size={14} className="text-slate-400 dark:text-slate-500 shrink-0" />
+                  <span>Manage All Projects</span>
+                </div>
+                <span className="text-[10px] font-black px-1.5 py-0.2 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                  Combined
+                </span>
+              </button>
+            </div>
+          </div>
 
           {/* Productivity & AI Section */}
           <div>
@@ -318,11 +310,10 @@ export default function Sidebar({
                   <button
                     key={item.id}
                     onClick={() => { setActiveTab(item.id); onClose?.(); }}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs transition-all relative group ${
-                      isActive
+                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs transition-all relative group ${isActive
                         ? 'bg-indigo-50/90 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-500/30 dark:shadow-[0_0_18px_rgba(99,102,241,0.2)] font-extrabold'
                         : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100/70 dark:hover:bg-white/[0.04] hover:text-slate-900 dark:hover:text-white font-medium'
-                    }`}
+                      }`}
                   >
                     <div className="flex items-center gap-2.5">
                       <Icon size={16} className={`${isActive ? 'text-indigo-600 dark:text-indigo-400' : item.color} transition-colors`} />
@@ -354,11 +345,10 @@ export default function Sidebar({
                 <button
                   type="button"
                   onClick={() => { setActiveTab('connect'); onClose?.(); }}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs transition-all relative group ${
-                    activeTab === 'connect'
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs transition-all relative group ${activeTab === 'connect'
                       ? 'bg-indigo-50/90 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-500/30 dark:shadow-[0_0_18px_rgba(99,102,241,0.2)] font-extrabold'
                       : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100/70 dark:hover:bg-white/[0.04] hover:text-slate-900 dark:hover:text-white font-medium'
-                  }`}
+                    }`}
                 >
                   <div className="flex items-center gap-2.5">
                     <UserPlus size={16} className={`${activeTab === 'connect' ? 'text-indigo-600 dark:text-indigo-400' : 'text-indigo-500'} transition-colors`} />
@@ -381,11 +371,10 @@ export default function Sidebar({
           <button
             type="button"
             onClick={() => { setActiveTab('profile'); onClose?.(); }}
-            className={`w-full flex items-center gap-2.5 p-2 rounded-2xl transition-all text-left group ${
-              activeTab === 'profile'
+            className={`w-full flex items-center gap-2.5 p-2 rounded-2xl transition-all text-left group ${activeTab === 'profile'
                 ? 'bg-indigo-50 dark:bg-indigo-500/15 border border-indigo-200 dark:border-indigo-500/30'
                 : 'hover:bg-white dark:hover:bg-white/[0.05] border border-transparent hover:border-slate-200/60 dark:hover:border-white/[0.06]'
-            }`}
+              }`}
             title="View & Edit Account Profile"
           >
             <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-500 to-cyan-500 text-white font-extrabold text-xs flex items-center justify-center shrink-0 shadow-sm shadow-indigo-500/20">
