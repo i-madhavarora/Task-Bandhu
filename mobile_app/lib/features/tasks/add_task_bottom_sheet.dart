@@ -788,7 +788,7 @@ class _AddTaskBottomSheetState extends State<AddTaskBottomSheet> {
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                             decoration: BoxDecoration(
-                              color: Colors.roseAccent,
+                              color: const Color(0xFFF43F5E),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: const Row(
@@ -966,7 +966,7 @@ class _AddTaskBottomSheetState extends State<AddTaskBottomSheet> {
           _showApexRequiredDialog(
             title: 'Multiple Stacked Reminders',
             description: 'Stacking multiple alerts (e.g. 15m before, 1h before, 1d before) on a single task is exclusive to Apex Prestige accounts.',
-            icon: CupertinoIcons.bell_badge_fill,
+            icon: CupertinoIcons.bell_fill,
           );
           return;
         }

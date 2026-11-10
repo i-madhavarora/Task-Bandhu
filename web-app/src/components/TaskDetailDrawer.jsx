@@ -4,7 +4,7 @@ import {
   Paperclip, Trash2, Send, Plus, CheckCircle2, MessageSquare, AlertCircle, FileText,
   Sparkles, MapPin, Navigation, ExternalLink, Bell, Clock, Link as LinkIcon, Mic, Pencil
 } from 'lucide-react';
-import { isTaskOverdue, isTaskDueToday, getLocalTodayStr } from '../utils/dateUtils';
+import { isTaskOverdue, isTaskDueToday, getLocalTodayStr, safeFormatDate, safeFormatTime } from '../utils/dateUtils';
 
 export default function TaskDetailDrawer({
   isOpen,
@@ -126,12 +126,22 @@ export default function TaskDetailDrawer({
           const lower = finalSpoken.toLowerCase();
           const updates = { voiceNote: finalSpoken };
 
-          if (!title.trim()) {
+          if (!title.trim() || title.trim().length <= 2) {
             const formatted = finalSpoken.charAt(0).toUpperCase() + finalSpoken.slice(1);
             setTitle(formatted);
             updates.title = formatted;
           } else {
-            const updatedDesc = description ? `${description}\n\n${finalSpoken}` : finalSpoken;
+            const curDesc = (description || '').trim();
+            let updatedDesc;
+            if (!curDesc) {
+              updatedDesc = finalSpoken;
+            } else if (curDesc.includes(finalSpoken)) {
+              updatedDesc = curDesc;
+            } else if (finalSpoken.includes(curDesc)) {
+              updatedDesc = finalSpoken;
+            } else {
+              updatedDesc = `${curDesc}\n\n${finalSpoken}`;
+            }
             setDescription(updatedDesc);
             updates.description = updatedDesc;
           }
@@ -164,8 +174,8 @@ export default function TaskDetailDrawer({
     (currentWorkspace === 'team' && !task?.workspaceType) ||
     (allProjects && Array.isArray(allProjects) && allProjects.some(p =>
       p?.type === 'team' && (
-        p.id === task?.projectId ||
-        (task?.project && p.name && p.name.trim().toLowerCase() === task.project.trim().toLowerCase())
+        (task?.projectId && p.id === task.projectId) ||
+        (typeof task?.project === 'string' && typeof p?.name === 'string' && task.project.trim().toLowerCase() === p.name.trim().toLowerCase())
       )
     ))
   );
@@ -174,13 +184,13 @@ export default function TaskDetailDrawer({
   if (isTeamTask) {
     const matchedProj = Array.isArray(allProjects) ? allProjects.find(p =>
       p?.type === 'team' && (
-        p.id === task?.projectId ||
-        (task?.project && p.name && p.name.trim().toLowerCase() === task.project.trim().toLowerCase())
+        (task?.projectId && p.id === task.projectId) ||
+        (typeof task?.project === 'string' && typeof p?.name === 'string' && task.project.trim().toLowerCase() === p.name.trim().toLowerCase())
       )
     ) : null;
 
     if (matchedProj && Array.isArray(matchedProj.members) && matchedProj.members.length > 0) {
-      const names = matchedProj.members.map(m => m.displayName || m.name || m.email).filter(Boolean);
+      const names = matchedProj.members.map(m => typeof m === 'string' ? m : (m?.displayName || m?.name || m?.email)).filter(Boolean);
       availableAssignees = Array.from(new Set(['Me', ...names]));
     } else {
       const safeAssignees = (allAssignees || []).map(a => (typeof a === 'object' ? (a?.name || a?.displayName || a?.email) : a)).filter(Boolean);
@@ -193,7 +203,7 @@ export default function TaskDetailDrawer({
     const names = list.map(p => (typeof p === 'object' ? p?.name : p)).filter(Boolean);
     const defaultName = currentWorkspace === 'team' ? 'Team Workspace' : 'Personal Inbox';
     const set = new Set([defaultName, ...names]);
-    if (task?.project) {
+    if (typeof task?.project === 'string') {
       const cleanP = task.project === 'General Workspace' ? 'Personal Inbox' : task.project;
       set.add(cleanP);
     }
@@ -1043,10 +1053,10 @@ export default function TaskDetailDrawer({
                 task.comments.map((cmt, idx) => (
                   <div key={cmt.id || idx} className="p-2.5 rounded-xl bg-slate-50 dark:bg-white/[0.03] border border-slate-100 dark:border-white/[0.04] space-y-1">
                     <div className="flex items-center justify-between text-[10px] text-slate-400">
-                      <span className="font-extrabold text-slate-700 dark:text-slate-300">{cmt.author}</span>
-                      <span>{cmt.createdAt ? new Date(cmt.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                      <span className="font-extrabold text-slate-700 dark:text-slate-300">{cmt?.author || 'Teammate'}</span>
+                      <span>{safeFormatTime(cmt?.createdAt)}</span>
                     </div>
-                    <p className="text-xs text-slate-800 dark:text-slate-200 leading-snug">{cmt.text}</p>
+                    <p className="text-xs text-slate-800 dark:text-slate-200 leading-snug">{cmt?.text || ''}</p>
                   </div>
                 ))
               )}
@@ -1073,7 +1083,7 @@ export default function TaskDetailDrawer({
 
         {/* Bottom Drawer Footer */}
         <div className="shrink-0 p-4 border-t border-slate-100 dark:border-white/[0.06] bg-slate-50/70 dark:bg-white/[0.02] flex items-center justify-between text-xs text-slate-400">
-          <span>Created {task.createdAt ? new Date(task.createdAt).toLocaleDateString() : 'Recently'}</span>
+          <span>Created {safeFormatDate(task?.createdAt)}</span>
           <button
             type="button"
             onClick={() => {

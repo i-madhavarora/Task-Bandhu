@@ -13,7 +13,7 @@ import '../../providers/task_provider.dart';
 import '../../services/sound_service.dart';
 
 class DeepFocusScreen extends StatefulWidget {
-  final Task? initialTask;
+  final TaskModel? initialTask;
   final int initialMinutes;
 
   const DeepFocusScreen({
@@ -32,7 +32,7 @@ class _DeepFocusScreenState extends State<DeepFocusScreen>
   late int _totalDurationSeconds;
   late int _remainingSeconds;
   bool _isRunning = true;
-  Task? _selectedTask;
+  TaskModel? _selectedTask;
 
   // Distraction Tracking
   int _distractionCount = 0;
@@ -473,7 +473,7 @@ class _DeepFocusScreenState extends State<DeepFocusScreen>
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(CupertinoIcons.target, color: Color(0xFF38BDF8), size: 16),
+                          const Icon(Icons.track_changes, color: Color(0xFF38BDF8), size: 16),
                           const SizedBox(width: 10),
                           Flexible(
                             child: Text(
@@ -712,7 +712,7 @@ class _DeepFocusScreenState extends State<DeepFocusScreen>
 
 /// Pre-Focus Confirmation Dialog detailing all lockdown features
 class PreFocusLockdownSheet extends StatelessWidget {
-  final Task? selectedTask;
+  final TaskModel? selectedTask;
   final VoidCallback onConfirm;
 
   const PreFocusLockdownSheet({
@@ -721,7 +721,7 @@ class PreFocusLockdownSheet extends StatelessWidget {
     required this.onConfirm,
   });
 
-  static void show(BuildContext context, {Task? task, required VoidCallback onConfirm}) {
+  static void show(BuildContext context, {TaskModel? task, required VoidCallback onConfirm}) {
     HapticFeedback.mediumImpact();
     SoundService.playClick();
 

@@ -15,7 +15,12 @@ export function parseTaskDeadline(deadline, endTime) {
   if (!deadline) return null;
   let d = null;
 
-  if (typeof deadline === 'string') {
+  // Handle Firestore Timestamp object { seconds, nanoseconds }
+  if (typeof deadline === 'object' && deadline !== null && 'seconds' in deadline) {
+    d = new Date(deadline.seconds * 1000);
+  } else if (typeof deadline === 'number') {
+    d = new Date(deadline);
+  } else if (typeof deadline === 'string') {
     const trimmed = deadline.trim();
     // 1. ISO format (e.g. 2026-11-06T12:00:00Z)
     if (trimmed.includes('T')) {
@@ -148,4 +153,44 @@ export function formatDeadlineDisplay(deadline, endTime) {
     return endTime ? `Tomorrow at ${endTime}` : 'Due Tomorrow';
   }
   return due.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+export function safeFormatDate(val, fallback = 'Recently') {
+  if (!val) return fallback;
+  try {
+    let d;
+    if (typeof val === 'object' && val !== null && 'seconds' in val) {
+      d = new Date(val.seconds * 1000);
+    } else if (typeof val === 'number') {
+      d = new Date(val);
+    } else if (typeof val === 'string') {
+      d = new Date(val);
+    } else {
+      return fallback;
+    }
+    if (isNaN(d.getTime())) return fallback;
+    return d.toLocaleDateString();
+  } catch {
+    return fallback;
+  }
+}
+
+export function safeFormatTime(val, fallback = '') {
+  if (!val) return fallback;
+  try {
+    let d;
+    if (typeof val === 'object' && val !== null && 'seconds' in val) {
+      d = new Date(val.seconds * 1000);
+    } else if (typeof val === 'number') {
+      d = new Date(val);
+    } else if (typeof val === 'string') {
+      d = new Date(val);
+    } else {
+      return fallback;
+    }
+    if (isNaN(d.getTime())) return fallback;
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return fallback;
+  }
 }

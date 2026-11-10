@@ -3268,10 +3268,12 @@ export default function Dashboard() {
 
   const drawerTask = useMemo(() => {
     if (!drawerTaskId) return null;
-    return tasks.find(t => String(t.id) === String(drawerTaskId)) ||
-      workspaceTasks.find(t => String(t.id) === String(drawerTaskId)) ||
-      displayTasks.find(t => String(t.id) === String(drawerTaskId)) ||
-      null;
+    const targetId = typeof drawerTaskId === 'object' ? drawerTaskId?.id : drawerTaskId;
+    if (!targetId) return null;
+    return tasks.find(t => String(t.id) === String(targetId)) ||
+      workspaceTasks.find(t => String(t.id) === String(targetId)) ||
+      displayTasks.find(t => String(t.id) === String(targetId)) ||
+      (typeof drawerTaskId === 'object' ? drawerTaskId : null);
   }, [tasks, workspaceTasks, displayTasks, drawerTaskId]);
 
   const myDaySuggestions = useMemo(() => {

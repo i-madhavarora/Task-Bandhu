@@ -148,6 +148,14 @@ export default function ChronoSyncModal({
   const nextQuarter = getNextQuarterSlot();
   const nextHour = getNextHourSlot();
 
+  const now = new Date();
+  const currentTotalMin = now.getHours() * 60 + now.getMinutes();
+  const [sH, sM] = (startTime || '09:00').split(':').map(Number);
+  const selectedTotalMin = (sH || 0) * 60 + (sM || 0);
+  const isTimeInPastToday = selectedTotalMin < currentTotalMin;
+  const isMorningPassed = now.getHours() >= 9;
+  const isAfternoonPassed = now.getHours() >= 14;
+
   return (
     <div className="fixed inset-0 bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4 z-[300] animate-in fade-in">
       <div className="bg-slate-900 text-white rounded-3xl w-full max-w-2xl border border-indigo-500/30 shadow-[0_0_50px_rgba(99,102,241,0.2)] overflow-hidden flex flex-col max-h-[92vh]">
@@ -211,6 +219,23 @@ export default function ChronoSyncModal({
               </div>
             </div>
 
+            {/* Past Time Warning & Fast-Forward Action */}
+            {isTimeInPastToday && (
+              <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between gap-2 text-xs text-amber-300">
+                <span className="flex items-center gap-1.5">
+                  <span>⚠️</span>
+                  <span><strong>{startTime}</strong> has already passed today. Tasks will be planned from this time.</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setStartTime(nextQuarter)}
+                  className="px-2.5 py-1 rounded-lg bg-amber-500 text-slate-950 font-black text-[11px] hover:bg-amber-400 transition-colors shrink-0"
+                >
+                  Start Now ({nextQuarter})
+                </button>
+              </div>
+            )}
+
             <div className="flex flex-wrap items-center gap-2 pt-1">
               <button
                 type="button"
@@ -236,17 +261,31 @@ export default function ChronoSyncModal({
                 <Clock size={13} className="text-cyan-400" />
                 Next Hour ({nextHour})
               </button>
-              <button
-                type="button"
-                onClick={() => setStartTime('14:00')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-                  startTime === '14:00'
-                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 ring-1 ring-indigo-400'
-                    : 'bg-white/5 text-slate-300 hover:bg-white/10 border border-white/10'
-                }`}
-              >
-                ☀️ Afternoon (14:00)
-              </button>
+              {!isAfternoonPassed ? (
+                <button
+                  type="button"
+                  onClick={() => setStartTime('14:00')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                    startTime === '14:00'
+                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 ring-1 ring-indigo-400'
+                      : 'bg-white/5 text-slate-300 hover:bg-white/10 border border-white/10'
+                  }`}
+                >
+                  ☀️ Afternoon (14:00)
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setStartTime('17:00')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                    startTime === '17:00'
+                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 ring-1 ring-indigo-400'
+                      : 'bg-white/5 text-slate-300 hover:bg-white/10 border border-white/10'
+                  }`}
+                >
+                  🌆 Evening (17:00)
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setStartTime('09:00')}
@@ -256,7 +295,7 @@ export default function ChronoSyncModal({
                     : 'bg-white/5 text-slate-300 hover:bg-white/10 border border-white/10'
                 }`}
               >
-                🌅 Morning (09:00)
+                🌅 {isMorningPassed ? 'Tomorrow Morning (09:00)' : 'Morning (09:00)'}
               </button>
             </div>
           </div>

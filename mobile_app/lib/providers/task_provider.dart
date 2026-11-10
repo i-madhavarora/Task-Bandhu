@@ -147,6 +147,25 @@ class TaskProvider extends ChangeNotifier {
   }
 
   // Filtered queries
+  List<TaskModel> getWorkspaceTasks(String workspaceType) {
+    final wantTeam = workspaceType == 'team';
+    return _tasks.where((t) => wantTeam ? isTeamTask(t) : !isTeamTask(t)).toList();
+  }
+
+  List<TaskModel> getTasksByStatus(String status, String workspaceType) {
+    final wantTeam = workspaceType == 'team';
+    return _tasks.where((t) {
+      final matchesWorkspace = wantTeam ? isTeamTask(t) : !isTeamTask(t);
+      return matchesWorkspace && t.status == status;
+    }).toList();
+  }
+
+  void incrementXp(int points) {
+    _gainXP(points);
+    notifyListeners();
+    _saveToStorage();
+  }
+
   List<TaskModel> getTasksForWorkspace(String workspaceType) {
     final wantTeam = workspaceType == 'team';
     return _tasks.where((t) {

@@ -668,7 +668,7 @@ class _StealthVaultSheetState extends State<StealthVaultSheet> {
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: _promptChangePin,
-                  icon: const Icon(CupertinoIcons.key_fill, size: 15, color: Color(0xFFF59E0B)),
+                  icon: const Icon(CupertinoIcons.lock_fill, size: 15, color: Color(0xFFF59E0B)),
                   label: const Text('Change PIN', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: const Color(0xFFF59E0B),

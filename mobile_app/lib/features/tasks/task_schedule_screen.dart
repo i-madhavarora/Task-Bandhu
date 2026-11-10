@@ -29,6 +29,9 @@ class _TaskScheduleScreenState extends State<TaskScheduleScreen> {
   late DateTime _currentMonthView;
   int _viewMode = 0; // 0 = Week Strip, 1 = Full Month Grid, 2 = Table Spreadsheet
   bool get _isFullCalendarView => _viewMode == 1;
+  set _isFullCalendarView(bool value) {
+    _viewMode = value ? 1 : 0;
+  }
 
   @override
   void initState() {

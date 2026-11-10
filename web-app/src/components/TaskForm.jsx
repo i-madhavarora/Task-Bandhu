@@ -184,7 +184,7 @@ export default function TaskForm({
 
     if (!candidate) candidate = cleaned;
 
-    if (!title.trim()) {
+    if (!title.trim() || title.trim().length <= 2) {
       // If user spoke multiple sentences (e.g., "Math homework. Do pages 40 to 45.")
       const sentences = candidate.split(/[.!?]\s+/).filter(Boolean);
       if (sentences.length > 1) {
@@ -197,8 +197,17 @@ export default function TaskForm({
       // Capitalize first letter of title
       title = title.charAt(0).toUpperCase() + title.slice(1);
     } else {
-      // Title already set, append clean thought to description
-      description = description ? `${description}\n\n${cleaned}` : cleaned;
+      // Title already set, update description without repeating prefixes
+      const curDesc = (description || '').trim();
+      if (!curDesc) {
+        description = cleaned;
+      } else if (curDesc.includes(cleaned)) {
+        description = curDesc;
+      } else if (cleaned.includes(curDesc)) {
+        description = cleaned;
+      } else {
+        description = `${curDesc}\n\n${cleaned}`;
+      }
     }
 
     return {
@@ -480,8 +489,8 @@ export default function TaskForm({
           // 1. If task belongs to a team project, sync comment to projects/{projectId}/tasks/{taskId}
           const matchedProj = allProjects?.find(p =>
             p.type === 'team' && (
-              p.id === taskToEdit.projectId ||
-              (taskToEdit.project && p.name && taskToEdit.project.trim().toLowerCase() === p.name.trim().toLowerCase())
+              (taskToEdit.projectId && p.id === taskToEdit.projectId) ||
+              (typeof taskToEdit.project === 'string' && typeof p.name === 'string' && taskToEdit.project.trim().toLowerCase() === p.name.trim().toLowerCase())
             )
           );
 
@@ -597,10 +606,10 @@ export default function TaskForm({
       // Check if project belongs to a team project
       const targetTeamProj = allProjects?.find(p =>
         p.type === 'team' && (
-          p.id === finalPayload.projectId ||
-          p.id === taskToEdit?.projectId ||
-          (finalPayload.project && p.name && finalPayload.project.trim().toLowerCase() === p.name.trim().toLowerCase()) ||
-          (taskToEdit?.project && p.name && taskToEdit.project.trim().toLowerCase() === p.name.trim().toLowerCase())
+          (finalPayload.projectId && p.id === finalPayload.projectId) ||
+          (taskToEdit?.projectId && p.id === taskToEdit.projectId) ||
+          (typeof finalPayload.project === 'string' && typeof p.name === 'string' && finalPayload.project.trim().toLowerCase() === p.name.trim().toLowerCase()) ||
+          (typeof taskToEdit?.project === 'string' && typeof p.name === 'string' && taskToEdit.project.trim().toLowerCase() === p.name.trim().toLowerCase())
         )
       ) || (currentWorkspace === 'team' ? allProjects?.find(p => p.type === 'team') : null);
 

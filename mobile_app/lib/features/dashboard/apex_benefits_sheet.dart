@@ -46,7 +46,7 @@ class ApexBenefitsSheet extends StatelessWidget {
         'color': const Color(0xFFF59E0B),
       },
       {
-        'icon': CupertinoIcons.bell_badge_fill,
+        'icon': CupertinoIcons.bell_fill,
         'title': 'Stacked & Location Reminders',
         'subtitle': 'Multiple alerts per task plus GPS geofencing triggers (Office, Home).',
         'color': const Color(0xFFEC4899),

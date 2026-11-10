@@ -196,9 +196,10 @@ export default function TaskTableView({
                 </tr>
               ) : (
                 sortedTasks.map(task => {
+                  if (!task || !task.id) return null;
                   const isDone = task.completed || task.status === 'Completed' || task.status === 'Done';
                   const steps = Array.isArray(task.steps) ? task.steps : [];
-                  const stepsDone = steps.filter(s => s.completed).length;
+                  const stepsDone = steps.filter(s => s && s.completed).length;
 
                   let priorityColor = 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300';
                   if (task.priority === 'Urgent') priorityColor = 'bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400 border border-rose-200 dark:border-rose-900/40';
