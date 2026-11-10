@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../theme/app_colors.dart';
 
 class AdaptiveNavBar extends StatelessWidget {
@@ -19,84 +20,116 @@ class AdaptiveNavBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Padding(
-      padding: const EdgeInsets.only(left: 20.0, right: 20.0, bottom: 24.0),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(32.0),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20.0, sigmaY: 20.0),
-          child: Container(
-            height: 72,
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            decoration: BoxDecoration(
-              color: isDark ? const Color(0xCC0F172A) : const Color(0xE6FFFFFF),
-              borderRadius: BorderRadius.circular(32.0),
-              border: Border.all(
-                color: isDark ? const Color(0x33FFFFFF) : const Color(0x66E2E8F0),
-                width: 1.2,
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.only(left: 20.0, right: 20.0, bottom: 16.0),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(36.0),
+            boxShadow: [
+              // Deep, realistic floating shadow
+              BoxShadow(
+                color: Colors.black.withOpacity(isDark ? 0.55 : 0.16),
+                blurRadius: 36,
+                spreadRadius: 0,
+                offset: const Offset(0, 14),
               ),
-              boxShadow: [
-                BoxShadow(
-                  color: isDark
-                      ? Colors.black.withOpacity(0.5)
-                      : AppColors.primaryIndigo.withOpacity(0.12),
-                  blurRadius: 28,
-                  offset: const Offset(0, 10),
-                ),
-              ],
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                _buildNavItem(
-                  context,
-                  index: 0,
-                  icon: CupertinoIcons.house_fill,
-                  label: 'Home',
-                ),
-                _buildNavItem(
-                  context,
-                  index: 1,
-                  icon: CupertinoIcons.calendar,
-                  label: 'Schedule',
-                ),
-                // Glowing Central Add Button
-                GestureDetector(
-                  onTap: onAddTap,
-                  child: Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: AppColors.primaryGradient,
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.primaryIndigo.withOpacity(0.4),
-                          blurRadius: 16,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: const Icon(
-                      CupertinoIcons.add,
-                      color: Colors.white,
-                      size: 24,
-                    ),
+              BoxShadow(
+                color: (isDark ? AppColors.primaryIndigo : Colors.black).withOpacity(isDark ? 0.25 : 0.06),
+                blurRadius: 18,
+                spreadRadius: -2,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(36.0),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 22.0, sigmaY: 22.0),
+              child: Container(
+                height: 68,
+                padding: const EdgeInsets.symmetric(horizontal: 14.0),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(36.0),
+                  // Liquid translucent glass gradient (transparent so cards and orbs refract through)
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: isDark
+                        ? [
+                            Colors.white.withOpacity(0.12),
+                            Colors.white.withOpacity(0.04),
+                          ]
+                        : [
+                            Colors.white.withOpacity(0.72),
+                            Colors.white.withOpacity(0.48),
+                          ],
+                  ),
+                  border: Border.all(
+                    color: isDark
+                        ? Colors.white.withOpacity(0.18)
+                        : Colors.white.withOpacity(0.85),
+                    width: 1.2,
                   ),
                 ),
-                _buildNavItem(
-                  context,
-                  index: 2,
-                  icon: CupertinoIcons.folder_fill,
-                  label: 'Projects',
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    _buildNavItem(
+                      context,
+                      index: 0,
+                      icon: CupertinoIcons.house_fill,
+                      label: 'Home',
+                    ),
+                    _buildNavItem(
+                      context,
+                      index: 1,
+                      icon: CupertinoIcons.calendar,
+                      label: 'Schedule',
+                    ),
+                    // Glowing Central Add Button
+                    GestureDetector(
+                      onTap: () {
+                        HapticFeedback.lightImpact();
+                        onAddTap();
+                      },
+                      child: Container(
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: AppColors.primaryGradient,
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppColors.primaryIndigo.withOpacity(0.4),
+                              blurRadius: 16,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: const Icon(
+                          CupertinoIcons.add,
+                          color: Colors.white,
+                          size: 24,
+                        ),
+                      ),
+                    ),
+                    _buildNavItem(
+                      context,
+                      index: 2,
+                      icon: CupertinoIcons.folder_fill,
+                      label: 'Projects',
+                    ),
+                    _buildNavItem(
+                      context,
+                      index: 3,
+                      icon: CupertinoIcons.sparkles,
+                      label: 'Super Hub',
+                    ),
+                  ],
                 ),
-                _buildNavItem(
-                  context,
-                  index: 3,
-                  icon: CupertinoIcons.sparkles,
-                  label: 'Super Hub',
-                ),
-              ],
+              ),
             ),
           ),
         ),
@@ -117,7 +150,10 @@ class AdaptiveNavBar extends StatelessWidget {
     final unselectedColor = isDark ? const Color(0xFF64748B) : const Color(0xFF94A3B8);
 
     return GestureDetector(
-      onTap: () => onTabSelected(index),
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onTabSelected(index);
+      },
       behavior: HitTestBehavior.opaque,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),

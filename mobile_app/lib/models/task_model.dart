@@ -40,6 +40,10 @@ class TaskModel {
   List<TaskStep> steps;
   List<String> tags;
   DateTime createdAt;
+  List<String> reminders;
+  String? locationReminder;
+  int durationMinutes;
+  String? voiceNote;
 
   TaskModel({
     required this.id,
@@ -59,11 +63,67 @@ class TaskModel {
     List<TaskStep>? steps,
     List<String>? tags,
     DateTime? createdAt,
+    List<String>? reminders,
+    this.locationReminder,
+    this.durationMinutes = 45,
+    this.voiceNote,
   })  : steps = steps ?? [],
         tags = tags ?? [],
-        createdAt = createdAt ?? DateTime.now();
+        createdAt = createdAt ?? DateTime.now(),
+        reminders = reminders ?? [];
+
+  TaskModel copyWith({
+    String? id,
+    String? title,
+    String? description,
+    String? priority,
+    String? status,
+    String? deadline,
+    String? startTime,
+    String? endTime,
+    String? project,
+    String? projectId,
+    String? workspaceType,
+    String? assignee,
+    String? assigneeAvatar,
+    bool? pinned,
+    List<TaskStep>? steps,
+    List<String>? tags,
+    DateTime? createdAt,
+    List<String>? reminders,
+    String? locationReminder,
+    int? durationMinutes,
+    String? voiceNote,
+  }) {
+    return TaskModel(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      description: description ?? this.description,
+      priority: priority ?? this.priority,
+      status: status ?? this.status,
+      deadline: deadline ?? this.deadline,
+      startTime: startTime ?? this.startTime,
+      endTime: endTime ?? this.endTime,
+      project: project ?? this.project,
+      projectId: projectId ?? this.projectId,
+      workspaceType: workspaceType ?? this.workspaceType,
+      assignee: assignee ?? this.assignee,
+      assigneeAvatar: assigneeAvatar ?? this.assigneeAvatar,
+      pinned: pinned ?? this.pinned,
+      steps: steps ?? List.from(this.steps),
+      tags: tags ?? List.from(this.tags),
+      createdAt: createdAt ?? this.createdAt,
+      reminders: reminders ?? List.from(this.reminders),
+      locationReminder: locationReminder ?? this.locationReminder,
+      durationMinutes: durationMinutes ?? this.durationMinutes,
+      voiceNote: voiceNote ?? this.voiceNote,
+    );
+  }
 
   bool get isCompleted => status == 'Completed';
+
+  /// Convenience / compatibility alias for task date/deadline
+  String get date => deadline;
 
   int get completedStepsCount => steps.where((s) => s.completed).length;
 
@@ -88,6 +148,10 @@ class TaskModel {
     'steps': steps.map((s) => s.toMap()).toList(),
     'tags': tags,
     'createdAt': createdAt.toIso8601String(),
+    'reminders': reminders,
+    'locationReminder': locationReminder,
+    'durationMinutes': durationMinutes,
+    'voiceNote': voiceNote,
   };
 
   factory TaskModel.fromMap(Map<String, dynamic> map) => TaskModel(
@@ -113,6 +177,10 @@ class TaskModel {
     createdAt: map['createdAt'] != null
         ? DateTime.tryParse(map['createdAt']) ?? DateTime.now()
         : DateTime.now(),
+    reminders: List<String>.from(map['reminders'] ?? []),
+    locationReminder: map['locationReminder'] as String?,
+    durationMinutes: map['durationMinutes'] as int? ?? 45,
+    voiceNote: map['voiceNote'] as String?,
   );
 }
 

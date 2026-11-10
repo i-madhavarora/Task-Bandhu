@@ -1,96 +1,103 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../models/project_model.dart';
+import '../services/firebase_sync_service.dart';
+import '../services/apex_tier_service.dart';
 
 class ProjectProvider extends ChangeNotifier {
+  static const String _projectsStorageKey = 'tb_projects_v2';
+  static const String _chatStoragePrefix = 'tb_chat_v2_';
+
   final List<ProjectModel> _projects = [];
   final Map<String, List<ChatMessage>> _projectChats = {};
+  bool _isLoading = true;
 
   List<ProjectModel> get allProjects => List.unmodifiable(_projects);
+  bool get isLoading => _isLoading;
 
   ProjectProvider() {
-    _seedProjects();
+    _loadFromStorage();
   }
 
-  void _seedProjects() {
-    final p1 = ProjectModel(
-      id: 'proj_website_redesign',
-      name: 'Website Redesign',
-      color: 'indigo',
-      type: 'team',
-      description: 'Revamping the core mobile & web experience with liquid glassmorphism.',
-      creatorUid: 'user_madhav',
-      creatorName: 'Madhav Arora',
-      members: [
-        ProjectMember(uid: 'user_madhav', name: 'Madhav Arora', email: 'aroramadhav65@gmail.com', role: 'Owner'),
-        ProjectMember(uid: 'user_srishti', name: 'Srishti Arora', email: 'arorasrishti2003@gmail.com', role: 'Contributor'),
-        ProjectMember(uid: 'user_olivia', name: 'Olivia Reed', email: 'olivia.reed@design.io', role: 'Contributor'),
-      ],
-      taskCount: 3,
-    );
+  Future<void> _loadFromStorage() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final projectsJson = prefs.getString(_projectsStorageKey);
 
-    final p2 = ProjectModel(
-      id: 'proj_sprint_exec',
-      name: 'Sprint Execution',
-      color: 'blue',
-      type: 'team',
-      description: 'Current 2-week agile sprint deliverables and client commitments.',
-      creatorUid: 'user_madhav',
-      creatorName: 'Madhav Arora',
-      members: [
-        ProjectMember(uid: 'user_madhav', name: 'Madhav Arora', email: 'aroramadhav65@gmail.com', role: 'Owner'),
-        ProjectMember(uid: 'user_srishti', name: 'Srishti Arora', email: 'arorasrishti2003@gmail.com', role: 'Contributor'),
-      ],
-      taskCount: 2,
-    );
+      if (projectsJson != null && projectsJson.isNotEmpty) {
+        final List<dynamic> list = jsonDecode(projectsJson);
+        _projects.clear();
+        for (final item in list) {
+          final proj = ProjectModel.fromMap(Map<String, dynamic>.from(item));
+          // Filter out legacy dummy demo projects
+          if (proj.id != 'proj_website_redesign' &&
+              proj.id != 'proj_sprint_exec' &&
+              proj.id != 'proj_personal_mastery' &&
+              proj.id != 'proj_fitness_habits') {
+            _projects.add(proj);
+          }
+          // Load chat for real projects
+          final chatJson = prefs.getString('$_chatStoragePrefix${proj.id}');
+          if (chatJson != null && chatJson.isNotEmpty) {
+            final List<dynamic> chatList = jsonDecode(chatJson);
+            _projectChats[proj.id] = chatList
+                .map((c) => ChatMessage.fromMap(Map<String, dynamic>.from(c)))
+                .toList();
+          }
+        }
+        await _saveToStorage();
+      }
+    } catch (e) {
+      debugPrint('Error loading projects: $e');
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+      syncWithFirestore();
+    }
+  }
 
-    final p3 = ProjectModel(
-      id: 'proj_personal_mastery',
-      name: 'Personal Mastery',
-      color: 'purple',
-      type: 'personal',
-      description: 'Daily self-growth, coding challenges, and deep focus books.',
-      taskCount: 4,
-    );
+  Future<void> syncWithFirestore() async {
+    try {
+      final remote = await FirebaseSyncService.fetchProjects();
+      if (remote.isNotEmpty) {
+        // Purge dummy demo projects if present
+        _projects.removeWhere((p) =>
+            p.id == 'proj_website_redesign' ||
+            p.id == 'proj_sprint_exec' ||
+            p.id == 'proj_personal_mastery' ||
+            p.id == 'proj_fitness_habits');
 
-    final p4 = ProjectModel(
-      id: 'proj_fitness_habits',
-      name: 'Fitness & Habits',
-      color: 'emerald',
-      type: 'personal',
-      description: 'Workouts, hydration tracking, and morning wellness rituals.',
-      taskCount: 2,
-    );
+        for (final rProj in remote) {
+          final index = _projects.indexWhere((p) => p.id == rProj.id);
+          if (index != -1) {
+            _projects[index] = rProj;
+          } else {
+            _projects.add(rProj);
+          }
+        }
+        await _saveToStorage();
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('Error syncing projects with cloud: $e');
+    }
+  }
 
-    _projects.addAll([p1, p2, p3, p4]);
+  Future<void> _saveToStorage() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final projData = _projects.map((p) => p.toMap()).toList();
+      await prefs.setString(_projectsStorageKey, jsonEncode(projData));
 
-    // Seed Team Chat Messages
-    _projectChats[p1.id] = [
-      ChatMessage(
-        id: 'm1',
-        text: 'Welcome to #Website Redesign team channel! Let\'s finalize the dynamic island and glass tokens.',
-        author: 'Madhav Arora',
-        authorUid: 'user_madhav',
-        role: 'Owner',
-        createdAt: DateTime.now().subtract(const Duration(hours: 2)),
-      ),
-      ChatMessage(
-        id: 'm2',
-        text: 'Loved the pastel mesh gradient for light mode and the deep neon midnight for dark mode! 👏🏻',
-        author: 'Srishti Arora',
-        authorUid: 'user_srishti',
-        role: 'Contributor',
-        createdAt: DateTime.now().subtract(const Duration(hours: 1)),
-      ),
-      ChatMessage(
-        id: 'm3',
-        text: 'The 72% circular ring is ready. We can trigger a quick team huddle whenever needed.',
-        author: 'Olivia Reed',
-        authorUid: 'user_olivia',
-        role: 'Contributor',
-        createdAt: DateTime.now().subtract(const Duration(minutes: 25)),
-      ),
-    ];
+      for (final entry in _projectChats.entries) {
+        final chatData = entry.value.map((c) => c.toMap()).toList();
+        await prefs.setString('$_chatStoragePrefix${entry.key}', jsonEncode(chatData));
+      }
+    } catch (e) {
+      debugPrint('Error saving projects: $e');
+    }
   }
 
   List<ProjectModel> getProjectsForWorkspace(String workspaceType) {
@@ -101,7 +108,13 @@ class ProjectProvider extends ChangeNotifier {
     return _projectChats[projectId] ?? [];
   }
 
-  void addMessage(String projectId, String text, String author, String authorUid, {String role = 'Contributor'}) {
+  Future<void> addMessage(
+    String projectId,
+    String text, [
+    String author = 'Me',
+    String authorUid = 'user',
+    String role = 'Member',
+  ]) async {
     final msg = ChatMessage(
       id: const Uuid().v4(),
       text: text,
@@ -116,18 +129,32 @@ class ProjectProvider extends ChangeNotifier {
     }
     _projectChats[projectId]!.add(msg);
     notifyListeners();
+    await _saveToStorage();
   }
 
-  void deleteMessage(String projectId, String messageId) {
-    if (_projectChats.containsKey(projectId)) {
-      _projectChats[projectId]!.removeWhere((m) => m.id == messageId);
+  Future<bool> addProject(ProjectModel project) async {
+    if (!ApexTierService.canAddPersonalProject(_projects.length)) {
+      return false;
+    }
+    _projects.insert(0, project);
+    notifyListeners();
+    await _saveToStorage();
+    return true;
+  }
+
+  Future<void> updateProject(ProjectModel updated) async {
+    final index = _projects.indexWhere((p) => p.id == updated.id);
+    if (index != -1) {
+      _projects[index] = updated;
       notifyListeners();
+      await _saveToStorage();
     }
   }
 
-  void addProject(ProjectModel project) {
-    _projects.add(project);
+  Future<void> deleteProject(String id) async {
+    _projects.removeWhere((p) => p.id == id);
+    _projectChats.remove(id);
     notifyListeners();
+    await _saveToStorage();
   }
 }
-

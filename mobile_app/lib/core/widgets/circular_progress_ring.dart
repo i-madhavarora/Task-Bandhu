@@ -9,6 +9,7 @@ class CircularProgressRing extends StatelessWidget {
   final Gradient? gradient;
   final Color? trackColor;
   final Widget? centerWidget;
+  final Widget? child;
 
   const CircularProgressRing({
     super.key,
@@ -18,6 +19,7 @@ class CircularProgressRing extends StatelessWidget {
     this.gradient,
     this.trackColor,
     this.centerWidget,
+    this.child,
   });
 
   @override
@@ -40,24 +42,33 @@ class CircularProgressRing extends StatelessWidget {
         ? const Color(0xFF1E293B)
         : const Color(0xFFE2E8F0);
 
-    return SizedBox(
-      width: size,
-      height: size,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          CustomPaint(
-            size: Size(size, size),
-            painter: _RingPainter(
-              progress: progress.clamp(0.0, 1.0),
-              strokeWidth: strokeWidth,
-              gradient: gradient ?? defaultGradient,
-              trackColor: trackColor ?? defaultTrack,
-            ),
+    final content = child ?? centerWidget;
+
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0.0, end: progress.clamp(0.0, 1.0)),
+      duration: const Duration(milliseconds: 900),
+      curve: Curves.easeOutCubic,
+      builder: (context, animatedProgress, _) {
+        return SizedBox(
+          width: size,
+          height: size,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              CustomPaint(
+                size: Size(size, size),
+                painter: _RingPainter(
+                  progress: animatedProgress,
+                  strokeWidth: strokeWidth,
+                  gradient: gradient ?? defaultGradient,
+                  trackColor: trackColor ?? defaultTrack,
+                ),
+              ),
+              if (content != null) content,
+            ],
           ),
-          if (centerWidget != null) centerWidget!,
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -101,13 +112,8 @@ class _RingPainter extends CustomPainter {
       ..strokeWidth = strokeWidth
       ..strokeCap = StrokeCap.round;
 
-    canvas.drawArc(
-      rect,
-      -math.pi / 2, // Start at top
-      sweepAngle,
-      false,
-      progressPaint,
-    );
+    // Start from top (-90 degrees)
+    canvas.drawArc(rect, -math.pi / 2, sweepAngle, false, progressPaint);
   }
 
   @override
@@ -117,4 +123,3 @@ class _RingPainter extends CustomPainter {
         oldDelegate.trackColor != trackColor;
   }
 }
-

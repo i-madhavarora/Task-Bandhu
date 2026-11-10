@@ -3,8 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/widgets/designer_pull_to_refresh.dart';
 import '../../models/project_model.dart';
 import '../../providers/project_provider.dart';
+import '../../services/firebase_sync_service.dart';
+import '../calling/video_call_screen.dart';
 
 class TeamChatScreen extends StatefulWidget {
   final ProjectModel project;
@@ -30,12 +33,14 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
 
+    final authorName = FirebaseSyncService.displayName.isNotEmpty ? FirebaseSyncService.displayName : 'Me';
+    final authorUid = FirebaseSyncService.userUid.isNotEmpty ? FirebaseSyncService.userUid : 'guest';
     context.read<ProjectProvider>().addMessage(
           widget.project.id,
           text,
-          'Madhav Arora',
-          'user_madhav',
-          role: 'Owner',
+          authorName,
+          authorUid,
+          FirebaseSyncService.isRealCloudUser ? 'Owner' : 'Guest',
         );
 
     _messageController.clear();
@@ -76,41 +81,82 @@ class _TeamChatScreenState extends State<TeamChatScreen> {
             ),
           ],
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(CupertinoIcons.phone_fill, color: AppColors.accentEmerald, size: 20),
+            tooltip: 'Audio Huddle',
+            onPressed: () {
+              Navigator.push(
+                context,
+                CupertinoPageRoute(
+                  builder: (_) => VideoCallScreen(
+                    roomName: '${widget.project.name} Audio Huddle',
+                    initialIsVideo: false,
+                    calleeName: widget.project.name,
+                  ),
+                ),
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(CupertinoIcons.videocam_fill, color: AppColors.primaryIndigo, size: 22),
+            tooltip: 'Video Huddle',
+            onPressed: () {
+              Navigator.push(
+                context,
+                CupertinoPageRoute(
+                  builder: (_) => VideoCallScreen(
+                    roomName: '${widget.project.name} Video Huddle',
+                    initialIsVideo: true,
+                    calleeName: widget.project.name,
+                  ),
+                ),
+              );
+            },
+          ),
+          const SizedBox(width: 4),
+        ],
       ),
       body: Column(
         children: [
           // Messages List
           Expanded(
-            child: messages.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(CupertinoIcons.chat_bubble_2_fill, size: 48, color: AppColors.primaryIndigo),
-                        const SizedBox(height: 12),
-                        Text(
-                          'Welcome to #${widget.project.name} Chat!',
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
-                        ),
-                        const SizedBox(height: 4),
-                        const Text(
-                          'Start the conversation with your team.',
-                          style: TextStyle(fontSize: 12, color: AppColors.lightTextMuted),
-                        ),
-                      ],
+            child: DesignerPullToRefresh(
+              onRefresh: () async {
+                await context.read<ProjectProvider>().syncWithFirestore();
+              },
+              child: messages.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(CupertinoIcons.chat_bubble_2_fill, size: 48, color: AppColors.primaryIndigo),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Welcome to #${widget.project.name} Chat!',
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                          ),
+                          const SizedBox(height: 4),
+                          const Text(
+                            'Start the conversation with your team.',
+                            style: TextStyle(fontSize: 12, color: AppColors.lightTextMuted),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      controller: _scrollController,
+                      physics: const BouncingScrollPhysics(),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      itemCount: messages.length,
+                      itemBuilder: (context, index) {
+                        final msg = messages[index];
+                        final myUid = FirebaseSyncService.userUid.isNotEmpty ? FirebaseSyncService.userUid : 'guest';
+                        final isMe = msg.authorUid == myUid;
+                        return _buildMessageBubble(context, msg, isMe);
+                      },
                     ),
-                  )
-                : ListView.builder(
-                    controller: _scrollController,
-                    physics: const BouncingScrollPhysics(),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    itemCount: messages.length,
-                    itemBuilder: (context, index) {
-                      final msg = messages[index];
-                      final isMe = msg.authorUid == 'user_madhav';
-                      return _buildMessageBubble(context, msg, isMe);
-                    },
-                  ),
+            ),
           ),
 
           // Message Composer

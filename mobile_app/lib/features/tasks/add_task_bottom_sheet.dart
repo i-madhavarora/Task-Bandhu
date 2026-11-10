@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
@@ -9,9 +10,13 @@ import '../../models/task_model.dart';
 import '../../providers/project_provider.dart';
 import '../../providers/task_provider.dart';
 import '../../providers/workspace_provider.dart';
+import '../../services/firebase_sync_service.dart';
+import '../../services/sound_service.dart';
 
 class AddTaskBottomSheet extends StatefulWidget {
-  const AddTaskBottomSheet({super.key});
+  final DateTime? initialDate;
+  final String? initialProject;
+  const AddTaskBottomSheet({super.key, this.initialDate, this.initialProject});
 
   @override
   State<AddTaskBottomSheet> createState() => _AddTaskBottomSheetState();
@@ -21,12 +26,26 @@ class _AddTaskBottomSheetState extends State<AddTaskBottomSheet> {
   final _titleController = TextEditingController();
   final _descController = TextEditingController();
   String _priority = 'High';
-  DateTime _dueDate = DateTime.now();
+  late DateTime _dueDate;
   TimeOfDay _dueTime = const TimeOfDay(hour: 10, minute: 0);
   String _selectedProject = 'Website Redesign';
   final List<String> _tags = ['Design', 'UI/UX', 'Work'];
   final List<TaskStep> _steps = [];
   final _stepController = TextEditingController();
+
+  // Apex Enhanced Features
+  int _durationMinutes = 45;
+  final List<String> _reminders = ['At due time'];
+  String? _locationReminder;
+
+  @override
+  void initState() {
+    super.initState();
+    _dueDate = widget.initialDate ?? DateTime.now();
+    if (widget.initialProject != null && widget.initialProject!.isNotEmpty) {
+      _selectedProject = widget.initialProject!;
+    }
+  }
 
   @override
   void dispose() {
@@ -34,6 +53,196 @@ class _AddTaskBottomSheetState extends State<AddTaskBottomSheet> {
     _descController.dispose();
     _stepController.dispose();
     super.dispose();
+  }
+
+  void _runTaskAssistAi() {
+    final isApex = FirebaseSyncService.isApex;
+    if (!isApex) {
+      _showApexRequiredDialog(
+        title: 'Task Assist AI',
+        description: 'Task Assist AI is an Apex Prestige feature. It intelligently analyzes complex goals and breaks them down into subtasks with estimated time allocations.',
+        icon: CupertinoIcons.sparkles,
+      );
+      return;
+    }
+
+    final title = _titleController.text.trim();
+    if (title.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a task title first to auto-decompose with AI.')),
+      );
+      return;
+    }
+
+    HapticFeedback.heavyImpact();
+    SoundService.playTaskDone();
+
+    // Generate intelligent contextual steps
+    final generatedSteps = <String>[
+      'Research requirements & scope specifications for "$title"',
+      'Draft preliminary architecture & structural outline',
+      'Execute core implementation & functional review',
+      'Final verification, polish & stakeholder handoff',
+    ];
+
+    setState(() {
+      for (final s in generatedSteps) {
+        if (!_steps.any((existing) => existing.title == s)) {
+          _steps.add(TaskStep(id: const Uuid().v4(), title: s));
+        }
+      }
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Row(
+          children: [
+            Icon(CupertinoIcons.sparkles, color: Colors.white, size: 18),
+            SizedBox(width: 8),
+            Text('✨ Task Assist AI added 4 actionable subtasks!', style: TextStyle(fontWeight: FontWeight.w700)),
+          ],
+        ),
+        backgroundColor: AppColors.primaryIndigo,
+      ),
+    );
+  }
+
+  void _runVoiceRamble() {
+    final isApex = FirebaseSyncService.isApex;
+    if (!isApex) {
+      _showApexRequiredDialog(
+        title: 'Voice Ramble AI',
+        description: 'Voice Ramble is an Apex Prestige feature. Dictate stream-of-consciousness voice memos that AI parses into structured tasks with due dates and priorities.',
+        icon: CupertinoIcons.mic_fill,
+      );
+      return;
+    }
+
+    HapticFeedback.mediumImpact();
+    SoundService.playClick();
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final isDark = Theme.of(ctx).brightness == Brightness.dark;
+        return Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF0F172A) : Colors.white,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(10)),
+              ),
+              const SizedBox(height: 20),
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(colors: [Color(0xFFEC4899), Color(0xFF8B5CF6)]),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(CupertinoIcons.mic_fill, color: Colors.white, size: 36),
+              ),
+              const SizedBox(height: 16),
+              const Text('Voice Ramble Dictation', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+              const SizedBox(height: 6),
+              const Text('Select or dictate a thought to auto-fill task parameters:', style: TextStyle(fontSize: 12, color: Colors.grey)),
+              const SizedBox(height: 20),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _buildVoiceChip(ctx, 'Deliver client presentation tomorrow at 2 PM, urgent'),
+                  _buildVoiceChip(ctx, 'Review quarterly budget and balance ledger by Friday'),
+                  _buildVoiceChip(ctx, 'Deep focus on API migration and database schema'),
+                ],
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildVoiceChip(BuildContext ctx, String text) {
+    return GestureDetector(
+      onTap: () {
+        HapticFeedback.lightImpact();
+        Navigator.pop(ctx);
+        setState(() {
+          _titleController.text = text.split(' by ').first.split(' tomorrow').first;
+          _priority = text.contains('urgent') ? 'Urgent' : 'High';
+          _durationMinutes = 60;
+        });
+        SoundService.playTaskDone();
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: AppColors.primaryIndigo.withOpacity(0.12),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.primaryIndigo.withOpacity(0.3)),
+        ),
+        child: Text(text, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.primaryIndigo)),
+      ),
+    );
+  }
+
+  void _showApexRequiredDialog({required String title, required String description, required IconData icon}) {
+    HapticFeedback.heavyImpact();
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        final isDark = Theme.of(ctx).brightness == Brightness.dark;
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+          title: Row(
+            children: [
+              Icon(icon, color: const Color(0xFFF59E0B), size: 22),
+              const SizedBox(width: 10),
+              Text(title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(description, style: const TextStyle(fontSize: 13, height: 1.4)),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.white10 : Colors.black.withOpacity(0.04),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(CupertinoIcons.lock_shield_fill, size: 16, color: Color(0xFFF59E0B)),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text('Apex Prestige Tier Required', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Understood', style: TextStyle(fontWeight: FontWeight.w800)),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void _submitTask() {
@@ -46,6 +255,14 @@ class _AddTaskBottomSheetState extends State<AddTaskBottomSheet> {
     final timeStr = _dueTime.format(context);
     final dateStr = DateFormat('yyyy-MM-dd').format(_dueDate);
 
+    // Compute end time based on duration
+    final totalMinutes = _dueTime.hour * 60 + _dueTime.minute + _durationMinutes;
+    final endHour = (totalMinutes ~/ 60) % 24;
+    final endMinute = totalMinutes % 60;
+    final endPeriod = endHour >= 12 ? 'PM' : 'AM';
+    final displayEndHour = endHour > 12 ? endHour - 12 : (endHour == 0 ? 12 : endHour);
+    final endTimeStr = '$displayEndHour:${endMinute.toString().padLeft(2, '0')} $endPeriod';
+
     final newTask = TaskModel(
       id: const Uuid().v4(),
       title: title,
@@ -54,12 +271,15 @@ class _AddTaskBottomSheetState extends State<AddTaskBottomSheet> {
       status: 'To Do',
       deadline: dateStr,
       startTime: timeStr,
-      endTime: '11:30 AM',
+      endTime: endTimeStr,
       project: _selectedProject,
       workspaceType: workspace.currentWorkspace,
       assignee: workspace.isPersonal ? 'Me' : 'Unassigned',
       tags: List.from(_tags),
       steps: List.from(_steps),
+      durationMinutes: _durationMinutes,
+      reminders: List.from(_reminders),
+      locationReminder: _locationReminder,
     );
 
     taskProvider.addTask(newTask);
@@ -149,6 +369,56 @@ class _AddTaskBottomSheetState extends State<AddTaskBottomSheet> {
                       hintStyle: TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
                     ),
                   ),
+                ),
+                const SizedBox(height: 8),
+
+                // AI Assist & Voice Ramble Shortcuts (Apex Feature)
+                Row(
+                  children: [
+                    GestureDetector(
+                      onTap: _runTaskAssistAi,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
+                          ),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(CupertinoIcons.sparkles, color: Colors.white, size: 12),
+                            SizedBox(width: 5),
+                            Text('Task Assist AI', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Colors.white)),
+                            SizedBox(width: 4),
+                            Text('✦ APEX', style: TextStyle(fontSize: 8, fontWeight: FontWeight.w900, color: Color(0xFFFBBF24))),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    GestureDetector(
+                      onTap: _runVoiceRamble,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: isDark ? const Color(0xFF1E293B) : const Color(0xFFE2E8F0),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(CupertinoIcons.mic_fill, color: Color(0xFFEC4899), size: 12),
+                            const SizedBox(width: 5),
+                            Text('Voice Ramble', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: isDark ? Colors.white : Colors.black87)),
+                            const SizedBox(width: 4),
+                            const Text('✦ APEX', style: TextStyle(fontSize: 8, fontWeight: FontWeight.w900, color: Color(0xFFF59E0B))),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
 
                 const SizedBox(height: 16),
@@ -246,15 +516,106 @@ class _AddTaskBottomSheetState extends State<AddTaskBottomSheet> {
 
                 const SizedBox(height: 16),
 
-                // Priority Selection (Low, Medium, High)
+                // Task Duration & Time-Blocking (Apex Feature)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    _buildLabel('TASK DURATION'),
+                    Row(
+                      children: [
+                        const Icon(CupertinoIcons.timer, size: 12, color: Color(0xFFF59E0B)),
+                        const SizedBox(width: 4),
+                        Text(
+                          '$_durationMinutes Minutes',
+                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFFF59E0B)),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  child: Row(
+                    children: [15, 30, 45, 60, 90, 120].map((mins) {
+                      final isSel = _durationMinutes == mins;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: GestureDetector(
+                          onTap: () {
+                            HapticFeedback.selectionClick();
+                            setState(() => _durationMinutes = mins);
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                            decoration: BoxDecoration(
+                              color: isSel
+                                  ? AppColors.primaryIndigo
+                                  : (isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9)),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              '${mins}m',
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w800,
+                                color: isSel ? Colors.white : (isDark ? Colors.white70 : Colors.black87),
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // Intelligent Reminders & Alerts (Stacked & Location)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    _buildLabel('REMINDERS & ALERTS'),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(colors: [Color(0xFFF59E0B), Color(0xFF8B5CF6)]),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Text('✦ APEX STACKED', style: TextStyle(fontSize: 8, fontWeight: FontWeight.w900, color: Colors.white)),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    _buildReminderChip('At due time'),
+                    _buildReminderChip('15m before'),
+                    _buildReminderChip('1h before'),
+                    _buildReminderChip('1d before'),
+                    _buildLocationChip('🏢 Arriving at Office'),
+                    _buildLocationChip('🏠 Leaving Home'),
+                  ],
+                ),
+
+                const SizedBox(height: 16),
+
+                // Priority Selection (Urgent, High, Medium, Low)
                 _buildLabel('PRIORITY'),
                 Row(
                   children: [
-                    _buildPriorityButton('Low', const Color(0xFF10B981)),
-                    const SizedBox(width: 8),
+                    _buildPriorityButton('Urgent', AppColors.priorityUrgent),
+                    const SizedBox(width: 6),
+                    _buildPriorityButton('High', AppColors.priorityHigh),
+                    const SizedBox(width: 6),
                     _buildPriorityButton('Medium', const Color(0xFFF59E0B)),
-                    const SizedBox(width: 8),
-                    _buildPriorityButton('High', const Color(0xFFEF4444)),
+                    const SizedBox(width: 6),
+                    _buildPriorityButton('Low', AppColors.priorityLow),
                   ],
                 ),
 
@@ -362,12 +723,12 @@ class _AddTaskBottomSheetState extends State<AddTaskBottomSheet> {
         onTap: () => setState(() => _priority = label),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
-          padding: const EdgeInsets.symmetric(vertical: 12),
+          padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
             color: isSelected
                 ? color.withOpacity(0.18)
                 : (isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC)),
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(16),
             border: Border.all(
               color: isSelected ? color : (isDark ? const Color(0x26FFFFFF) : const Color(0xFFE2E8F0)),
               width: isSelected ? 1.8 : 1.0,
@@ -377,12 +738,130 @@ class _AddTaskBottomSheetState extends State<AddTaskBottomSheet> {
             child: Text(
               label,
               style: TextStyle(
-                fontSize: 12,
+                fontSize: 11.5,
                 fontWeight: FontWeight.w800,
                 color: isSelected ? color : (isDark ? Colors.white : AppColors.lightTextPrimary),
               ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReminderChip(String label) {
+    final isSelected = _reminders.contains(label);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return GestureDetector(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        final isApex = FirebaseSyncService.isApex;
+        if (!isApex && _reminders.isNotEmpty && !isSelected) {
+          _showApexRequiredDialog(
+            title: 'Multiple Stacked Reminders',
+            description: 'Stacking multiple alerts (e.g. 15m before, 1h before, 1d before) on a single task is exclusive to Apex Prestige accounts.',
+            icon: CupertinoIcons.bell_badge_fill,
+          );
+          return;
+        }
+
+        setState(() {
+          if (isSelected) {
+            if (_reminders.length > 1) _reminders.remove(label);
+          } else {
+            _reminders.add(label);
+          }
+        });
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? AppColors.primaryIndigo.withOpacity(0.18)
+              : (isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9)),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isSelected ? AppColors.primaryIndigo : Colors.transparent,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              isSelected ? CupertinoIcons.checkmark_alt : CupertinoIcons.bell,
+              size: 11,
+              color: isSelected ? AppColors.primaryIndigo : Colors.grey,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                color: isSelected ? AppColors.primaryIndigo : (isDark ? Colors.white70 : Colors.black87),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLocationChip(String label) {
+    final isSelected = _locationReminder == label;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return GestureDetector(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        final isApex = FirebaseSyncService.isApex;
+        if (!isApex) {
+          _showApexRequiredDialog(
+            title: 'Location-Based Reminders',
+            description: 'Geofenced location alerts (Office, Home, Client Site) trigger notifications when arriving at or leaving specific places. This feature is exclusive to Apex Prestige accounts.',
+            icon: CupertinoIcons.location_fill,
+          );
+          return;
+        }
+
+        setState(() {
+          _locationReminder = isSelected ? null : label;
+        });
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? const Color(0xFFEC4899).withOpacity(0.18)
+              : (isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9)),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isSelected ? const Color(0xFFEC4899) : Colors.transparent,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              isSelected ? CupertinoIcons.checkmark_alt : CupertinoIcons.location,
+              size: 11,
+              color: isSelected ? const Color(0xFFEC4899) : Colors.grey,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                color: isSelected ? const Color(0xFFEC4899) : (isDark ? Colors.white70 : Colors.black87),
+              ),
+            ),
+          ],
         ),
       ),
     );

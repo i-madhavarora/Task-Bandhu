@@ -63,6 +63,10 @@ class AppTheme {
       elevation: 0,
       centerTitle: false,
     ),
+    bottomNavigationBarTheme: const BottomNavigationBarThemeData(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+    ),
   );
 
   static ThemeData darkTheme = ThemeData(
@@ -124,6 +128,10 @@ class AppTheme {
       backgroundColor: Colors.transparent,
       elevation: 0,
       centerTitle: false,
+    ),
+    bottomNavigationBarTheme: const BottomNavigationBarThemeData(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
     ),
   );
 }
