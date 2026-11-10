@@ -8,6 +8,7 @@ class TierLimits {
   final int maxLabels;
   final int maxFileUploadMb;
   final int maxPinnedTasks;
+  final int maxSubtasksPerTask;
   final int historyRetentionDays;
   final bool hasTableLayout;
   final bool hasFullCalendarGrid;
@@ -30,6 +31,7 @@ class TierLimits {
     required this.maxLabels,
     required this.maxFileUploadMb,
     required this.maxPinnedTasks,
+    required this.maxSubtasksPerTask,
     required this.historyRetentionDays,
     required this.hasTableLayout,
     required this.hasFullCalendarGrid,
@@ -55,6 +57,7 @@ class ApexTierService {
     maxLabels: 5,
     maxFileUploadMb: 5,
     maxPinnedTasks: 2,
+    maxSubtasksPerTask: 5,
     historyRetentionDays: 7,
     hasTableLayout: false,
     hasFullCalendarGrid: false,
@@ -78,6 +81,7 @@ class ApexTierService {
     maxLabels: 250,
     maxFileUploadMb: 100,
     maxPinnedTasks: 9999,
+    maxSubtasksPerTask: 9999, // Unlimited subtasks
     historyRetentionDays: 9999, // Unlimited
     hasTableLayout: true,
     hasFullCalendarGrid: true,
@@ -111,6 +115,10 @@ class ApexTierService {
 
   static bool canAddFilterView(int currentFilterCount) {
     return currentFilterCount < currentLimits.maxCustomFilterViews;
+  }
+
+  static bool canAddSubtask(int currentSubtaskCount) {
+    return currentSubtaskCount < currentLimits.maxSubtasksPerTask;
   }
 }
 

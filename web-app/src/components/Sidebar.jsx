@@ -2,10 +2,13 @@ import {
   Sun, Moon, LogOut, DownloadCloud, UploadCloud,
   CheckCircle2, Inbox, Folder, Users,
   Sparkles, Timer, BarChart3, Zap, Star, LayoutGrid, X,
-  Calendar, UserCheck, Plus, ShieldCheck, UserPlus, Lock
+  Calendar, UserCheck, Plus, ShieldCheck, UserPlus, Lock,
+  FileSpreadsheet, Clock
 } from 'lucide-react';
 import logoDark from '../assets/logo_d.png';
 import logoLight from '../assets/logo_l.png';
+import { getActiveFestival } from '../utils/festive';
+import { getResolvedAppLogo } from '../utils/appIcons';
 
 const PROJECT_COLOR_MAP = {
   blue: 'bg-blue-500',
@@ -39,9 +42,11 @@ export default function Sidebar({
   onClose,
   currentWorkspace = 'personal',
   onSwitchWorkspace,
-  pendingRequestsCount = 0
+  pendingRequestsCount = 0,
+  onOpenAppIconPicker
 }) {
   const isGuest = !!user?.isGuest;
+  const resolvedAppLogo = getResolvedAppLogo(isDarkMode);
 
   const smartViews = [
     { id: 'my-day', label: 'My Day', icon: Sun, badge: stats?.todayCount, color: 'text-amber-500' },
@@ -55,6 +60,9 @@ export default function Sidebar({
 
   const productivityItems = [
     { id: 'focus', label: 'Deep Focus', icon: Timer, color: 'text-blue-500' },
+    { id: 'table', label: 'Spreadsheet Table', icon: FileSpreadsheet, color: 'text-emerald-500', isApex: true },
+    { id: 'chronosync', label: 'ChronoSync AI', icon: Clock, color: 'text-indigo-400', isApex: true },
+    { id: 'stealth-vault', label: 'Stealth Vault', icon: ShieldCheck, color: 'text-amber-400', isApex: true },
     { id: 'eisenhower', label: 'Focus Matrix', icon: LayoutGrid, color: 'text-purple-500', guestHidden: true },
     { id: 'analytics', label: 'Reports & Analytics', icon: BarChart3, color: 'text-amber-500', guestHidden: true },
     { id: 'ai-assistant', label: 'AI Assistant', icon: Sparkles, color: 'text-purple-600 dark:text-purple-400', isHot: true, guestHidden: true },
@@ -84,8 +92,15 @@ export default function Sidebar({
         {/* Top Header */}
         <div className="shrink-0 p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800/80 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl overflow-hidden shrink-0 shadow-sm flex items-center justify-center">
-              <img src={isDarkMode ? logoDark : logoLight} alt="Task Bandhu Logo" className="w-full h-full object-cover" />
+            <div
+              onClick={onOpenAppIconPicker}
+              className="w-10 h-10 rounded-xl overflow-hidden shrink-0 shadow-sm flex items-center justify-center cursor-pointer hover:scale-105 transition-all group relative border border-slate-200/40 dark:border-white/10"
+              title="Customize App Icon & Preview Splash Screen"
+            >
+              <img src={resolvedAppLogo.src} alt="Task Bandhu Logo" className="w-full h-full object-cover" />
+              <div className="absolute inset-0 bg-indigo-600/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                <Sparkles size={14} className="text-white drop-shadow" />
+              </div>
             </div>
             <div>
               <div className="flex items-center gap-1.5">
@@ -279,6 +294,11 @@ export default function Sidebar({
                         ✦ AI
                       </span>
                     )}
+                    {item.isApex && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-md font-black bg-gradient-to-r from-amber-400 to-amber-500 text-amber-950 shadow-xs">
+                        ✦ APEX
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -361,6 +381,13 @@ export default function Sidebar({
             </div>
 
             <div className="flex items-center gap-1">
+              <button
+                onClick={onOpenAppIconPicker}
+                className="p-1.5 text-slate-500 dark:text-purple-400 hover:text-indigo-600 dark:hover:text-purple-300 hover:bg-white dark:hover:bg-white/[0.05] rounded-lg transition-colors"
+                title="Designer App Icons & Splash Screen"
+              >
+                <Sparkles size={15} />
+              </button>
               <button
                 onClick={() => setIsDarkMode(!isDarkMode)}
                 className="p-1.5 text-slate-500 dark:text-amber-400 hover:bg-white dark:hover:bg-white/[0.05] rounded-lg transition-colors"

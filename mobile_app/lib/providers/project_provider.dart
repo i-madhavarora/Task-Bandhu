@@ -139,6 +139,9 @@ class ProjectProvider extends ChangeNotifier {
     _projects.insert(0, project);
     notifyListeners();
     await _saveToStorage();
+    if (FirebaseSyncService.isRealCloudUser) {
+      FirebaseSyncService.saveProjectToFirestore(project);
+    }
     return true;
   }
 
@@ -148,6 +151,9 @@ class ProjectProvider extends ChangeNotifier {
       _projects[index] = updated;
       notifyListeners();
       await _saveToStorage();
+      if (FirebaseSyncService.isRealCloudUser) {
+        FirebaseSyncService.saveProjectToFirestore(updated);
+      }
     }
   }
 
@@ -156,5 +162,8 @@ class ProjectProvider extends ChangeNotifier {
     _projectChats.remove(id);
     notifyListeners();
     await _saveToStorage();
+    if (FirebaseSyncService.isRealCloudUser) {
+      FirebaseSyncService.deleteProjectFromFirestore(id);
+    }
   }
 }

@@ -50,10 +50,10 @@ export default function ProjectsView({
     return p.type === 'team';
   });
 
-  // Limit checks: Core max 2 projects, Apex max 10 projects
+  // Limit checks: Core max 5 projects, Apex max 300 projects
   // Limits strictly apply to projects created and owned by this user (being in shared teams does not consume your limit)
-  const maxProjectsAllowed = isApex ? (PLAN_LIMITS.APEX.customProjects || 10) : (PLAN_LIMITS.CORE.customProjects || 2);
-  const maxTeamMembersAllowed = isApex ? 50 : 20;
+  const maxProjectsAllowed = isApex ? (PLAN_LIMITS.APEX.customProjects || 300) : (PLAN_LIMITS.CORE.customProjects || 5);
+  const maxTeamMembersAllowed = isApex ? (PLAN_LIMITS.APEX.teamMembers || 25) : (PLAN_LIMITS.CORE.teamMembers || 5);
 
   const myUid = user?.uid || 'guest';
   const ownedProjects = useMemo(() => {
@@ -65,7 +65,7 @@ export default function ProjectsView({
   const handleOpenCreateModal = () => {
     if (ownedProjectsCount >= maxProjectsAllowed) {
       showToast?.(
-        `${isApex ? 'Apex' : 'Core'} Plan Limit: You can create and own up to ${maxProjectsAllowed} projects. ${!isApex ? 'Upgrade to Apex for up to 10 projects!' : ''}`,
+        `${isApex ? 'Apex' : 'Core'} Plan Limit: You have reached the personal project limit of ${maxProjectsAllowed}. ${!isApex ? 'Upgrade to Apex for up to 300 personal projects!' : ''}`,
         "warning"
       );
       if (!isApex) onOpenApexModal?.();

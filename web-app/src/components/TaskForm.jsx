@@ -1,11 +1,12 @@
-import { useState, useRef, useMemo } from 'react';
+import { useState, useRef, useMemo, useEffect } from 'react';
 import {
   X, Calendar, Tag, AlertCircle, AlignLeft, Sparkles, ChevronDown, Check,
   Paperclip, MessageSquare, Send, Repeat, Clock, Folder, UserPlus, Link as LinkIcon,
-  Bell, Lock, CheckCircle2, Trash2, Plus
+  Bell, Lock, CheckCircle2, Trash2, Plus, Mic, MapPin, Navigation, ExternalLink
 } from 'lucide-react';
 import { collection, addDoc, doc, updateDoc, setDoc, deleteDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
+import { PLAN_LIMITS, isApexPlan } from '../utils/planLimits';
 
 const CustomDropdown = ({ options, value, onChange, onOpenChange }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -70,12 +71,13 @@ export default function TaskForm({
   prefilledPriority = '',
   allProjects = [],
   activeWorkspaceId = '',
-  _isApex = false,
-  _onOpenApexModal,
+  isApex: isApexProp = false,
+  onOpenApexModal,
   onNotifyTeammate,
   currentWorkspace = 'personal',
   connections = []
 }) {
+  const isApex = Boolean(isApexProp || isApexPlan(user?.plan));
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [newComment, setNewComment] = useState('');
 
@@ -115,10 +117,181 @@ export default function TaskForm({
     pinned: !!taskToEdit?.pinned,
     comments: taskToEdit?.comments || [],
     steps: Array.isArray(taskToEdit?.steps) ? taskToEdit.steps : [],
-    recurrence: taskToEdit?.recurrence || 'None'
+    recurrence: taskToEdit?.recurrence || 'None',
+    durationMinutes: taskToEdit?.durationMinutes || 45,
+    reminders: Array.isArray(taskToEdit?.reminders) ? taskToEdit.reminders : ['At due time'],
+    locationReminder: taskToEdit?.locationReminder || '',
+    voiceNote: taskToEdit?.voiceNote || ''
   }));
 
   const [newStepText, setNewStepText] = useState('');
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [liveTranscript, setLiveTranscript] = useState('');
+  const recognitionRef = useRef(null);
+  const transcriptBufferRef = useRef('');
+
+  // Cleanup speech recognition on unmount
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch {}
+      }
+    };
+  }, []);
+
+  const parseVoiceRamble = (rawText, currentTask) => {
+    const cleaned = (rawText || '').trim();
+    if (!cleaned) return null;
+
+    let title = currentTask.title || '';
+    let description = currentTask.description || '';
+    let priority = currentTask.priority || 'Medium';
+    let dueDate = currentTask.dueDate;
+
+    const lower = cleaned.toLowerCase();
+
+    // 1. Detect priority keywords
+    if (/\b(urgent|critical|p1)\b/i.test(lower)) {
+      priority = 'Urgent';
+    } else if (/\b(high priority|important|p2)\b/i.test(lower)) {
+      priority = 'High';
+    } else if (/\b(low priority|p4)\b/i.test(lower)) {
+      priority = 'Low';
+    }
+
+    // 2. Detect due date keywords
+    const now = new Date();
+    if (/\b(due tomorrow|tomorrow)\b/i.test(lower)) {
+      const tomorrow = new Date(now);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      dueDate = tomorrow.toISOString().split('T')[0];
+    } else if (/\b(due today|today)\b/i.test(lower)) {
+      dueDate = now.toISOString().split('T')[0];
+    } else if (/\b(next week)\b/i.test(lower)) {
+      const nextWeek = new Date(now);
+      nextWeek.setDate(nextWeek.getDate() + 7);
+      dueDate = nextWeek.toISOString().split('T')[0];
+    }
+
+    // 3. Strip metadata tags from candidate title
+    let candidate = cleaned
+      .replace(/\b(due tomorrow|due today|next week|tomorrow|today)\b/gi, '')
+      .replace(/\b(high priority|low priority|urgent priority|urgent|critical|priority medium)\b/gi, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+
+    if (!candidate) candidate = cleaned;
+
+    if (!title.trim()) {
+      // If user spoke multiple sentences (e.g., "Math homework. Do pages 40 to 45.")
+      const sentences = candidate.split(/[.!?]\s+/).filter(Boolean);
+      if (sentences.length > 1) {
+        title = sentences[0].trim();
+        const extraNotes = sentences.slice(1).join('. ').trim();
+        description = description ? `${description}\n\n${extraNotes}` : extraNotes;
+      } else {
+        title = candidate;
+      }
+      // Capitalize first letter of title
+      title = title.charAt(0).toUpperCase() + title.slice(1);
+    } else {
+      // Title already set, append clean thought to description
+      description = description ? `${description}\n\n${cleaned}` : cleaned;
+    }
+
+    return {
+      title,
+      description,
+      priority,
+      dueDate,
+      voiceNote: cleaned
+    };
+  };
+
+  const handleVoiceRamble = () => {
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRec) {
+      showToast?.("Speech recognition is not available in this browser window. Please type directly.", "warning");
+      return;
+    }
+
+    if (isRecordingVoice) {
+      // User tapped Stop
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch {}
+      }
+      setIsRecordingVoice(false);
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRec();
+      recognition.lang = 'en-US';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+
+      transcriptBufferRef.current = '';
+      setLiveTranscript('');
+
+      recognition.onstart = () => {
+        setIsRecordingVoice(true);
+        showToast?.("🎙️ Voice Ramble active... Speak your task naturally.", "info");
+      };
+
+      recognition.onresult = (event) => {
+        let interimText = '';
+        let finalText = '';
+        for (let i = 0; i < event.results.length; ++i) {
+          const res = event.results[i];
+          if (res.isFinal) {
+            finalText += res[0].transcript + ' ';
+          } else {
+            interimText += res[0].transcript + ' ';
+          }
+        }
+        const combined = (finalText + interimText).trim();
+        transcriptBufferRef.current = combined;
+        setLiveTranscript(combined);
+      };
+
+      recognition.onerror = (e) => {
+        console.warn('SpeechRecognition error:', e);
+        setIsRecordingVoice(false);
+        setLiveTranscript('');
+        if (e.error !== 'no-speech') {
+          showToast?.("Microphone error or permission not granted.", "error");
+        }
+      };
+
+      recognition.onend = () => {
+        setIsRecordingVoice(false);
+        const finalSpoken = transcriptBufferRef.current.trim();
+        if (finalSpoken) {
+          setTask(prev => {
+            const parsed = parseVoiceRamble(finalSpoken, prev);
+            return parsed ? { ...prev, ...parsed } : prev;
+          });
+          showToast?.("✨ Voice Ramble parsed into task!", "success");
+        }
+        setLiveTranscript('');
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch {
+      setIsRecordingVoice(false);
+      showToast?.("Could not start voice recognition.", "error");
+    }
+  };
+
+  const maxSteps = isApex ? (PLAN_LIMITS.APEX.subtasksPerTask || Infinity) : (PLAN_LIMITS.CORE.subtasksPerTask || 5);
+  const currentStepsCount = (task.steps || []).length;
+  const isStepLimitReached = !isApex && currentStepsCount >= maxSteps;
 
   const handleToggleStep = (stepId) => {
     setTask(prev => ({
@@ -134,6 +307,13 @@ export default function TaskForm({
     }
     const trimmed = newStepText.trim();
     if (!trimmed) return;
+
+    if (isStepLimitReached) {
+      showToast?.(`Core plan allows up to ${maxSteps} subtasks per task. Upgrade to Apex Prestige for unlimited subtasks.`, "warning");
+      onOpenApexModal?.();
+      return;
+    }
+
     const newStep = {
       id: 'step_' + Date.now(),
       title: trimmed,
@@ -153,20 +333,48 @@ export default function TaskForm({
     }));
   };
 
-  // BASE64 UPLOAD LOGIC
+  const handleDetectGPS = () => {
+    if (!navigator.geolocation) {
+      showToast?.("Geolocation not supported by this browser.", "warning");
+      return;
+    }
+    showToast?.("Detecting GPS coordinates...", "info");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        const coordsStr = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+        setTask(prev => ({
+          ...prev,
+          locationCoords: { lat: latitude, lng: longitude },
+          locationAddress: prev.locationAddress || `Current GPS Pin (${coordsStr})`
+        }));
+        showToast?.(`📍 GPS Pin Captured: ${coordsStr} (200m Geofence Active)`, "success");
+      },
+      () => {
+        showToast?.("Could not retrieve GPS location. Please check browser permissions.", "warning");
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  // UPLOAD LOGIC with Apex limits (100MB for Apex vs 5MB for Core)
   const handleFileUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 750 * 1024) {
-      showToast("File too large (Max 750KB). Please paste a Google Drive link instead.", "error");
+    const maxMb = isApex ? 100 : 5;
+    if (file.size > maxMb * 1024 * 1024) {
+      showToast(
+        `${isApex ? 'Apex' : 'Core'} limit exceeded. Max file size is ${maxMb} MB. ${!isApex ? 'Apex Prestige unlocks 100 MB uploads.' : ''}`,
+        "error"
+      );
       return;
     }
 
     const reader = new FileReader();
     reader.onloadend = () => {
       setTask(prev => ({ ...prev, attachmentLink: reader.result, attachmentName: file.name }));
-      showToast("File attached successfully!", "success");
+      showToast(`File "${file.name}" attached successfully!`, "success");
     };
     reader.readAsDataURL(file);
   };
@@ -178,6 +386,14 @@ export default function TaskForm({
       showToast("Please enter a task title first to generate breakdown steps.", "warning");
       return;
     }
+
+    const remainingSlots = isApex ? Infinity : Math.max(0, maxSteps - (task.steps || []).length);
+    if (remainingSlots <= 0) {
+      showToast?.(`Core tier limit reached (${maxSteps}/${maxSteps} subtasks). Upgrade to Apex for unlimited subtasks.`, "warning");
+      onOpenApexModal?.();
+      return;
+    }
+
     const lower = title.toLowerCase();
     let generatedSteps;
     if (lower.includes('study') || lower.includes('learn') || lower.includes('read') || lower.includes('dsa') || lower.includes('exam')) {
@@ -210,7 +426,12 @@ export default function TaskForm({
       ];
     }
 
-    const newSteps = generatedSteps.map((stepTitle, idx) => ({
+    let toAdd = generatedSteps;
+    if (!isApex && toAdd.length > remainingSlots) {
+      toAdd = toAdd.slice(0, remainingSlots);
+    }
+
+    const newSteps = toAdd.map((stepTitle, idx) => ({
       id: 'step_' + Date.now() + '_' + idx,
       title: stepTitle,
       completed: false
@@ -220,7 +441,12 @@ export default function TaskForm({
       ...prev,
       steps: [...(prev.steps || []), ...newSteps]
     }));
-    showToast(`Generated ${newSteps.length} breakdown steps!`, "success");
+    
+    if (!isApex && generatedSteps.length > remainingSlots) {
+      showToast(`Added ${newSteps.length} subtasks (Core limit of ${maxSteps} reached). Upgrade to Apex for unlimited subtasks!`, "info");
+    } else {
+      showToast(`Generated ${newSteps.length} breakdown steps!`, "success");
+    }
   };
 
   // Immediate Team Activity Comment Posting
@@ -568,7 +794,35 @@ export default function TaskForm({
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5">Task Title</label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-sm font-semibold text-gray-700 dark:text-slate-300">Task Title</label>
+                <button
+                  type="button"
+                  onClick={handleVoiceRamble}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                    isRecordingVoice
+                      ? 'bg-rose-500 text-white shadow-md shadow-rose-500/30 ring-2 ring-rose-400'
+                      : 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 border border-indigo-200 dark:border-indigo-800/40'
+                  }`}
+                  title="Dictate task title & notes with AI Voice Ramble"
+                >
+                  <Mic size={13} className={isRecordingVoice ? 'animate-bounce text-white' : ''} />
+                  <span>{isRecordingVoice ? 'Listening (Click to Stop)' : 'Voice Ramble'}</span>
+                  {isApex && <span className="text-[9px] font-black uppercase text-amber-500">✦</span>}
+                </button>
+              </div>
+
+              {/* Live Voice Preview Bar */}
+              {isRecordingVoice && (
+                <div className="mb-2.5 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-xs flex items-center gap-2.5 animate-in fade-in">
+                  <div className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping shrink-0" />
+                  <span className="font-bold shrink-0">Listening:</span>
+                  <span className="italic truncate text-slate-800 dark:text-slate-200">
+                    {liveTranscript ? `"${liveTranscript}"` : 'Speak naturally (e.g. "Cs assignment due tomorrow high priority")...'}
+                  </span>
+                </div>
+              )}
+
               <input
                 type="text"
                 required
@@ -586,11 +840,18 @@ export default function TaskForm({
                   <CheckCircle2 size={14} className="text-indigo-500" /> Steps
                 </span>
                 <div className="flex items-center gap-2">
-                  {(task.steps || []).length > 0 && (
-                    <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
-                      {(task.steps || []).filter(s => s.completed).length} of {(task.steps || []).length} completed
-                    </span>
-                  )}
+                  <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                    {(task.steps || []).filter(s => s.completed).length} of {(task.steps || []).length} completed
+                    {!isApex && (
+                      <span className={`ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-black ${
+                        isStepLimitReached
+                          ? 'bg-amber-500/15 text-amber-500 border border-amber-500/30'
+                          : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                      }`}>
+                        {isStepLimitReached ? '🔒 ' : ''}{(task.steps || []).length}/{maxSteps}
+                      </span>
+                    )}
+                  </span>
                   <button
                     type="button"
                     onClick={handleAIBreakdown}
@@ -655,26 +916,44 @@ export default function TaskForm({
                 </div>
               )}
 
-              {/* Add Step Input */}
-              <div className="flex items-center gap-2 pt-1">
-                <Plus size={14} className="text-slate-400 shrink-0" />
-                <input
-                  type="text"
-                  value={newStepText}
-                  onChange={(e) => setNewStepText(e.target.value)}
-                  onKeyDown={handleAddStep}
-                  placeholder="Next step... (press Enter ↵)"
-                  className="flex-1 bg-transparent text-xs font-medium outline-none text-slate-800 dark:text-white placeholder:text-slate-400"
-                />
-                <button
-                  type="button"
-                  onClick={() => handleAddStep()}
-                  disabled={!newStepText.trim()}
-                  className="px-2.5 py-1 rounded-lg bg-indigo-600 text-white text-[11px] font-bold disabled:opacity-30 hover:bg-indigo-700 transition-colors shrink-0"
-                >
-                  Add Step
-                </button>
-              </div>
+              {/* Add Step Input or Core Limit Notice */}
+              {isStepLimitReached ? (
+                <div className="flex items-center justify-between gap-2.5 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400">
+                  <div className="flex items-center gap-2 text-xs font-semibold min-w-0">
+                    <Lock size={14} className="shrink-0 text-amber-500" />
+                    <span className="truncate">
+                      Core tier allows up to <strong>{maxSteps} subtasks</strong> per task. Upgrade to Apex for unlimited subtasks.
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onOpenApexModal?.()}
+                    className="px-2.5 py-1 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-black text-[11px] hover:opacity-90 transition-opacity shrink-0 shadow-sm"
+                  >
+                    Upgrade ✦
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 pt-1">
+                  <Plus size={14} className="text-slate-400 shrink-0" />
+                  <input
+                    type="text"
+                    value={newStepText}
+                    onChange={(e) => setNewStepText(e.target.value)}
+                    onKeyDown={handleAddStep}
+                    placeholder={!isApex ? `Next step... (${maxSteps - currentStepsCount} remaining on Core)` : "Next step... (press Enter ↵)"}
+                    className="flex-1 bg-transparent text-xs font-medium outline-none text-slate-800 dark:text-white placeholder:text-slate-400"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleAddStep()}
+                    disabled={!newStepText.trim()}
+                    className="px-2.5 py-1 rounded-lg bg-indigo-600 text-white text-[11px] font-bold disabled:opacity-30 hover:bg-indigo-700 transition-colors shrink-0"
+                  >
+                    Add Step
+                  </button>
+                </div>
+              )}
             </div>
 
             <div>
@@ -782,8 +1061,180 @@ export default function TaskForm({
                   onClick={() => fileInputRef.current?.click()}
                   className="w-full border-2 border-dashed border-blue-200 dark:border-blue-900/50 bg-blue-50/50 dark:bg-blue-900/10 rounded-xl py-2.5 text-center text-sm font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors flex items-center justify-center gap-2"
                 >
-                  {task.attachmentName ? (task.attachmentName.length > 15 ? task.attachmentName.substring(0, 15) + '...' : task.attachmentName) : 'Upload (<750KB)'}
+                  {task.attachmentName
+                    ? (task.attachmentName.length > 15 ? task.attachmentName.substring(0, 15) + '...' : task.attachmentName)
+                    : (isApex ? 'Upload (Max 100MB)' : 'Upload (Max 5MB)')}
                 </button>
+              </div>
+            </div>
+
+            {/* Apex Duration / Time-Blocking */}
+            <div className="border-t border-gray-100 dark:border-slate-800 pt-4">
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="flex items-center gap-1.5 text-xs font-bold text-gray-700 dark:text-slate-300">
+                  <Clock size={14} className="text-indigo-500" /> Duration (Time-Blocking)
+                </label>
+                <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 text-amber-950">
+                  ✦ APEX
+                </span>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                {[15, 30, 45, 60, 90, 120].map(mins => {
+                  const isSelected = (task.durationMinutes || 45) === mins;
+                  return (
+                    <button
+                      key={mins}
+                      type="button"
+                      onClick={() => {
+                        if (!isApex) {
+                          showToast?.("✦ Custom Task Durations are an Apex feature. Standard default is 45m.", "info");
+                          return;
+                        }
+                        setTask(prev => ({ ...prev, durationMinutes: mins }));
+                      }}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all ${
+                        isSelected
+                          ? 'bg-indigo-600 text-white shadow-sm ring-2 ring-indigo-500/30'
+                          : 'bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-400 hover:bg-gray-200 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      {mins >= 60 ? `${mins / 60}h` : `${mins}m`}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Apex Intelligent Reminders */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-gray-100 dark:border-slate-800 pt-4">
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="flex items-center gap-1.5 text-xs font-bold text-gray-700 dark:text-slate-300">
+                    <Bell size={14} className="text-amber-500" /> Multiple Reminders
+                  </label>
+                  <span className="text-[9px] font-black uppercase text-amber-500">✦ APEX</span>
+                </div>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {['At due time', '15m before', '1 hour before', '1 day before'].map(rem => {
+                    const active = (task.reminders || []).includes(rem);
+                    return (
+                      <button
+                        key={rem}
+                        type="button"
+                        onClick={() => {
+                          if (!isApex && rem !== 'At due time') {
+                            showToast?.("✦ Stacking multiple reminders is exclusive to Apex accounts.", "info");
+                            return;
+                          }
+                          setTask(prev => {
+                            const cur = prev.reminders || ['At due time'];
+                            const next = cur.includes(rem) ? cur.filter(r => r !== rem) : [...cur, rem];
+                            return { ...prev, reminders: next.length > 0 ? next : ['At due time'] };
+                          });
+                        }}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${
+                          active
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-400 hover:bg-gray-200 dark:hover:bg-slate-700'
+                        }`}
+                      >
+                        {rem}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="flex items-center gap-1.5 text-xs font-bold text-gray-700 dark:text-slate-300">
+                    <MapPin size={14} className="text-rose-500" /> Location Reminder
+                  </label>
+                  <span className="text-[9px] font-black uppercase text-amber-500">✦ APEX</span>
+                </div>
+                <select
+                  value={task.locationReminder || ''}
+                  onChange={(e) => {
+                    if (!isApex && e.target.value) {
+                      onOpenApexModal?.();
+                      showToast?.("✦ Geofence location alerts are exclusive to Apex.", "info");
+                      return;
+                    }
+                    setTask(prev => ({ ...prev, locationReminder: e.target.value }));
+                  }}
+                  className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-gray-800 dark:text-white outline-none"
+                >
+                  <option value="">No Location Alert</option>
+                  <option value="Office">📍 Arrive at Office</option>
+                  <option value="Home">📍 Return Home</option>
+                  <option value="Client Site">📍 Client / Field Site</option>
+                  <option value="Custom">📍 Custom Location Pin</option>
+                </select>
+
+                {task.locationReminder && (
+                  <div className="mt-2 p-2.5 rounded-xl bg-purple-50/50 dark:bg-purple-950/20 border border-purple-200/50 dark:border-purple-900/30 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        placeholder="Enter address, building, or place name..."
+                        value={task.locationAddress || ''}
+                        onChange={(e) => setTask(prev => ({ ...prev, locationAddress: e.target.value }))}
+                        className="flex-1 bg-white dark:bg-slate-900 border border-purple-200 dark:border-purple-800/40 rounded-lg px-2.5 py-1.5 text-xs text-gray-800 dark:text-white outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleDetectGPS}
+                        title="Use Current GPS Coordinates"
+                        className="px-2.5 py-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-lg text-xs font-bold flex items-center gap-1 shrink-0 transition-colors shadow-xs"
+                      >
+                        <Navigation size={12} />
+                        <span>GPS</span>
+                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] pt-0.5">
+                      <div className="flex items-center gap-1">
+                        <span className="text-gray-500 dark:text-slate-400 font-medium">Trigger:</span>
+                        <button
+                          type="button"
+                          onClick={() => setTask(prev => ({ ...prev, locationTrigger: 'arrive' }))}
+                          className={`px-2 py-0.5 rounded-md font-bold transition-colors ${
+                            (!task.locationTrigger || task.locationTrigger === 'arrive')
+                              ? 'bg-purple-600 text-white'
+                              : 'bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-400'
+                          }`}
+                        >
+                          On Arrive (200m)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setTask(prev => ({ ...prev, locationTrigger: 'leave' }))}
+                          className={`px-2 py-0.5 rounded-md font-bold transition-colors ${
+                            task.locationTrigger === 'leave'
+                              ? 'bg-purple-600 text-white'
+                              : 'bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-400'
+                          }`}
+                        >
+                          On Leave
+                        </button>
+                      </div>
+
+                      {(task.locationAddress || task.locationCoords) && (
+                        <a
+                          href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                            task.locationAddress || (task.locationCoords ? `${task.locationCoords.lat},${task.locationCoords.lng}` : '')
+                          )}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-purple-600 dark:text-purple-400 hover:underline flex items-center gap-0.5 font-bold"
+                        >
+                          <ExternalLink size={11} />
+                          <span>View Map</span>
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 

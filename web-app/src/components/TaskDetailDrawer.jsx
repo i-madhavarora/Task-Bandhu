@@ -1,7 +1,8 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   X, Check, Sun, Star, Calendar, Repeat, Folder, Users,
-  Paperclip, Trash2, Send, Plus, CheckCircle2, MessageSquare, AlertCircle, FileText
+  Paperclip, Trash2, Send, Plus, CheckCircle2, MessageSquare, AlertCircle, FileText,
+  Sparkles, MapPin, Navigation, ExternalLink, Bell, Clock, Link as LinkIcon, Mic, Pencil
 } from 'lucide-react';
 import { isTaskOverdue, isTaskDueToday, getLocalTodayStr } from '../utils/dateUtils';
 
@@ -13,26 +14,149 @@ export default function TaskDetailDrawer({
   onUpdateStatus,
   onTogglePin,
   onDeleteTask,
+  onEditTask,
   user,
   allAssignees = [],
   allProjects = [],
   currentWorkspace = 'personal',
   showToast,
-  onNotifyTeammate
+  onNotifyTeammate,
+  isApex = false,
+  onOpenApexModal
 }) {
-  const [prevTaskId, setPrevTaskId] = useState(task?.id);
   const [title, setTitle] = useState(task?.title || '');
   const [description, setDescription] = useState(task?.description || '');
   const [newStepText, setNewStepText] = useState('');
   const [newComment, setNewComment] = useState('');
   const [isUploading, setIsUploading] = useState(false);
+  const [isGeneratingSteps, setIsGeneratingSteps] = useState(false);
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [liveTranscript, setLiveTranscript] = useState('');
+  const recognitionRef = useRef(null);
+  const transcriptBufferRef = useRef('');
   const fileInputRef = useRef(null);
 
-  if (task && task.id !== prevTaskId) {
-    setPrevTaskId(task.id);
-    setTitle(task.title || '');
-    setDescription(task.description || '');
-  }
+  useEffect(() => {
+    if (task) {
+      setTitle(task.title || '');
+      setDescription(task.description || '');
+    }
+  }, [task?.id]);
+
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch {}
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose?.();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
+  const handleVoiceRamble = () => {
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRec) {
+      showToast?.("Speech recognition is not supported in this browser.", "warning");
+      return;
+    }
+
+    if (isRecordingVoice) {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch {}
+      }
+      setIsRecordingVoice(false);
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRec();
+      recognition.lang = 'en-US';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+
+      transcriptBufferRef.current = '';
+      setLiveTranscript('');
+
+      recognition.onstart = () => {
+        setIsRecordingVoice(true);
+        showToast?.("🎙️ Voice Ramble active... Speak your updates.", "info");
+      };
+
+      recognition.onresult = (event) => {
+        let interimText = '';
+        let finalText = '';
+        for (let i = 0; i < event.results.length; ++i) {
+          const res = event.results[i];
+          if (res.isFinal) {
+            finalText += res[0].transcript + ' ';
+          } else {
+            interimText += res[0].transcript + ' ';
+          }
+        }
+        const combined = (finalText + interimText).trim();
+        transcriptBufferRef.current = combined;
+        setLiveTranscript(combined);
+      };
+
+      recognition.onerror = (e) => {
+        setIsRecordingVoice(false);
+        setLiveTranscript('');
+        if (e.error !== 'no-speech') {
+          showToast?.("Microphone error or permission not granted.", "error");
+        }
+      };
+
+      recognition.onend = () => {
+        setIsRecordingVoice(false);
+        const finalSpoken = transcriptBufferRef.current.trim();
+        if (finalSpoken && task) {
+          const lower = finalSpoken.toLowerCase();
+          const updates = { voiceNote: finalSpoken };
+
+          if (!title.trim()) {
+            const formatted = finalSpoken.charAt(0).toUpperCase() + finalSpoken.slice(1);
+            setTitle(formatted);
+            updates.title = formatted;
+          } else {
+            const updatedDesc = description ? `${description}\n\n${finalSpoken}` : finalSpoken;
+            setDescription(updatedDesc);
+            updates.description = updatedDesc;
+          }
+
+          if (/\b(urgent|critical|p1)\b/i.test(lower)) {
+            updates.priority = 'Urgent';
+          } else if (/\b(high priority|important)\b/i.test(lower)) {
+            updates.priority = 'High';
+          }
+
+          onUpdateTaskField(task.id, updates);
+          showToast?.("✨ Voice Ramble saved to task!", "success");
+        }
+        setLiveTranscript('');
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch {
+      setIsRecordingVoice(false);
+      showToast?.("Could not start voice recognition.", "error");
+    }
+  };
+
+
 
   const isTeamTask = Boolean(
     task?.workspaceType === 'team' ||
@@ -59,9 +183,22 @@ export default function TaskDetailDrawer({
       const names = matchedProj.members.map(m => m.displayName || m.name || m.email).filter(Boolean);
       availableAssignees = Array.from(new Set(['Me', ...names]));
     } else {
-      availableAssignees = Array.from(new Set(['Me', ...allAssignees]));
+      const safeAssignees = (allAssignees || []).map(a => (typeof a === 'object' ? (a?.name || a?.displayName || a?.email) : a)).filter(Boolean);
+      availableAssignees = Array.from(new Set(['Me', ...safeAssignees]));
     }
   }
+
+  const projectChoices = (function() {
+    const list = Array.isArray(allProjects) ? allProjects : [];
+    const names = list.map(p => (typeof p === 'object' ? p?.name : p)).filter(Boolean);
+    const defaultName = currentWorkspace === 'team' ? 'Team Workspace' : 'Personal Inbox';
+    const set = new Set([defaultName, ...names]);
+    if (task?.project) {
+      const cleanP = task.project === 'General Workspace' ? 'Personal Inbox' : task.project;
+      set.add(cleanP);
+    }
+    return Array.from(set);
+  })();
 
   if (!isOpen || !task) return null;
 
@@ -109,6 +246,96 @@ export default function TaskDetailDrawer({
   const handleDeleteStep = (stepId) => {
     const nextSteps = steps.filter(s => s.id !== stepId);
     onUpdateTaskField(task.id, { steps: nextSteps });
+  };
+
+  const handleAIBreakdown = () => {
+    const rawTitle = (title || task.title || '').trim();
+    if (!rawTitle) {
+      showToast?.("Please enter a task title first", "info");
+      return;
+    }
+    setIsGeneratingSteps(true);
+    setTimeout(() => {
+      const lower = rawTitle.toLowerCase();
+      let generated = [];
+
+      if (lower.includes('website') || lower.includes('landing') || lower.includes('page') || lower.includes('app')) {
+        generated = [
+          'Wireframe key sections & responsive layout',
+          'Write high-converting headline & sales copy',
+          'Implement UI components with styling & accessibility',
+          'Integrate form submission & cloud database',
+          'Perform cross-browser QA & lighthouse speed audit'
+        ];
+      } else if (lower.includes('bug') || lower.includes('fix') || lower.includes('issue') || lower.includes('error')) {
+        generated = [
+          'Reproduce issue and inspect console / network error logs',
+          'Isolate offending component and write reproduction test case',
+          'Implement code patch resolving root cause',
+          'Run regression test suite to ensure zero regressions'
+        ];
+      } else if (lower.includes('meet') || lower.includes('interview') || lower.includes('call') || lower.includes('presentation')) {
+        generated = [
+          'Draft meeting agenda & key discussion bullet points',
+          'Prepare slide deck & demo walkthrough materials',
+          'Send calendar invites & reminder with agenda link',
+          'Record follow-up action items and distribute meeting minutes'
+        ];
+      } else if (lower.includes('clean') || lower.includes('refactor') || lower.includes('audit')) {
+        generated = [
+          'Review current structure and catalog technical debt',
+          'Refactor high-complexity modules & eliminate duplicate code',
+          'Strengthen validation & security rules',
+          'Benchmark performance before and after'
+        ];
+      } else {
+        const parts = rawTitle.split(/,|\band\b|\bwith\b|\bincluding\b/i).map(s => s.trim()).filter(s => s.length > 2);
+        if (parts.length > 1) {
+          generated = parts.map(p => p.charAt(0).toUpperCase() + p.slice(1));
+        } else {
+          generated = [
+            `Define scope & requirements for "${rawTitle}"`,
+            'Execute primary deliverables & core implementation',
+            'Conduct quality review & test edge cases',
+            'Finalize documentation & complete handoff'
+          ];
+        }
+      }
+
+      const newStepObjs = generated.map((st, i) => ({
+        id: 'step_' + Date.now() + '_' + i,
+        title: st,
+        completed: false
+      }));
+
+      const nextSteps = [...steps, ...newStepObjs];
+      onUpdateTaskField(task.id, { steps: nextSteps });
+      setIsGeneratingSteps(false);
+      showToast?.(`✨ Generated ${generated.length} actionable steps!`, "success");
+    }, 550);
+  };
+
+  const handleDetectGPS = () => {
+    if (!navigator.geolocation) {
+      showToast?.("Geolocation not supported by this browser.", "warning");
+      return;
+    }
+    showToast?.("Detecting current coordinates...", "info");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        const coordsStr = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+        onUpdateTaskField(task.id, {
+          locationCoords: { lat: latitude, lng: longitude },
+          locationAddress: task.locationAddress || `Current GPS Pin (${coordsStr})`
+        });
+        showToast?.(`📍 GPS Pin Captured: ${coordsStr} (200m Geofence Active)`, "success");
+      },
+      () => {
+        showToast?.("Could not retrieve GPS location. Please check browser permissions.", "warning");
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
   };
 
   const handleToggleMyDay = () => {
@@ -206,7 +433,7 @@ export default function TaskDetailDrawer({
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-[200] lg:hidden transition-opacity animate-in fade-in"
+        className="fixed inset-0 bg-slate-950/50 backdrop-blur-xs z-[200] transition-opacity animate-in fade-in"
         onClick={onClose}
       />
 
@@ -227,6 +454,19 @@ export default function TaskDetailDrawer({
             )}
           </div>
           <div className="flex items-center gap-1.5">
+            {onEditTask && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onEditTask(task);
+                }}
+                className="p-2 rounded-xl text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-white/[0.05] transition-colors"
+                title="Open in full edit dialog"
+              >
+                <Pencil size={18} />
+              </button>
+            )}
             <button
               type="button"
               onClick={() => onTogglePin?.(task)}
@@ -253,30 +493,53 @@ export default function TaskDetailDrawer({
         {/* Scrollable Content Body */}
         <div className="flex-1 overflow-y-auto p-5 md:p-6 space-y-5 hide-scrollbar">
           {/* Main Title & Completion Row */}
-          <div className="flex items-start gap-3 bg-slate-50 dark:bg-[#121929] p-4 rounded-2xl border border-slate-200/70 dark:border-white/[0.06]">
-            <button
-              type="button"
-              onClick={() => onUpdateStatus(task.id, isCompleted ? 'To Do' : 'Completed', task)}
-              className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5 transition-all ${
-                isCompleted
-                  ? 'bg-emerald-500 border-emerald-500 text-white shadow-sm'
-                  : 'border-slate-400 dark:border-slate-500 hover:border-emerald-500 hover:bg-emerald-500/10'
-              }`}
-            >
-              {isCompleted && <Check size={14} className="stroke-[3]" />}
-            </button>
-            <div className="flex-1 min-w-0">
-              <input
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                onBlur={handleTitleBlur}
-                placeholder="Task title..."
-                className={`w-full bg-transparent font-extrabold text-base md:text-lg outline-none text-slate-900 dark:text-white placeholder:text-slate-400 ${
-                  isCompleted ? 'line-through text-slate-400 dark:text-slate-400' : ''
+          <div className="bg-slate-50 dark:bg-[#121929] p-4 rounded-2xl border border-slate-200/70 dark:border-white/[0.06] space-y-2">
+            <div className="flex items-start gap-3">
+              <button
+                type="button"
+                onClick={() => onUpdateStatus(task.id, isCompleted ? 'To Do' : 'Completed', task)}
+                className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5 transition-all ${
+                  isCompleted
+                    ? 'bg-emerald-500 border-emerald-500 text-white shadow-sm'
+                    : 'border-slate-400 dark:border-slate-500 hover:border-emerald-500 hover:bg-emerald-500/10'
                 }`}
-              />
+              >
+                {isCompleted && <Check size={14} className="stroke-[3]" />}
+              </button>
+              <div className="flex-1 min-w-0">
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  onBlur={handleTitleBlur}
+                  placeholder="Task title..."
+                  className={`w-full bg-transparent font-extrabold text-base md:text-lg outline-none text-slate-900 dark:text-white placeholder:text-slate-400 ${
+                    isCompleted ? 'line-through text-slate-400 dark:text-slate-400' : ''
+                  }`}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={handleVoiceRamble}
+                className={`p-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                  isRecordingVoice
+                    ? 'bg-rose-500 text-white shadow-md shadow-rose-500/30 ring-2 ring-rose-400'
+                    : 'bg-white dark:bg-white/5 text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 border border-slate-200 dark:border-white/10'
+                }`}
+                title={isRecordingVoice ? 'Listening (Click to Stop)' : 'Dictate with AI Voice Ramble'}
+              >
+                <Mic size={15} className={isRecordingVoice ? 'animate-bounce text-white' : ''} />
+              </button>
             </div>
+            {isRecordingVoice && (
+              <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-xs flex items-center gap-2 animate-in fade-in">
+                <div className="w-2 h-2 rounded-full bg-rose-500 animate-ping shrink-0" />
+                <span className="font-bold shrink-0">Listening:</span>
+                <span className="italic truncate text-slate-800 dark:text-slate-200">
+                  {liveTranscript ? `"${liveTranscript}"` : 'Speak title or notes naturally...'}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Subtasks / Steps Checklist (Microsoft To Do style) */}
@@ -285,11 +548,23 @@ export default function TaskDetailDrawer({
               <span className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
                 <CheckCircle2 size={14} className="text-indigo-500" /> Steps
               </span>
-              {steps.length > 0 && (
-                <span className="text-[11px] font-bold text-slate-400 dark:text-slate-400">
-                  {completedSteps} of {steps.length} completed
-                </span>
-              )}
+              <div className="flex items-center gap-2">
+                {steps.length > 0 && (
+                  <span className="text-[11px] font-bold text-slate-400 dark:text-slate-400">
+                    {completedSteps} of {steps.length} completed
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={handleAIBreakdown}
+                  disabled={isGeneratingSteps}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 text-purple-600 dark:text-purple-400 text-[11px] font-bold transition-all border border-purple-500/30 active:scale-95 disabled:opacity-50"
+                  title="Generate actionable subtasks using AI Copilot"
+                >
+                  <Sparkles size={12} className={isGeneratingSteps ? "animate-spin" : ""} />
+                  <span>{isGeneratingSteps ? "Generating..." : "AI Breakdown"}</span>
+                </button>
+              </div>
             </div>
 
             {/* Steps Progress Bar */}
@@ -454,12 +729,12 @@ export default function TaskDetailDrawer({
                 <span className="text-xs font-semibold">Project</span>
               </div>
               <select
-                value={task.project || 'General Workspace'}
+                value={(task.project === 'General Workspace' ? 'Personal Inbox' : task.project) || 'Personal Inbox'}
                 onChange={(e) => onUpdateTaskField(task.id, { project: e.target.value })}
                 className="text-xs font-bold bg-slate-100 dark:bg-white/[0.05] text-slate-800 dark:text-slate-200 px-2.5 py-1 rounded-xl outline-none border border-slate-200 dark:border-white/[0.06]"
               >
-                {allProjects.map((proj) => (
-                  <option key={proj} value={proj} className="bg-white dark:bg-[#121929] text-slate-800 dark:text-slate-100">{proj}</option>
+                {projectChoices.map((projName) => (
+                  <option key={projName} value={projName} className="bg-white dark:bg-[#121929] text-slate-800 dark:text-slate-100">{projName}</option>
                 ))}
               </select>
             </div>
@@ -500,6 +775,200 @@ export default function TaskDetailDrawer({
                 </select>
               </div>
             )}
+
+            {/* Estimated Duration */}
+            <div className="p-3.5 rounded-2xl bg-white dark:bg-[#121929] border border-slate-200/70 dark:border-white/[0.06] space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3 text-slate-700 dark:text-slate-300">
+                  <Clock size={17} className="text-slate-400" />
+                  <span className="text-xs font-semibold">Estimated Duration</span>
+                </div>
+                <span className="text-xs font-bold text-slate-500">
+                  {task.durationMinutes || 45} mins
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                {[15, 30, 45, 60, 90, 120].map((mins) => {
+                  const isSel = (task.durationMinutes || 45) === mins;
+                  return (
+                    <button
+                      key={mins}
+                      type="button"
+                      onClick={() => onUpdateTaskField(task.id, { durationMinutes: mins })}
+                      className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-colors ${
+                        isSel
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'bg-slate-100 dark:bg-white/[0.05] hover:bg-slate-200 dark:hover:bg-white/[0.09] text-slate-700 dark:text-slate-300'
+                      }`}
+                    >
+                      {mins >= 60 ? `${mins / 60}h` : `${mins}m`}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Stacked Reminders (✦ APEX) */}
+            <div className="p-3.5 rounded-2xl bg-white dark:bg-[#121929] border border-slate-200/70 dark:border-white/[0.06] space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3 text-slate-700 dark:text-slate-300">
+                  <Bell size={17} className="text-slate-400" />
+                  <span className="text-xs font-semibold">Reminders</span>
+                </div>
+                <span className="text-[9px] font-black uppercase text-amber-500">✦ APEX</span>
+              </div>
+              <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                {['At time of event', '15m before', '30m before', '1h before', '1 day before'].map((rem) => {
+                  const rems = Array.isArray(task.reminders) ? task.reminders : [];
+                  const isSel = rems.includes(rem);
+                  return (
+                    <button
+                      key={rem}
+                      type="button"
+                      onClick={() => {
+                        if (!isApex && rems.length >= 1 && !isSel) {
+                          onOpenApexModal?.();
+                          showToast?.("✦ Stacked multiple reminders are exclusive to Apex.", "info");
+                          return;
+                        }
+                        const nextRems = isSel ? rems.filter(r => r !== rem) : [...rems, rem];
+                        onUpdateTaskField(task.id, { reminders: nextRems });
+                      }}
+                      className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-colors ${
+                        isSel
+                          ? 'bg-emerald-600 text-white shadow-xs'
+                          : 'bg-slate-100 dark:bg-white/[0.05] hover:bg-slate-200 dark:hover:bg-white/[0.09] text-slate-700 dark:text-slate-300'
+                      }`}
+                    >
+                      {rem}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Location Reminder & Geofencing (✦ APEX) */}
+            <div className="p-3.5 rounded-2xl bg-white dark:bg-[#121929] border border-slate-200/70 dark:border-white/[0.06] space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3 text-slate-700 dark:text-slate-300">
+                  <MapPin size={17} className="text-rose-500" />
+                  <span className="text-xs font-semibold">Location Reminder</span>
+                </div>
+                <span className="text-[9px] font-black uppercase text-amber-500">✦ APEX</span>
+              </div>
+
+              <select
+                value={task.locationReminder || ''}
+                onChange={(e) => {
+                  if (!isApex && e.target.value) {
+                    onOpenApexModal?.();
+                    showToast?.("✦ Geofence location alerts are exclusive to Apex.", "info");
+                    return;
+                  }
+                  onUpdateTaskField(task.id, { locationReminder: e.target.value });
+                }}
+                className="w-full text-xs font-bold bg-slate-100 dark:bg-white/[0.05] text-slate-800 dark:text-slate-200 px-3 py-2 rounded-xl outline-none border border-slate-200 dark:border-white/[0.06]"
+              >
+                <option value="">No Location Alert</option>
+                <option value="Office">📍 Arrive at Office</option>
+                <option value="Home">📍 Return Home</option>
+                <option value="Client Site">📍 Client / Field Site</option>
+                <option value="Custom">📍 Custom Location Pin</option>
+              </select>
+
+              {task.locationReminder && (
+                <div className="p-3 rounded-xl bg-purple-50/50 dark:bg-purple-950/20 border border-purple-200/50 dark:border-purple-900/30 space-y-2 mt-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      placeholder="Enter address, building, or place name..."
+                      value={task.locationAddress || ''}
+                      onChange={(e) => onUpdateTaskField(task.id, { locationAddress: e.target.value })}
+                      className="flex-1 bg-white dark:bg-slate-900 border border-purple-200 dark:border-purple-800/40 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 dark:text-white outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleDetectGPS}
+                      title="Capture Current GPS Coordinates"
+                      className="px-2.5 py-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-lg text-xs font-bold flex items-center gap-1 shrink-0 transition-colors shadow-xs"
+                    >
+                      <Navigation size={12} />
+                      <span>GPS</span>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between text-[11px] pt-1">
+                    <div className="flex items-center gap-1">
+                      <span className="text-slate-500 dark:text-slate-400 font-medium">Trigger:</span>
+                      <button
+                        type="button"
+                        onClick={() => onUpdateTaskField(task.id, { locationTrigger: 'arrive' })}
+                        className={`px-2 py-0.5 rounded-md font-bold transition-colors ${
+                          (!task.locationTrigger || task.locationTrigger === 'arrive')
+                            ? 'bg-purple-600 text-white'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                        }`}
+                      >
+                        On Arrive (200m)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onUpdateTaskField(task.id, { locationTrigger: 'leave' })}
+                        className={`px-2 py-0.5 rounded-md font-bold transition-colors ${
+                          task.locationTrigger === 'leave'
+                            ? 'bg-purple-600 text-white'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                        }`}
+                      >
+                        On Leave
+                      </button>
+                    </div>
+
+                    {(task.locationAddress || task.locationCoords) && (
+                      <a
+                        href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                          task.locationAddress || (task.locationCoords ? `${task.locationCoords.lat},${task.locationCoords.lng}` : '')
+                        )}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-purple-600 dark:text-purple-400 hover:underline flex items-center gap-0.5 font-bold"
+                      >
+                        <ExternalLink size={11} />
+                        <span>View Map</span>
+                      </a>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Cloud Link (G-Drive / Docs / Figma) */}
+            <div className="p-3.5 rounded-2xl bg-white dark:bg-[#121929] border border-slate-200/70 dark:border-white/[0.06] space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3 text-slate-700 dark:text-slate-300">
+                  <LinkIcon size={17} className="text-slate-400" />
+                  <span className="text-xs font-semibold">Cloud Link (Drive / Docs / Figma)</span>
+                </div>
+                {task.attachmentLink && task.attachmentLink.startsWith('http') && (
+                  <a
+                    href={task.attachmentLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+                  >
+                    <span>Open</span>
+                    <ExternalLink size={11} />
+                  </a>
+                )}
+              </div>
+              <input
+                type="url"
+                placeholder="https://..."
+                value={task.attachmentLink || ''}
+                onChange={(e) => onUpdateTaskField(task.id, { attachmentLink: e.target.value })}
+                className="w-full text-xs font-medium bg-slate-100 dark:bg-white/[0.05] text-slate-800 dark:text-slate-200 px-3 py-2 rounded-xl outline-none border border-slate-200 dark:border-white/[0.06]"
+              />
+            </div>
           </div>
 
           {/* Notes / Description Section */}

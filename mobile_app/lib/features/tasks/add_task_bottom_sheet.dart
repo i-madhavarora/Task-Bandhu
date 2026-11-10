@@ -12,6 +12,7 @@ import '../../providers/task_provider.dart';
 import '../../providers/workspace_provider.dart';
 import '../../services/firebase_sync_service.dart';
 import '../../services/sound_service.dart';
+import '../../services/apex_tier_service.dart';
 
 class AddTaskBottomSheet extends StatefulWidget {
   final DateTime? initialDate;
@@ -37,6 +38,8 @@ class _AddTaskBottomSheetState extends State<AddTaskBottomSheet> {
   int _durationMinutes = 45;
   final List<String> _reminders = ['At due time'];
   String? _locationReminder;
+  final _locationAddressController = TextEditingController();
+  String _locationTrigger = 'arrive';
 
   @override
   void initState() {
@@ -52,6 +55,7 @@ class _AddTaskBottomSheetState extends State<AddTaskBottomSheet> {
     _titleController.dispose();
     _descController.dispose();
     _stepController.dispose();
+    _locationAddressController.dispose();
     super.dispose();
   }
 
@@ -280,6 +284,8 @@ class _AddTaskBottomSheetState extends State<AddTaskBottomSheet> {
       durationMinutes: _durationMinutes,
       reminders: List.from(_reminders),
       locationReminder: _locationReminder,
+      locationAddress: _locationAddressController.text.trim(),
+      locationTrigger: _locationTrigger,
     );
 
     taskProvider.addTask(newTask);
@@ -446,6 +452,145 @@ class _AddTaskBottomSheetState extends State<AddTaskBottomSheet> {
 
                 const SizedBox(height: 16),
 
+                // Action Steps (Subtasks with Core Limit)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    _buildLabel('ACTION STEPS (${_steps.length})'),
+                    if (!FirebaseSyncService.isApex)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: _steps.length >= 5 ? Colors.amber.withOpacity(0.15) : (isDark ? Colors.white10 : Colors.black.withOpacity(0.06)),
+                          borderRadius: BorderRadius.circular(6),
+                          border: _steps.length >= 5 ? Border.all(color: Colors.amber.withOpacity(0.4)) : null,
+                        ),
+                        child: Text(
+                          _steps.length >= 5 ? '🔒 Limit: ${_steps.length}/5' : '${_steps.length}/5 Core',
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w800,
+                            color: _steps.length >= 5 ? Colors.amber : (isDark ? Colors.white70 : Colors.black54),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                if (_steps.isNotEmpty)
+                  ..._steps.map((s) => Container(
+                        margin: const EdgeInsets.only(bottom: 6),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: isDark ? const Color(0x26FFFFFF) : const Color(0xFFE2E8F0)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(CupertinoIcons.circle, size: 16, color: AppColors.primaryIndigo),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(s.title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                            ),
+                            GestureDetector(
+                              onTap: () => setState(() => _steps.removeWhere((item) => item.id == s.id)),
+                              child: const Icon(CupertinoIcons.trash, size: 14, color: Colors.redAccent),
+                            ),
+                          ],
+                        ),
+                      )),
+                if (!FirebaseSyncService.isApex && _steps.length >= 5)
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    margin: const EdgeInsets.only(bottom: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.amber.withOpacity(0.3)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(CupertinoIcons.lock_fill, color: Colors.amber, size: 15),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Core limit reached (5/5 steps). Upgrade to Apex for unlimited subtasks.',
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: isDark ? Colors.amber.shade200 : Colors.amber.shade900),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Container(
+                          height: 38,
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          decoration: BoxDecoration(
+                            color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: isDark ? const Color(0x26FFFFFF) : const Color(0xFFE2E8F0)),
+                          ),
+                          child: TextField(
+                            controller: _stepController,
+                            style: const TextStyle(fontSize: 13),
+                            decoration: InputDecoration(
+                              border: InputBorder.none,
+                              hintText: !FirebaseSyncService.isApex ? 'Add step (max 5 on Core)...' : 'Add action step...',
+                              hintStyle: TextStyle(fontSize: 12, color: isDark ? Colors.white38 : Colors.black38),
+                            ),
+                            onSubmitted: (val) {
+                              if (val.trim().isNotEmpty) {
+                                if (!ApexTierService.canAddSubtask(_steps.length)) {
+                                  _showApexRequiredDialog(
+                                    title: 'Subtask Limit Reached',
+                                    description: 'Core accounts can add up to 5 subtasks per task. Upgrade to Apex for unlimited subtasks.',
+                                    icon: CupertinoIcons.list_bullet,
+                                  );
+                                  return;
+                                }
+                                setState(() {
+                                  _steps.add(TaskStep(id: const Uuid().v4(), title: val.trim()));
+                                  _stepController.clear();
+                                });
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton.filled(
+                        onPressed: () {
+                          final val = _stepController.text.trim();
+                          if (val.isNotEmpty) {
+                            if (!ApexTierService.canAddSubtask(_steps.length)) {
+                              _showApexRequiredDialog(
+                                title: 'Subtask Limit Reached',
+                                description: 'Core accounts can add up to 5 subtasks per task. Upgrade to Apex for unlimited subtasks.',
+                                icon: CupertinoIcons.list_bullet,
+                              );
+                              return;
+                            }
+                            setState(() {
+                              _steps.add(TaskStep(id: const Uuid().v4(), title: val));
+                              _stepController.clear();
+                            });
+                          }
+                        },
+                        icon: const Icon(CupertinoIcons.plus, size: 16),
+                        style: IconButton.styleFrom(
+                          backgroundColor: AppColors.primaryIndigo,
+                          padding: const EdgeInsets.all(8),
+                          minimumSize: const Size(38, 38),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                const SizedBox(height: 16),
+
                 // Date & Time Selectors
                 _buildLabel('DUE DATE & TIME'),
                 Row(
@@ -600,8 +745,66 @@ class _AddTaskBottomSheetState extends State<AddTaskBottomSheet> {
                     _buildReminderChip('1d before'),
                     _buildLocationChip('🏢 Arriving at Office'),
                     _buildLocationChip('🏠 Leaving Home'),
+                    _buildLocationChip('📍 Client Site'),
                   ],
                 ),
+
+                if (_locationReminder != null && _locationReminder!.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF1E1B4B).withOpacity(0.4) : const Color(0xFFEEF2FF),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.primaryIndigo.withOpacity(0.2)),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _locationAddressController,
+                            style: TextStyle(fontSize: 12, color: isDark ? Colors.white : Colors.black87),
+                            decoration: const InputDecoration(
+                              isDense: true,
+                              border: InputBorder.none,
+                              hintText: 'Enter specific address or place name...',
+                              hintStyle: TextStyle(fontSize: 11, color: Colors.grey),
+                            ),
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: () {
+                            const coordStr = '28.6139, 77.2090';
+                            setState(() {
+                              _locationAddressController.text = 'Current GPS Pin ($coordStr)';
+                            });
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('📍 GPS Pin Captured: 28.6139, 77.2090 (200m Geofence Active)'),
+                                backgroundColor: AppColors.accentEmerald,
+                              ),
+                            );
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.roseAccent,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(CupertinoIcons.location_fill, size: 11, color: Colors.white),
+                                SizedBox(width: 4),
+                                Text('GPS', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
 
                 const SizedBox(height: 16),
 

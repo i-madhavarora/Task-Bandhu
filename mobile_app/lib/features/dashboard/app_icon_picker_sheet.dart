@@ -193,7 +193,11 @@ class _AppIconPickerSheetState extends State<AppIconPickerSheet> {
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(22),
                               child: Image.asset(
-                                selectedIcon.assetPath,
+                                (_selectedId == 'default' && FestiveService.getActiveFestival() != null)
+                                    ? FestiveService.getActiveFestival()!.getAsset(isDark)
+                                    : (_selectedId == 'default'
+                                        ? (isDark ? 'assets/logo_dark.png' : 'assets/logo_light.png')
+                                        : selectedIcon.assetPath),
                                 fit: BoxFit.cover,
                               ),
                             ),
@@ -226,7 +230,9 @@ class _AppIconPickerSheetState extends State<AppIconPickerSheet> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Text(
-                            selectedIcon.name,
+                            (_selectedId == 'default' && FestiveService.getActiveFestival() != null)
+                                ? '${FestiveService.getActiveFestival()!.name} (Dynamic Auto)'
+                                : selectedIcon.name,
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w700,
@@ -243,61 +249,7 @@ class _AppIconPickerSheetState extends State<AppIconPickerSheet> {
                   ),
                 ),
 
-                // Active Festive Season Banner
-                Builder(
-                  builder: (context) {
-                    final activeFestival = FestiveService.getActiveFestival();
-                    if (activeFestival == null) return const SizedBox(height: 20);
-                    return Padding(
-                      padding: const EdgeInsets.only(top: 14, bottom: 18),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              Color(activeFestival.gradientColors.first).withOpacity(0.15),
-                              Color(activeFestival.gradientColors.last).withOpacity(0.15),
-                            ],
-                          ),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: Color(activeFestival.gradientColors.first).withOpacity(0.4),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Text(activeFestival.emoji, style: const TextStyle(fontSize: 22)),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    activeFestival.greeting,
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w900,
-                                      color: primaryTextColor,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 1),
-                                  Text(
-                                    'Festive icon auto-active (reverts 2-3 days after ${activeFestival.name})',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: secondaryTextColor,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
+                const SizedBox(height: 18),
 
                 // Icon Selection Cards Horizontal Carousel
                 SizedBox(
@@ -352,7 +304,11 @@ class _AppIconPickerSheetState extends State<AppIconPickerSheet> {
                                   ClipRRect(
                                     borderRadius: BorderRadius.circular(12),
                                     child: Image.asset(
-                                      icon.assetPath,
+                                      (icon.id == 'default' && FestiveService.getActiveFestival() != null)
+                                          ? FestiveService.getActiveFestival()!.getAsset(isDark)
+                                          : (icon.id == 'default'
+                                              ? (isDark ? 'assets/logo_dark.png' : 'assets/logo_light.png')
+                                              : icon.assetPath),
                                       width: 44,
                                       height: 44,
                                       fit: BoxFit.cover,
@@ -406,14 +362,14 @@ class _AppIconPickerSheetState extends State<AppIconPickerSheet> {
                                   borderRadius: BorderRadius.circular(4),
                                 ),
                                 child: Text(
-                                  AppIconService.isFestive(icon.id)
-                                      ? '🎉 FESTIVE'
+                                  (icon.id == 'default' && FestiveService.getActiveFestival() != null)
+                                      ? '🪔 FESTIVE'
                                       : (icon.isApex ? '✦ APEX' : 'FREE'),
                                   style: TextStyle(
                                     fontSize: 8,
                                     fontWeight: FontWeight.w800,
-                                    color: AppIconService.isFestive(icon.id)
-                                        ? const Color(0xFFEC4899)
+                                    color: (icon.id == 'default' && FestiveService.getActiveFestival() != null)
+                                        ? const Color(0xFFF59E0B)
                                         : (icon.isApex ? const Color(0xFFF59E0B) : const Color(0xFF10B981)),
                                   ),
                                 ),
@@ -441,7 +397,15 @@ class _AppIconPickerSheetState extends State<AppIconPickerSheet> {
                     children: [
                       ClipRRect(
                         borderRadius: BorderRadius.circular(8),
-                        child: Image.asset(selectedIcon.assetPath, width: 28, height: 28),
+                        child: Image.asset(
+                          (_selectedId == 'default' && FestiveService.getActiveFestival() != null)
+                              ? FestiveService.getActiveFestival()!.getAsset(isDark)
+                              : (_selectedId == 'default'
+                                  ? (isDark ? 'assets/logo_dark.png' : 'assets/logo_light.png')
+                                  : selectedIcon.assetPath),
+                          width: 28,
+                          height: 28,
+                        ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -449,12 +413,16 @@ class _AppIconPickerSheetState extends State<AppIconPickerSheet> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              selectedIcon.name,
+                              (_selectedId == 'default' && FestiveService.getActiveFestival() != null)
+                                  ? '${FestiveService.getActiveFestival()!.name} (Dynamic Auto)'
+                                  : selectedIcon.name,
                               style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13.5),
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              selectedIcon.subtitle,
+                              (_selectedId == 'default' && FestiveService.getActiveFestival() != null)
+                                  ? '${FestiveService.getActiveFestival()!.greeting} • Automatically active'
+                                  : selectedIcon.subtitle,
                               style: TextStyle(fontSize: 11, color: secondaryTextColor),
                             ),
                           ],

@@ -7,14 +7,17 @@ import {
   Copy, Link as LinkIcon, Eraser, Folder, Users, MessageSquare, Menu,
   Sparkles, Settings2, Bell, CheckCircle, ShieldAlert, ShieldCheck,
   Award, Star, Lightbulb, ChevronRight, Sun, X,
-  LogOut, Lock
+  LogOut, Lock, FileSpreadsheet, Pencil
 } from 'lucide-react';
-import { collection, onSnapshot, query, doc, deleteDoc, updateDoc, addDoc, setDoc, getDoc, where, getDocs, writeBatch, orderBy } from 'firebase/firestore';
+import { collection, onSnapshot, query, doc, deleteDoc, updateDoc, addDoc, setDoc, getDoc, where, getDocs, writeBatch, orderBy, arrayUnion } from 'firebase/firestore';
 import { onAuthStateChanged, signOut, updateProfile } from 'firebase/auth';
 import { db, auth } from '../firebase';
 import { getLocalTodayStr, isTaskOverdue, isTaskDueToday, isTaskDueTomorrow, getTaskDueBucket } from '../utils/dateUtils';
 import TaskForm from './TaskForm';
 import TaskDetailDrawer from './TaskDetailDrawer';
+import TaskTableView from './TaskTableView';
+import ChronoSyncModal from './ChronoSyncModal';
+import StealthVaultModal from './StealthVaultModal';
 import Sidebar from './Sidebar';
 import AuthModal from './AuthModal';
 import EisenhowerMatrix from './EisenhowerMatrix';
@@ -26,6 +29,9 @@ import TeamInviteModal from './TeamInviteModal';
 import NotificationCenter from './NotificationCenter';
 import ProfileView from './ProfileView';
 import ApexUpgradeModal from './ApexUpgradeModal';
+import PersonalizedSplashScreen from './PersonalizedSplashScreen';
+import AppIconPickerModal from './AppIconPickerModal';
+import { getResolvedAppLogo } from '../utils/appIcons';
 import { isApexPlan, PLAN_LIMITS } from '../utils/planLimits';
 import logoDark from '../assets/logo_d.png';
 import logoLight from '../assets/logo_l.png';
@@ -176,7 +182,7 @@ const computeAllNotifications = (tasks, notifications, readAlertIds, dismissedAl
         title: `🚨 Overdue Task: ${t.title}`,
         message: `Task "${t.title}" passed its deadline (${t.deadline}${t.endTime ? ` at ${t.endTime}` : ''}). Click to reschedule or mark completed.`,
         taskId: t.id,
-        project: t.project || 'General Workspace',
+        project: t.project || 'Personal Inbox',
         priority: 'Urgent',
         createdAt: t.createdAt || t.deadline || '',
         read: readAlertIds.has(alertId),
@@ -195,7 +201,7 @@ const computeAllNotifications = (tasks, notifications, readAlertIds, dismissedAl
         title: `⏰ Due Today: ${t.title}`,
         message: `Today is the deadline for "${t.title}"${t.endTime ? ` (by ${t.endTime})` : ''}.`,
         taskId: t.id,
-        project: t.project || 'General Workspace',
+        project: t.project || 'Personal Inbox',
         priority: t.priority || 'Medium',
         createdAt: t.createdAt || t.deadline || '',
         read: readAlertIds.has(alertId),
@@ -205,7 +211,13 @@ const computeAllNotifications = (tasks, notifications, readAlertIds, dismissedAl
     }
   }
 
-  const merged = [...deadlineNotifs, ...notifications];
+  const merged = [
+    ...deadlineNotifs,
+    ...notifications.map(n => ({
+      ...n,
+      read: n.read === true || readAlertIds.has(n.id) || (n.docId && readAlertIds.has(n.docId))
+    }))
+  ];
   return merged.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
 };
 
@@ -222,11 +234,26 @@ export default function Dashboard() {
   const effectiveUser = user || guestUser;
 
   const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [showSplashScreen, setShowSplashScreen] = useState(true);
+  const [isPreviewSplashOpen, setIsPreviewSplashOpen] = useState(false);
+  const [isAppIconPickerOpen, setIsAppIconPickerOpen] = useState(false);
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
-  const appLogo = isDarkMode ? logoDark : logoLight;
+
+  const [activeAppLogo, setActiveAppLogo] = useState(() => getResolvedAppLogo(isDarkMode).src);
+
+  useEffect(() => {
+    setActiveAppLogo(getResolvedAppLogo(isDarkMode).src);
+    const handleIconChange = () => {
+      setActiveAppLogo(getResolvedAppLogo(isDarkMode).src);
+    };
+    window.addEventListener('tb_app_icon_changed', handleIconChange);
+    return () => window.removeEventListener('tb_app_icon_changed', handleIconChange);
+  }, [isDarkMode]);
+
+  const appLogo = activeAppLogo;
 
   // App Navigation & Modal Controls
   const [activeNavTab, setActiveNavTab] = useState('my-day'); // 'my-day' | 'favorites' | 'upcoming' | 'all-tasks' | 'assigned-to-me' | 'inbox' | 'project' | 'team' | 'eisenhower' | 'projects' | 'analytics' | 'automations' | 'profile'
@@ -464,6 +491,25 @@ export default function Dashboard() {
       return new Set();
     }
   });
+
+  // Keep readAlertIds & dismissedAlertIds synchronized when effectiveUser loads or changes
+  useEffect(() => {
+    const uKey = effectiveUser?.uid || 'guest';
+    try {
+      const savedRead = localStorage.getItem(`tb_read_alerts_${uKey}`);
+      if (savedRead) {
+        const parsed = JSON.parse(savedRead);
+        setReadAlertIds(prev => new Set([...prev, ...parsed]));
+      }
+      const savedDismissed = localStorage.getItem(`tb_dismissed_alerts_${uKey}`);
+      if (savedDismissed) {
+        const parsed = JSON.parse(savedDismissed);
+        setDismissedAlertIds(prev => new Set([...prev, ...parsed]));
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [effectiveUser?.uid]);
 
   // Persistent team roster with live connection statuses (strictly isolated per user!)
   const [teamMembers, setTeamMembers] = useState(() => {
@@ -1213,10 +1259,12 @@ export default function Dashboard() {
   }, [effectiveUser, showToast, appLogo, teamMembers, activeWorkspaceId, workspaceId, allProjects, connections]);
 
   const handleMarkNotificationRead = async (notifId) => {
+    const uKey = effectiveUser?.uid || 'guest';
+
     setNotifications(prev => {
-      const updated = prev.map(n => n.id === notifId ? { ...n, read: true } : n);
+      const updated = prev.map(n => (n.id === notifId || n.docId === notifId) ? { ...n, read: true } : n);
       try {
-        localStorage.setItem('tb_notifications_' + (effectiveUser?.uid || 'guest'), JSON.stringify(updated));
+        localStorage.setItem(`tb_notifications_${uKey}`, JSON.stringify(updated));
       } catch {
         /* ignore */
       }
@@ -1227,7 +1275,6 @@ export default function Dashboard() {
       const next = new Set(prev);
       next.add(notifId);
       try {
-        const uKey = effectiveUser?.uid || 'guest';
         localStorage.setItem(`tb_read_alerts_${uKey}`, JSON.stringify(Array.from(next)));
       } catch {
         /* ignore */
@@ -1241,27 +1288,44 @@ export default function Dashboard() {
           read: true
         });
       } catch {
-        /* Dynamic synthetic alert or already updated */
+        try {
+          const q = query(collection(db, 'users', effectiveUser.uid, 'notifications'), where('id', '==', notifId));
+          const snap = await getDocs(q);
+          snap.docs.forEach(d => updateDoc(d.ref, { read: true }));
+        } catch {
+          /* Dynamic synthetic alert or already updated */
+        }
+      }
+
+      try {
+        await setDoc(doc(db, 'users', effectiveUser.uid), {
+          readAlertIds: arrayUnion(notifId),
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+      } catch {
+        /* ignore */
       }
     }
   };
 
   const handleMarkAllNotificationsRead = async () => {
+    const uKey = effectiveUser?.uid || 'guest';
+
     setNotifications(prev => {
       const updated = prev.map(n => ({ ...n, read: true }));
       try {
-        localStorage.setItem('tb_notifications_' + (effectiveUser?.uid || 'guest'), JSON.stringify(updated));
+        localStorage.setItem(`tb_notifications_${uKey}`, JSON.stringify(updated));
       } catch {
         /* ignore */
       }
       return updated;
     });
 
+    const allIds = allNotifications.map(n => n.id).filter(Boolean);
     setReadAlertIds(prev => {
       const next = new Set(prev);
-      allNotifications.forEach(n => next.add(n.id));
+      allIds.forEach(id => next.add(id));
       try {
-        const uKey = effectiveUser?.uid || 'guest';
         localStorage.setItem(`tb_read_alerts_${uKey}`, JSON.stringify(Array.from(next)));
       } catch {
         /* ignore */
@@ -1271,15 +1335,21 @@ export default function Dashboard() {
 
     if (effectiveUser && !effectiveUser.isGuest) {
       try {
-        const unreadQuery = query(collection(db, 'users', effectiveUser.uid, 'notifications'), where('read', '==', false));
-        const unreadSnap = await getDocs(unreadQuery);
-        if (!unreadSnap.empty) {
+        const notifSnap = await getDocs(collection(db, 'users', effectiveUser.uid, 'notifications'));
+        if (!notifSnap.empty) {
           const batch = writeBatch(db);
-          unreadSnap.docs.forEach(d => {
-            batch.update(d.ref, { read: true });
+          notifSnap.docs.forEach(d => {
+            if (d.data().read !== true) {
+              batch.update(d.ref, { read: true });
+            }
           });
           await batch.commit();
         }
+
+        await setDoc(doc(db, 'users', effectiveUser.uid), {
+          readAlertIds: Array.from(new Set(allIds)),
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
       } catch (err) {
         console.warn("Firestore batch mark read error:", err);
       }
@@ -1414,7 +1484,7 @@ export default function Dashboard() {
       target = {
         id: taskId || `task_${Date.now()}`,
         title: cleanTitle || notifMeta.taskTitle || 'Shared Task',
-        project: notifMeta.project || 'General Workspace',
+        project: notifMeta.project || (currentWorkspace === 'team' ? 'Team Workspace' : 'Personal Inbox'),
         priority: notifMeta.priority || 'Medium',
         assignee: notifMeta.assignee || (effectiveUser?.displayName || 'Me'),
         status: notifMeta.type === 'task_completed' ? 'Completed' : 'To Do',
@@ -1721,6 +1791,38 @@ export default function Dashboard() {
   const [assigneeFilter, setAssigneeFilter] = useState('All Members');
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState('list');
+  const [isChronoSyncOpen, setIsChronoSyncOpen] = useState(false);
+  const [isStealthVaultOpen, setIsStealthVaultOpen] = useState(false);
+
+  const handleApplyChronoSync = async (scheduledPlan) => {
+    if (!scheduledPlan || scheduledPlan.length === 0) return;
+    try {
+      const batch = writeBatch(db);
+      for (const item of scheduledPlan) {
+        if (!item.id || item.id.startsWith('guest_')) continue;
+        const orig = tasks.find(t => t.id === item.id);
+        const taskRef = getTaskDocRef(orig, item.id);
+        if (taskRef) {
+          batch.update(taskRef, {
+            startTime: item.startTime,
+            endTime: item.endTime,
+            durationMinutes: item.duration || 45
+          });
+        }
+      }
+      await batch.commit();
+      showToast("ChronoSync applied and saved to cloud!", "success");
+    } catch {
+      // For local or fallback, update local state
+      setTasks(prev => prev.map(t => {
+        const match = scheduledPlan.find(p => p.id === t.id);
+        if (match) {
+          return { ...t, startTime: match.startTime, endTime: match.endTime, durationMinutes: match.duration || 45 };
+        }
+        return t;
+      }));
+    }
+  };
 
   // Quick Capture & Focus Mode
   const [quickTaskTitle, setQuickTaskTitle] = useState('');
@@ -1876,10 +1978,18 @@ export default function Dashboard() {
             }
           }).catch(() => { });
 
-          // 2. Notifications for this user
+          // 2. Notifications & Read Status for this user
           try {
             const savedNotifs = localStorage.getItem(`tb_notifications_${uKey}`);
             setNotifications(savedNotifs ? JSON.parse(savedNotifs) : []);
+            const savedRead = localStorage.getItem(`tb_read_alerts_${uKey}`);
+            if (savedRead) {
+              setReadAlertIds(new Set(JSON.parse(savedRead)));
+            }
+            const savedDismissed = localStorage.getItem(`tb_dismissed_alerts_${uKey}`);
+            if (savedDismissed) {
+              setDismissedAlertIds(new Set(JSON.parse(savedDismissed)));
+            }
           } catch {
             setNotifications([]);
           }
@@ -1913,6 +2023,18 @@ export default function Dashboard() {
             if (snap.exists()) {
               const data = snap.data();
               setUserProfile(prev => ({ ...prev, ...data }));
+              if (data.activeAppIcon) {
+                try {
+                  localStorage.setItem('tb_active_app_icon', data.activeAppIcon);
+                  window.dispatchEvent(new CustomEvent('tb_app_icon_changed', { detail: { iconId: data.activeAppIcon } }));
+                } catch { /* ignore */ }
+              }
+              if (data.stealthPin) {
+                try { localStorage.setItem('tb_stealth_pin', data.stealthPin); } catch { /* ignore */ }
+              }
+              if (Array.isArray(data.stealthVaultTasks)) {
+                try { localStorage.setItem('tb_stealth_vault_tasks', JSON.stringify(data.stealthVaultTasks)); } catch { /* ignore */ }
+              }
               if (data.lifetimeCompleted !== undefined) {
                 setLifetimeCompleted(data.lifetimeCompleted);
                 try { localStorage.setItem(`tb_lifetime_completed_${uKey}`, String(data.lifetimeCompleted)); } catch { /* ignore */ }
@@ -1920,6 +2042,13 @@ export default function Dashboard() {
               if (data.automationRules) {
                 setAutomationRules(data.automationRules);
                 try { localStorage.setItem(`tb_automation_rules_${uKey}`, JSON.stringify(data.automationRules)); } catch { /* ignore */ }
+              }
+              if (Array.isArray(data.readAlertIds) && data.readAlertIds.length > 0) {
+                setReadAlertIds(prev => {
+                  const next = new Set([...prev, ...data.readAlertIds]);
+                  try { localStorage.setItem(`tb_read_alerts_${uKey}`, JSON.stringify(Array.from(next))); } catch { /* ignore */ }
+                  return next;
+                });
               }
               try { localStorage.setItem(`tb_profile_${uKey}`, JSON.stringify(data)); } catch { /* ignore */ }
             } else {
@@ -2033,7 +2162,12 @@ export default function Dashboard() {
           if (saved) {
             const parsed = JSON.parse(saved);
             // Strip out any legacy dummy/sample tasks so the guest gets a clean, pristine task list
-            const cleaned = Array.isArray(parsed) ? parsed.filter(t => !t.id?.startsWith('dummy-')) : [];
+            const cleaned = Array.isArray(parsed) ? parsed.filter(t => !t.id?.startsWith('dummy-')).map(t => {
+              if (!t.project || t.project === 'General Workspace' || t.project === 'Inbox') {
+                return { ...t, project: 'Personal Inbox' };
+              }
+              return t;
+            }) : [];
             if (cleaned.length !== parsed.length) {
               localStorage.setItem('tb_guest_tasks', JSON.stringify(cleaned));
             }
@@ -2075,7 +2209,12 @@ export default function Dashboard() {
         }
       });
 
-      const merged = Array.from(taskMap.values());
+      const merged = Array.from(taskMap.values()).map(t => {
+        if (!t.project || t.project === 'General Workspace' || t.project === 'Inbox') {
+          return { ...t, project: t.workspaceType === 'team' || t.isWorkspaceTask ? 'Team Workspace' : 'Personal Inbox' };
+        }
+        return t;
+      });
       merged.sort((a, b) => {
         if (a.pinned && !b.pinned) return -1;
         if (!a.pinned && b.pinned) return 1;
@@ -2250,19 +2389,30 @@ export default function Dashboard() {
     const notifColl = collection(db, 'users', effectiveUser.uid, 'notifications');
     const qNotifs = query(notifColl);
     const unsubscribeNotifs = onSnapshot(qNotifs, (snapshot) => {
-      const cloudNotifs = snapshot.docs.map(d => ({
-        ...d.data(),
-        id: d.id
-      }));
+      const cloudNotifs = snapshot.docs.map(d => {
+        const data = d.data();
+        const effectiveId = data.id || d.id;
+        const isRead = data.read === true || readAlertIds.has(effectiveId) || readAlertIds.has(d.id);
+        return {
+          ...data,
+          id: effectiveId,
+          docId: d.id,
+          read: isRead
+        };
+      });
       if (cloudNotifs.length > 0) {
         cloudNotifs.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
         setNotifications(prev => {
           const seen = new Set();
           const combined = [];
           for (const n of [...cloudNotifs, ...prev]) {
-            if (n.id && !seen.has(n.id)) {
-              seen.add(n.id);
-              combined.push(n);
+            const key = n.id || n.docId;
+            if (key && !seen.has(key)) {
+              seen.add(key);
+              combined.push({
+                ...n,
+                read: n.read === true || readAlertIds.has(n.id) || (n.docId && readAlertIds.has(n.docId))
+              });
             }
           }
           try {
@@ -2278,7 +2428,7 @@ export default function Dashboard() {
     });
 
     return () => unsubscribeNotifs();
-  }, [effectiveUser]);
+  }, [effectiveUser, readAlertIds]);
 
   // Real-time Firestore sync for Project Team Chat messages
   useEffect(() => {
@@ -2823,7 +2973,7 @@ export default function Dashboard() {
     if (!quickTaskTitle.trim()) return;
     try {
       const targetProj = currentWorkspace === 'personal'
-        ? (activeNavTab === 'inbox' ? 'Personal Inbox' : 'General Workspace')
+        ? 'Personal Inbox'
         : (teamProjects[0]?.name || 'Team Workspace');
 
       await handleAddNewTaskDirectly({
@@ -2929,8 +3079,9 @@ export default function Dashboard() {
   const teamFilterOptions = ['All Members', ...allAssignees];
 
   // Discover all projects segregated by workspace
-  const taskProjects = Array.from(new Set(tasks.map(t => t.project?.trim()).filter(Boolean)));
-  const allProjectNames = Array.from(new Set(['General Workspace', ...taskProjects, ...allProjects.map(p => p?.name?.trim()).filter(Boolean)]));
+  const defaultWsProject = currentWorkspace === 'team' ? 'Team Workspace' : 'Personal Inbox';
+  const taskProjects = Array.from(new Set(tasks.map(t => (t.project === 'General Workspace' ? 'Personal Inbox' : t.project)?.trim()).filter(Boolean)));
+  const allProjectNames = Array.from(new Set([defaultWsProject, ...taskProjects, ...allProjects.map(p => p?.name?.trim()).filter(Boolean)]));
 
   const sidebarProjects = useMemo(() => {
     return allProjects.map(p => {
@@ -3115,7 +3266,13 @@ export default function Dashboard() {
   const currentLevel = Math.floor(totalCompletedCount / 5) + 1;
   const currentXP = (totalCompletedCount % 5) * 20;
 
-  const drawerTask = useMemo(() => tasks.find(t => t.id === drawerTaskId) || null, [tasks, drawerTaskId]);
+  const drawerTask = useMemo(() => {
+    if (!drawerTaskId) return null;
+    return tasks.find(t => String(t.id) === String(drawerTaskId)) ||
+      workspaceTasks.find(t => String(t.id) === String(drawerTaskId)) ||
+      displayTasks.find(t => String(t.id) === String(drawerTaskId)) ||
+      null;
+  }, [tasks, workspaceTasks, displayTasks, drawerTaskId]);
 
   const myDaySuggestions = useMemo(() => {
     if (activeNavTab !== 'my-day') return [];
@@ -3228,6 +3385,10 @@ export default function Dashboard() {
         draggable={isKanban}
         onDragStart={(e) => handleDragStart(e, task.id)}
         onClick={() => setDrawerTaskId(task.id)}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          handleOpenEditTask(task);
+        }}
         className={`bg-white dark:bg-[#101625] border p-3.5 sm:p-4 rounded-2xl md:rounded-3xl shadow-xs hover:shadow-md transition-all flex flex-col justify-between gap-2.5 relative group cursor-pointer w-full ${isCompleted
           ? 'border-slate-200/60 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-900/30 opacity-75'
           : isOverdue
@@ -3241,9 +3402,9 @@ export default function Dashboard() {
           </div>
         )}
 
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 w-full">
+        <div className={`flex flex-col ${isKanban ? '' : 'md:flex-row md:items-center'} justify-between gap-3 w-full`}>
           {/* Left Checkbox & Task Details */}
-          <div className="flex items-start gap-3 flex-1 min-w-0">
+          <div className={`flex items-start gap-3 flex-1 min-w-0 ${isKanban ? 'pr-6' : ''}`}>
             <button
               type="button"
               onClick={(e) => {
@@ -3337,7 +3498,7 @@ export default function Dashboard() {
           </div>
 
           {/* Right Row Actions: Steps, Sun (My Day), Star (Important), Duplicate, Delete */}
-          <div className="flex items-center gap-1 shrink-0 justify-end pt-2 md:pt-0 border-t md:border-t-0 border-slate-100 dark:border-white/[0.04]">
+          <div className={`flex items-center gap-1 shrink-0 justify-end pt-2 ${isKanban ? 'border-t border-slate-100 dark:border-white/[0.04] mt-1.5 w-full' : 'md:pt-0 border-t md:border-t-0 border-slate-100 dark:border-white/[0.04]'}`}>
             <button
               type="button"
               onClick={(e) => {
@@ -3345,8 +3506,8 @@ export default function Dashboard() {
                 setIsStepsExpanded(prev => !prev);
               }}
               className={`p-1.5 rounded-xl transition-colors ${isStepsExpanded
-                  ? 'text-indigo-600 bg-indigo-50 dark:bg-indigo-950/40 dark:text-indigo-400'
-                  : 'text-slate-400 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-white/[0.04]'
+                ? 'text-indigo-600 bg-indigo-50 dark:bg-indigo-950/40 dark:text-indigo-400'
+                : 'text-slate-400 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-white/[0.04]'
                 }`}
               title="Subtask Steps Checklist"
             >
@@ -3381,6 +3542,18 @@ export default function Dashboard() {
               title={task.pinned ? "Remove from Important" : "Star as Important"}
             >
               <Star size={16} className={task.pinned ? 'fill-amber-500' : ''} />
+            </button>
+
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleOpenEditTask(task);
+              }}
+              className="p-1.5 rounded-xl text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-white/[0.04] transition-colors"
+              title="Edit Task Details"
+            >
+              <Pencil size={15} />
             </button>
 
             <button
@@ -3452,16 +3625,16 @@ export default function Dashboard() {
                     >
                       <span
                         className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0 transition-all ${step.completed
-                            ? 'bg-emerald-500 border-emerald-500 text-white'
-                            : 'border-slate-400 dark:border-slate-600 hover:border-emerald-500'
+                          ? 'bg-emerald-500 border-emerald-500 text-white'
+                          : 'border-slate-400 dark:border-slate-600 hover:border-emerald-500'
                           }`}
                       >
                         {step.completed && <Check size={9} className="stroke-[3]" />}
                       </span>
                       <span
                         className={`text-xs font-semibold truncate ${step.completed
-                            ? 'line-through text-slate-400 dark:text-slate-500'
-                            : 'text-slate-800 dark:text-slate-200'
+                          ? 'line-through text-slate-400 dark:text-slate-500'
+                          : 'text-slate-800 dark:text-slate-200'
                           }`}
                       >
                         {step.title}
@@ -3683,6 +3856,22 @@ export default function Dashboard() {
       setIsFocusModeActive(true);
       return;
     }
+    if (tabId === 'table') {
+      if (!isApex) {
+        showToast?.("✦ Spreadsheet Table Layout is an Apex prestige capability. Showing interactive preview.", "info");
+      }
+      setViewMode('table');
+      setActiveNavTab('all-tasks');
+      return;
+    }
+    if (tabId === 'chronosync') {
+      setIsChronoSyncOpen(true);
+      return;
+    }
+    if (tabId === 'stealth-vault') {
+      setIsStealthVaultOpen(true);
+      return;
+    }
     setActiveNavTab(tabId);
   };
 
@@ -3733,11 +3922,17 @@ export default function Dashboard() {
     showToast("Automation preference updated", "success");
   };
 
-  if (isAuthLoading) {
+  if (isAuthLoading || (effectiveUser && showSplashScreen) || isPreviewSplashOpen) {
     return (
-      <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center">
-        <Loader2 className="animate-spin text-blue-600 w-12 h-12" />
-      </div>
+      <PersonalizedSplashScreen
+        user={effectiveUser}
+        isDarkMode={isDarkMode}
+        isPreview={isPreviewSplashOpen}
+        onComplete={() => {
+          setShowSplashScreen(false);
+          setIsPreviewSplashOpen(false);
+        }}
+      />
     );
   }
 
@@ -3795,6 +3990,7 @@ export default function Dashboard() {
         currentWorkspace={currentWorkspace}
         onSwitchWorkspace={handleSwitchWorkspace}
         pendingRequestsCount={incomingRequests.length}
+        onOpenAppIconPicker={() => setIsAppIconPickerOpen(true)}
       />
 
       {/* Main App Workspace Area */}
@@ -3808,7 +4004,11 @@ export default function Dashboard() {
             >
               <Menu size={22} />
             </button>
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl overflow-hidden shrink-0 shadow-sm flex items-center justify-center">
+            <div
+              onClick={() => setIsAppIconPickerOpen(true)}
+              className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl overflow-hidden shrink-0 shadow-sm flex items-center justify-center cursor-pointer hover:scale-105 transition-transform"
+              title="Customize App Icon & Preview Splash Screen"
+            >
               <img src={appLogo} alt="Task Bandhu Logo" className="w-full h-full object-cover" />
             </div>
             <div>
@@ -3929,11 +4129,10 @@ export default function Dashboard() {
                     <button
                       type="button"
                       onClick={() => handleSwitchWorkspace('personal')}
-                      className={`py-1 px-3 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
-                        currentWorkspace === 'personal'
-                          ? 'bg-white dark:bg-[#151e32] text-slate-900 dark:text-white shadow-xs'
-                          : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                      }`}
+                      className={`py-1 px-3 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${currentWorkspace === 'personal'
+                        ? 'bg-white dark:bg-[#151e32] text-slate-900 dark:text-white shadow-xs'
+                        : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                        }`}
                       title="Personal Workspace (Your private projects & tasks)"
                     >
                       <Lock size={12} className={currentWorkspace === 'personal' ? 'text-indigo-500' : ''} />
@@ -3942,11 +4141,10 @@ export default function Dashboard() {
                     <button
                       type="button"
                       onClick={() => handleSwitchWorkspace('team')}
-                      className={`py-1 px-3 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
-                        currentWorkspace === 'team'
-                          ? 'bg-white dark:bg-[#151e32] text-indigo-600 dark:text-indigo-400 shadow-xs'
-                          : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                      }`}
+                      className={`py-1 px-3 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${currentWorkspace === 'team'
+                        ? 'bg-white dark:bg-[#151e32] text-indigo-600 dark:text-indigo-400 shadow-xs'
+                        : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                        }`}
                       title="Team Workspace (Collaborative team projects & workload)"
                     >
                       <Users size={12} className={currentWorkspace === 'team' ? 'text-indigo-500' : ''} />
@@ -4043,7 +4241,7 @@ export default function Dashboard() {
                     >
                       <div className="min-w-0 flex-1 pr-2">
                         <p className="text-xs font-bold text-slate-900 dark:text-white truncate">{task.title}</p>
-                        <p className="text-[10px] text-slate-400 truncate">{task.project || 'General Workspace'} • {task.deadline || 'No deadline'}</p>
+                        <p className="text-[10px] text-slate-400 truncate">{(task.project === 'General Workspace' ? 'Personal Inbox' : task.project) || 'Personal Inbox'} • {task.deadline || 'No deadline'}</p>
                       </div>
                       <button
                         type="button"
@@ -4090,6 +4288,9 @@ export default function Dashboard() {
               onLeaveProject={handleLeaveProject}
               isApex={isApex}
               onOpenApexModal={() => setIsApexUpgradeModalOpen(true)}
+              onOpenAppIconPicker={() => setIsAppIconPickerOpen(true)}
+              onPreviewSplash={() => setIsPreviewSplashOpen(true)}
+              isDarkMode={isDarkMode}
               showToast={showToast}
               onFilterProject={(projectName) => {
                 setFilter('All');
@@ -4222,6 +4423,9 @@ export default function Dashboard() {
               onSignOut={handleSignOut}
               onExportBackup={handleExportBackup}
               onOpenApexModal={() => setIsApexUpgradeModalOpen(true)}
+              onOpenAppIconPicker={() => setIsAppIconPickerOpen(true)}
+              onPreviewSplash={() => setIsPreviewSplashOpen(true)}
+              isDarkMode={isDarkMode}
               showToast={showToast}
             />
           ) : (
@@ -4260,11 +4464,10 @@ export default function Dashboard() {
                       <button
                         type="button"
                         onClick={() => setProjectSubTab(prev => prev === 'chat' ? 'tasks' : 'chat')}
-                        className={`px-3.5 py-2 rounded-2xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs border ${
-                          projectSubTab === 'chat'
-                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-indigo-500/20'
-                            : 'bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/50'
-                        }`}
+                        className={`px-3.5 py-2 rounded-2xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs border ${projectSubTab === 'chat'
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-indigo-500/20'
+                          : 'bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/50'
+                          }`}
                       >
                         <MessageSquare size={14} />
                         <span>{projectSubTab === 'chat' ? 'View Tasks' : 'Team Chat'}</span>
@@ -4309,11 +4512,10 @@ export default function Dashboard() {
                     <button
                       type="button"
                       onClick={() => setProjectSubTab('tasks')}
-                      className={`flex items-center gap-2 px-4 py-2 font-black text-xs sm:text-sm rounded-2xl transition-all ${
-                        projectSubTab === 'tasks'
-                          ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md shadow-indigo-500/20'
-                          : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/[0.05]'
-                      }`}
+                      className={`flex items-center gap-2 px-4 py-2 font-black text-xs sm:text-sm rounded-2xl transition-all ${projectSubTab === 'tasks'
+                        ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md shadow-indigo-500/20'
+                        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/[0.05]'
+                        }`}
                     >
                       <ListTodo size={15} />
                       <span>Project Tasks</span>
@@ -4322,20 +4524,18 @@ export default function Dashboard() {
                     <button
                       type="button"
                       onClick={() => setProjectSubTab('chat')}
-                      className={`flex items-center gap-2 px-4 py-2 font-black text-xs sm:text-sm rounded-2xl transition-all ${
-                        projectSubTab === 'chat'
-                          ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md shadow-indigo-500/20'
-                          : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/[0.05]'
-                      }`}
+                      className={`flex items-center gap-2 px-4 py-2 font-black text-xs sm:text-sm rounded-2xl transition-all ${projectSubTab === 'chat'
+                        ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md shadow-indigo-500/20'
+                        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/[0.05]'
+                        }`}
                     >
                       <MessageSquare size={15} />
                       <span>Team Chat</span>
                       {projectMessages.length > 0 && (
-                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
-                          projectSubTab === 'chat'
-                            ? 'bg-white/20 text-white'
-                            : 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300'
-                        }`}>
+                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${projectSubTab === 'chat'
+                          ? 'bg-white/20 text-white'
+                          : 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300'
+                          }`}>
                           {projectMessages.length}
                         </span>
                       )}
@@ -4348,9 +4548,8 @@ export default function Dashboard() {
                       {/* Chat Header */}
                       <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-white/[0.06] flex items-center justify-between gap-3 bg-slate-50/70 dark:bg-[#111827]/70">
                         <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-white font-black text-sm shadow-md ${
-                            PROJECT_COLOR_BG[currentActiveProjectObj.color] || 'bg-indigo-500'
-                          }`}>
+                          <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-white font-black text-sm shadow-md ${PROJECT_COLOR_BG[currentActiveProjectObj.color] || 'bg-indigo-500'
+                            }`}>
                             #
                           </div>
                           <div>
@@ -4402,11 +4601,10 @@ export default function Dashboard() {
                                 className={`flex gap-3 group ${isMe ? 'justify-end' : 'justify-start'}`}
                               >
                                 {!isMe && (
-                                  <div className={`w-8 h-8 rounded-xl font-black text-xs flex items-center justify-center shrink-0 mt-0.5 shadow-xs ${
-                                    showAvatar
-                                      ? 'bg-gradient-to-tr from-indigo-500 to-purple-500 text-white'
-                                      : 'opacity-0'
-                                  }`}>
+                                  <div className={`w-8 h-8 rounded-xl font-black text-xs flex items-center justify-center shrink-0 mt-0.5 shadow-xs ${showAvatar
+                                    ? 'bg-gradient-to-tr from-indigo-500 to-purple-500 text-white'
+                                    : 'opacity-0'
+                                    }`}>
                                     {(msg.author || 'T').charAt(0).toUpperCase()}
                                   </div>
                                 )}
@@ -4439,11 +4637,10 @@ export default function Dashboard() {
                                     )}
 
                                     <div
-                                      className={`px-4 py-2.5 rounded-2xl text-xs sm:text-sm leading-relaxed shadow-xs break-words ${
-                                        isMe
-                                          ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white rounded-tr-xs'
-                                          : 'bg-slate-100 dark:bg-[#161f33] text-slate-900 dark:text-slate-100 border border-slate-200/60 dark:border-white/[0.06] rounded-tl-xs'
-                                      }`}
+                                      className={`px-4 py-2.5 rounded-2xl text-xs sm:text-sm leading-relaxed shadow-xs break-words ${isMe
+                                        ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white rounded-tr-xs'
+                                        : 'bg-slate-100 dark:bg-[#161f33] text-slate-900 dark:text-slate-100 border border-slate-200/60 dark:border-white/[0.06] rounded-tl-xs'
+                                        }`}
                                     >
                                       {msg.text}
                                     </div>
@@ -4451,11 +4648,10 @@ export default function Dashboard() {
                                 </div>
 
                                 {isMe && (
-                                  <div className={`w-8 h-8 rounded-xl font-black text-xs flex items-center justify-center shrink-0 mt-0.5 shadow-xs ${
-                                    showAvatar
-                                      ? 'bg-gradient-to-tr from-blue-600 to-cyan-500 text-white'
-                                      : 'opacity-0'
-                                  }`}>
+                                  <div className={`w-8 h-8 rounded-xl font-black text-xs flex items-center justify-center shrink-0 mt-0.5 shadow-xs ${showAvatar
+                                    ? 'bg-gradient-to-tr from-blue-600 to-cyan-500 text-white'
+                                    : 'opacity-0'
+                                    }`}>
                                     {(effectiveUser?.displayName || 'Me').charAt(0).toUpperCase()}
                                   </div>
                                 )}
@@ -4669,412 +4865,484 @@ export default function Dashboard() {
               {!(activeNavTab === 'project' && projectSubTab === 'chat') && (
                 <>
                   {/* Quick Capture Input - Floating Raycast / Linear style */}
-              <div className={`relative flex flex-col sm:flex-row items-stretch sm:items-center bg-white dark:bg-[#0f1523] border border-slate-200/90 dark:border-white/[0.08] rounded-2xl p-1.5 md:p-2 focus-within:ring-2 focus-within:ring-indigo-500/30 focus-within:border-indigo-500/80 shadow-sm gap-2 sm:gap-0 transition-all ${isQuickPriorityOpen ? 'z-50' : 'z-20'}`}>
-                <div className="flex items-center flex-1 px-2 sm:px-0">
-                  <Plus size={18} className="text-indigo-500 hidden sm:block mx-2 shrink-0" />
-                  <input
-                    type="text"
-                    className="flex-1 w-full py-2 sm:py-2.5 px-2 sm:px-3 text-slate-900 dark:text-white bg-transparent outline-none font-medium text-sm min-w-0 placeholder:text-slate-400 dark:placeholder:text-slate-400"
-                    placeholder="Quick capture a task... Press Enter ↵"
-                    value={quickTaskTitle}
-                    onChange={(e) => setQuickTaskTitle(e.target.value)}
-                    onKeyDown={handleQuickAddKeyDown}
-                  />
-                </div>
-                <div className="flex items-center gap-2 sm:border-l border-slate-200/80 dark:border-white/[0.06] sm:pl-3 pr-1 w-full sm:w-auto justify-end">
-                  <CustomDropdown
-                    options={['Urgent', 'High', 'Medium', 'Low']}
-                    value={quickPriority}
-                    onChange={setQuickPriority}
-                    onOpenChange={setIsQuickPriorityOpen}
-                    className="w-28 sm:w-32"
-                  />
-                  <button
-                    onClick={submitQuickTask}
-                    className="h-9 px-3.5 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white rounded-xl w-full sm:w-auto flex items-center justify-center transition-all shadow-md shadow-indigo-500/20 active:scale-95"
-                    title="Add Task"
-                  >
-                    <Send size={14} />
-                  </button>
-                </div>
-              </div>
-
-              {/* 4 Stats Cards (Dribbble Mortgage CRM 4-column KPI strip) */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-5 relative">
-                {/* Total Tasks */}
-                <div className="bg-white dark:bg-[#0f1523] p-5 rounded-3xl border border-slate-200/80 dark:border-white/[0.08] shadow-sm hover:border-indigo-400/40 dark:hover:border-indigo-500/40 transition-all flex flex-col justify-between">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-slate-400 dark:text-slate-400 font-bold text-[10px] uppercase tracking-wider">Total Tasks</span>
-                    <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 flex items-center justify-center border border-blue-100 dark:border-blue-900/50">
-                      <ListTodo size={16} />
-                    </div>
-                  </div>
-                  <div>
-                    <p className="text-2xl md:text-3xl font-black text-slate-900 dark:text-white tracking-tight">{stats.total}</p>
-                    <p className="text-[11px] text-slate-400 dark:text-slate-400 font-medium mt-1">Across all workspaces</p>
-                  </div>
-                </div>
-
-                {/* Completed */}
-                <div className="bg-white dark:bg-[#0f1523] p-5 rounded-3xl border border-slate-200/80 dark:border-white/[0.08] shadow-sm hover:border-emerald-400/40 dark:hover:border-emerald-500/40 transition-all flex flex-col justify-between">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-slate-400 dark:text-slate-400 font-bold text-[10px] uppercase tracking-wider">Completed</span>
-                    <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-100 dark:border-emerald-900/50">
-                      <CheckCircle2 size={16} />
-                    </div>
-                  </div>
-                  <div>
-                    <p className="text-2xl md:text-3xl font-black text-emerald-600 dark:text-emerald-400 tracking-tight">{stats.completed}</p>
-                    <p className="text-[11px] text-emerald-600/80 dark:text-emerald-400/80 font-bold mt-1">{dailyCompletionRate}% completion rate</p>
-                  </div>
-                </div>
-
-                {/* In Progress */}
-                <div className="bg-white dark:bg-[#0f1523] p-5 rounded-3xl border border-slate-200/80 dark:border-white/[0.08] shadow-sm hover:border-indigo-400/40 dark:hover:border-indigo-500/40 transition-all flex flex-col justify-between">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-slate-400 dark:text-slate-400 font-bold text-[10px] uppercase tracking-wider">In Progress</span>
-                    <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-100 dark:border-indigo-900/50">
-                      <Clock size={16} />
-                    </div>
-                  </div>
-                  <div>
-                    <p className="text-2xl md:text-3xl font-black text-slate-900 dark:text-white tracking-tight">{Math.max(0, stats.total - stats.completed)}</p>
-                    <p className="text-[11px] text-slate-400 dark:text-slate-400 font-medium mt-1">Active in queue</p>
-                  </div>
-                </div>
-
-                {/* Overdue / Schedule Risk */}
-                <div className={`p-5 rounded-3xl border transition-all flex flex-col justify-between ${stats.overdue > 0
-                  ? 'bg-rose-50/70 dark:bg-rose-950/30 border-rose-300 dark:border-rose-800/60 shadow-md shadow-rose-500/10'
-                  : 'bg-white dark:bg-[#0f1523] border-slate-200/80 dark:border-white/[0.08] shadow-sm'
-                  }`}>
-                  <div className="flex items-center justify-between mb-3">
-                    <span className={`font-bold text-[10px] uppercase tracking-wider ${stats.overdue > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400 dark:text-slate-400'}`}>
-                      Overdue
-                    </span>
-                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${stats.overdue > 0
-                      ? 'bg-rose-500 text-white shadow-xs'
-                      : 'bg-slate-100 dark:bg-white/[0.05] text-slate-400 dark:text-slate-400'
-                      }`}>
-                      <AlertOctagon size={16} className={stats.overdue > 0 ? "animate-pulse" : ""} />
-                    </div>
-                  </div>
-                  <div>
-                    <div className="flex items-baseline justify-between gap-2">
-                      <p className={`text-2xl md:text-3xl font-black tracking-tight ${stats.overdue > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-white'}`}>
-                        {stats.overdue}
-                      </p>
-                      {stats.overdue > 0 && (
-                        <button
-                          onClick={handleSmartReschedule}
-                          className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-[10px] font-black transition-transform active:scale-95 shadow-xs"
-                        >
-                          Reschedule
-                        </button>
-                      )}
-                    </div>
-                    <p className={`text-[11px] font-medium mt-1 ${stats.overdue > 0 ? 'text-rose-600 dark:text-rose-400 font-semibold' : 'text-slate-400 dark:text-slate-400'}`}>
-                      {stats.overdue > 0 ? "Past due deadline" : "All deadlines on schedule"}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Main Workspace Card */}
-              <div className="bg-white dark:bg-[#0f1523] p-5 md:p-7 rounded-3xl shadow-sm border border-slate-200/80 dark:border-white/[0.08] min-h-[420px]">
-                {/* Workspace Header Toolbar */}
-                <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-8 gap-4 w-full relative z-[40]">
-                  <h2 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white shrink-0 capitalize">
-                    {activeNavTab === 'my-day' ? "Today's Tasks" : activeNavTab === 'inbox' ? "Inbox Tasks" : activeNavTab === 'favorites' ? "Pinned Tasks" : "All Tasks"}
-                  </h2>
-
-                  <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 w-full lg:w-auto">
-                    {/* Search input */}
-                    <div className="relative flex-1 min-w-[130px] sm:w-40 md:w-48">
-                      <Search size={14} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  <div className={`relative flex flex-col sm:flex-row items-stretch sm:items-center bg-white dark:bg-[#0f1523] border border-slate-200/90 dark:border-white/[0.08] rounded-2xl p-1.5 md:p-2 focus-within:ring-2 focus-within:ring-indigo-500/30 focus-within:border-indigo-500/80 shadow-sm gap-2 sm:gap-0 transition-all ${isQuickPriorityOpen ? 'z-50' : 'z-20'}`}>
+                    <div className="flex items-center flex-1 px-2 sm:px-0">
+                      <Plus size={18} className="text-indigo-500 hidden sm:block mx-2 shrink-0" />
                       <input
                         type="text"
-                        placeholder="Search tasks, team..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="h-10 pl-8 md:pl-9 pr-3 bg-slate-50 dark:bg-[#151e32] border border-slate-200/80 dark:border-white/[0.08] rounded-xl text-xs md:text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30 w-full transition-all text-slate-900 dark:text-white placeholder:text-slate-400"
+                        className="flex-1 w-full py-2 sm:py-2.5 px-2 sm:px-3 text-slate-900 dark:text-white bg-transparent outline-none font-medium text-sm min-w-0 placeholder:text-slate-400 dark:placeholder:text-slate-400"
+                        placeholder="Quick capture a task... Press Enter ↵"
+                        value={quickTaskTitle}
+                        onChange={(e) => setQuickTaskTitle(e.target.value)}
+                        onKeyDown={handleQuickAddKeyDown}
                       />
                     </div>
-
-                    {/* Clear Done button */}
-                    <button
-                      onClick={handleBulkClear}
-                      className="h-10 bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400 border border-rose-200/60 dark:border-rose-900/40 px-3.5 rounded-xl text-xs font-bold hover:bg-rose-100 dark:hover:bg-rose-900/60 flex items-center gap-1.5 shadow-xs shrink-0 transition-all"
-                      title="Delete all completed tasks"
-                    >
-                      <Eraser size={14} /> Clear Done
-                    </button>
-
-                    {/* View Switcher */}
-                    <div className="h-10 flex items-center bg-slate-50 dark:bg-[#151e32] border border-slate-200/80 dark:border-white/[0.08] rounded-xl p-1 shrink-0">
-                      <button
-                        onClick={() => setViewMode('list')}
-                        className={`h-8 w-8 flex items-center justify-center rounded-lg transition-all ${viewMode === 'list' ? 'bg-white dark:bg-[#0c121e] shadow-xs text-indigo-600 dark:text-indigo-400 border border-slate-200/60 dark:border-white/[0.08]' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
-                          }`}
-                        title="List View"
-                      >
-                        <ListIcon size={16} />
-                      </button>
-                      <button
-                        onClick={() => setViewMode('kanban')}
-                        className={`h-8 w-8 flex items-center justify-center rounded-lg transition-all ${viewMode === 'kanban' ? 'bg-white dark:bg-[#0c121e] shadow-xs text-indigo-600 dark:text-indigo-400 border border-slate-200/60 dark:border-white/[0.08]' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
-                          }`}
-                        title="Kanban Board"
-                      >
-                        <Kanban size={16} />
-                      </button>
-                      <button
-                        onClick={() => setViewMode('timeline')}
-                        className={`h-8 w-8 flex items-center justify-center rounded-lg transition-all ${viewMode === 'timeline' ? 'bg-white dark:bg-[#0c121e] shadow-xs text-indigo-600 dark:text-indigo-400 border border-slate-200/60 dark:border-white/[0.08]' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
-                          }`}
-                        title="Timeline View"
-                      >
-                        <Presentation size={16} />
-                      </button>
-                      <button
-                        onClick={() => setViewMode('calendar')}
-                        className={`h-8 w-8 flex items-center justify-center rounded-lg transition-all ${viewMode === 'calendar' ? 'bg-white dark:bg-[#0c121e] shadow-xs text-indigo-600 dark:text-indigo-400 border border-slate-200/60 dark:border-white/[0.08]' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
-                          }`}
-                        title="Calendar View"
-                      >
-                        <CalendarIcon size={16} />
-                      </button>
-                    </div>
-
-                    {/* Team Member Filter */}
-                    {allAssignees.length > 0 && (
+                    <div className="flex items-center gap-2 sm:border-l border-slate-200/80 dark:border-white/[0.06] sm:pl-3 pr-1 w-full sm:w-auto justify-end">
                       <CustomDropdown
-                        options={teamFilterOptions}
-                        value={assigneeFilter}
-                        onChange={setAssigneeFilter}
-                        className="w-32 sm:w-36 shrink-0 z-[50]"
+                        options={['Urgent', 'High', 'Medium', 'Low']}
+                        value={quickPriority}
+                        onChange={setQuickPriority}
+                        onOpenChange={setIsQuickPriorityOpen}
+                        className="w-28 sm:w-32"
                       />
-                    )}
-
-                    {/* Status Filter Dropdown */}
-                    <CustomDropdown
-                      options={['All', 'To Do', 'In Progress', 'Review', 'Completed', 'Overdue']}
-                      value={filter}
-                      onChange={setFilter}
-                      className="w-28 sm:w-32 shrink-0 z-[50]"
-                    />
-                  </div>
-                </div>
-
-                {/* Views Area */}
-                {loading ? (
-                  <div className="flex justify-center items-center py-20">
-                    <Loader2 className="animate-spin text-blue-600 w-8 h-8" />
-                  </div>
-                ) : (displayTasks.length === 0 && (activeNavTab !== 'my-day' || noDeadlineTasks.length === 0)) ? (
-                  <div className="flex flex-col items-center justify-center py-16 text-center px-4">
-                    <div className="bg-gray-50 dark:bg-slate-700 p-5 md:p-6 rounded-full mb-4">
-                      <ListTodo size={32} className="text-gray-400 dark:text-slate-500" />
+                      <button
+                        onClick={submitQuickTask}
+                        className="h-9 px-3.5 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white rounded-xl w-full sm:w-auto flex items-center justify-center transition-all shadow-md shadow-indigo-500/20 active:scale-95"
+                        title="Add Task"
+                      >
+                        <Send size={14} />
+                      </button>
                     </div>
-                    <h3 className="text-base md:text-lg font-semibold text-gray-800 dark:text-white mb-1">No tasks found</h3>
-                    <p className="text-xs md:text-sm text-gray-400 dark:text-slate-500">
-                      {searchQuery || filter !== 'All' || assigneeFilter !== 'All Members'
-                        ? 'Try adjusting your search or filters.'
-                        : 'Click "New Task" above or use Quick Capture to get started!'}
-                    </p>
                   </div>
-                ) : viewMode === 'list' ? (
-                  <div className="space-y-4">
-                    {/* Planned / Upcoming View with Date Sections (Todoist & MS To Do style) */}
-                    {activeNavTab === 'upcoming' && upcomingBuckets ? (
-                      <div className="space-y-6">
-                        {upcomingBuckets.overdue.length > 0 && (
-                          <div className="space-y-2.5">
-                            <h3 className="text-xs font-black uppercase tracking-wider text-rose-600 dark:text-rose-400 flex items-center gap-1.5">
-                              <AlertOctagon size={13} /> Overdue ({upcomingBuckets.overdue.length})
-                            </h3>
-                            <div className="space-y-2.5">
-                              {upcomingBuckets.overdue.map(t => <TaskCard key={t.id} task={t} />)}
-                            </div>
-                          </div>
-                        )}
 
-                        {upcomingBuckets.today.length > 0 && (
-                          <div className="space-y-2.5">
-                            <h3 className="text-xs font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
-                              <Sun size={13} /> Today ({upcomingBuckets.today.length})
-                            </h3>
-                            <div className="space-y-2.5">
-                              {upcomingBuckets.today.map(t => <TaskCard key={t.id} task={t} />)}
-                            </div>
-                          </div>
-                        )}
-
-                        {upcomingBuckets.tomorrow.length > 0 && (
-                          <div className="space-y-2.5">
-                            <h3 className="text-xs font-black uppercase tracking-wider text-purple-600 dark:text-purple-400 flex items-center gap-1.5">
-                              <CalendarIcon size={13} /> Tomorrow ({upcomingBuckets.tomorrow.length})
-                            </h3>
-                            <div className="space-y-2.5">
-                              {upcomingBuckets.tomorrow.map(t => <TaskCard key={t.id} task={t} />)}
-                            </div>
-                          </div>
-                        )}
-
-                        {upcomingBuckets.thisWeek.length > 0 && (
-                          <div className="space-y-2.5">
-                            <h3 className="text-xs font-black uppercase tracking-wider text-indigo-600 dark:text-indigo-400 flex items-center gap-1.5">
-                              <CheckCircle2 size={13} /> Next 7 Days ({upcomingBuckets.thisWeek.length})
-                            </h3>
-                            <div className="space-y-2.5">
-                              {upcomingBuckets.thisWeek.map(t => <TaskCard key={t.id} task={t} />)}
-                            </div>
-                          </div>
-                        )}
-
-                        {upcomingBuckets.later.length > 0 && (
-                          <div className="space-y-2.5">
-                            <h3 className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
-                              <Clock size={13} /> Later ({upcomingBuckets.later.length})
-                            </h3>
-                            <div className="space-y-2.5">
-                              {upcomingBuckets.later.map(t => <TaskCard key={t.id} task={t} />)}
-                            </div>
-                          </div>
-                        )}
-
-                        {displayTasks.length === 0 && (
-                          <p className="text-xs text-slate-400 italic">No scheduled tasks found.</p>
-                        )}
+                  {/* 4 Stats Cards (Dribbble Mortgage CRM 4-column KPI strip) */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-5 relative">
+                    {/* Total Tasks */}
+                    <div className="bg-white dark:bg-[#0f1523] p-5 rounded-3xl border border-slate-200/80 dark:border-white/[0.08] shadow-sm hover:border-indigo-400/40 dark:hover:border-indigo-500/40 transition-all flex flex-col justify-between">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-slate-400 dark:text-slate-400 font-bold text-[10px] uppercase tracking-wider">Total Tasks</span>
+                        <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 flex items-center justify-center border border-blue-100 dark:border-blue-900/50">
+                          <ListTodo size={16} />
+                        </div>
                       </div>
-                    ) : (
-                      <div className="space-y-4">
-                        {uncompletedTasksList.length > 0 ? (
-                          <div className="space-y-2.5">
-                            {uncompletedTasksList.map(t => <TaskCard key={t.id} task={t} />)}
+                      <div>
+                        <p className="text-2xl md:text-3xl font-black text-slate-900 dark:text-white tracking-tight">{stats.total}</p>
+                        <p className="text-[11px] text-slate-400 dark:text-slate-400 font-medium mt-1">Across all workspaces</p>
+                      </div>
+                    </div>
+
+                    {/* Completed */}
+                    <div className="bg-white dark:bg-[#0f1523] p-5 rounded-3xl border border-slate-200/80 dark:border-white/[0.08] shadow-sm hover:border-emerald-400/40 dark:hover:border-emerald-500/40 transition-all flex flex-col justify-between">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-slate-400 dark:text-slate-400 font-bold text-[10px] uppercase tracking-wider">Completed</span>
+                        <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-100 dark:border-emerald-900/50">
+                          <CheckCircle2 size={16} />
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-2xl md:text-3xl font-black text-emerald-600 dark:text-emerald-400 tracking-tight">{stats.completed}</p>
+                        <p className="text-[11px] text-emerald-600/80 dark:text-emerald-400/80 font-bold mt-1">{dailyCompletionRate}% completion rate</p>
+                      </div>
+                    </div>
+
+                    {/* In Progress */}
+                    <div className="bg-white dark:bg-[#0f1523] p-5 rounded-3xl border border-slate-200/80 dark:border-white/[0.08] shadow-sm hover:border-indigo-400/40 dark:hover:border-indigo-500/40 transition-all flex flex-col justify-between">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-slate-400 dark:text-slate-400 font-bold text-[10px] uppercase tracking-wider">In Progress</span>
+                        <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-100 dark:border-indigo-900/50">
+                          <Clock size={16} />
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-2xl md:text-3xl font-black text-slate-900 dark:text-white tracking-tight">{Math.max(0, stats.total - stats.completed)}</p>
+                        <p className="text-[11px] text-slate-400 dark:text-slate-400 font-medium mt-1">Active in queue</p>
+                      </div>
+                    </div>
+
+                    {/* Overdue / Schedule Risk */}
+                    <div className={`p-5 rounded-3xl border transition-all flex flex-col justify-between ${stats.overdue > 0
+                      ? 'bg-rose-50/70 dark:bg-rose-950/30 border-rose-300 dark:border-rose-800/60 shadow-md shadow-rose-500/10'
+                      : 'bg-white dark:bg-[#0f1523] border-slate-200/80 dark:border-white/[0.08] shadow-sm'
+                      }`}>
+                      <div className="flex items-center justify-between mb-3">
+                        <span className={`font-bold text-[10px] uppercase tracking-wider ${stats.overdue > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400 dark:text-slate-400'}`}>
+                          Overdue
+                        </span>
+                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${stats.overdue > 0
+                          ? 'bg-rose-500 text-white shadow-xs'
+                          : 'bg-slate-100 dark:bg-white/[0.05] text-slate-400 dark:text-slate-400'
+                          }`}>
+                          <AlertOctagon size={16} className={stats.overdue > 0 ? "animate-pulse" : ""} />
+                        </div>
+                      </div>
+                      <div>
+                        <div className="flex items-baseline justify-between gap-2">
+                          <p className={`text-2xl md:text-3xl font-black tracking-tight ${stats.overdue > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-white'}`}>
+                            {stats.overdue}
+                          </p>
+                          {stats.overdue > 0 && (
+                            <button
+                              onClick={handleSmartReschedule}
+                              className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-[10px] font-black transition-transform active:scale-95 shadow-xs"
+                            >
+                              Reschedule
+                            </button>
+                          )}
+                        </div>
+                        <p className={`text-[11px] font-medium mt-1 ${stats.overdue > 0 ? 'text-rose-600 dark:text-rose-400 font-semibold' : 'text-slate-400 dark:text-slate-400'}`}>
+                          {stats.overdue > 0 ? "Past due deadline" : "All deadlines on schedule"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Main Workspace Card */}
+                  <div className="bg-white dark:bg-[#0f1523] p-5 md:p-7 rounded-3xl shadow-sm border border-slate-200/80 dark:border-white/[0.08] min-h-[420px]">
+                    {/* Workspace Header Toolbar */}
+                    <div className="mb-6 space-y-4 w-full relative z-[40]">
+                      {/* Row 1: Workspace Title, Task Count & Power Tools */}
+                      <div className="flex flex-wrap items-center justify-between gap-3 w-full">
+                        <div className="flex items-center gap-3">
+                          <h2 className="text-xl md:text-2xl font-black text-gray-900 dark:text-white capitalize tracking-tight">
+                            {activeNavTab === 'my-day' ? "Today's Tasks" : activeNavTab === 'inbox' ? "Inbox Tasks" : activeNavTab === 'favorites' ? "Pinned Tasks" : "All Tasks"}
+                          </h2>
+                          <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800/80 font-bold text-slate-500 dark:text-slate-400 border border-slate-200/60 dark:border-white/[0.08]">
+                            {displayTasks.length} {displayTasks.length === 1 ? 'task' : 'tasks'}
+                          </span>
+                        </div>
+
+                        {/* Power Actions: Clear Done, ChronoSync, Stealth Vault */}
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={handleBulkClear}
+                            className="h-9 bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400 border border-rose-200/60 dark:border-rose-900/40 px-3 rounded-xl text-xs font-bold hover:bg-rose-100 dark:hover:bg-rose-900/60 flex items-center gap-1.5 shadow-xs transition-all active:scale-95"
+                            title="Delete all completed tasks"
+                          >
+                            <Eraser size={13} />
+                            <span>Clear Done</span>
+                          </button>
+
+                          <button
+                            onClick={() => setIsChronoSyncOpen(true)}
+                            className="h-9 bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/40 px-3 rounded-xl text-xs font-black hover:bg-indigo-100 dark:hover:bg-indigo-900/60 flex items-center gap-1.5 shadow-xs transition-all active:scale-95"
+                            title="ChronoSync AI Schedule Balancer (Apex Feature)"
+                          >
+                            <Sparkles size={13} className="text-amber-500" />
+                            <span>ChronoSync</span>
+                            <span className="text-[9px] font-black uppercase text-amber-500">✦</span>
+                          </button>
+
+                          <button
+                            onClick={() => setIsStealthVaultOpen(true)}
+                            className="h-9 bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200/60 dark:border-amber-800/40 px-3 rounded-xl text-xs font-black hover:bg-amber-100 dark:hover:bg-amber-900/60 flex items-center gap-1.5 shadow-xs transition-all active:scale-95"
+                            title="Biometric Stealth Vault (Apex Feature)"
+                          >
+                            <Lock size={13} className="text-amber-500" />
+                            <span>Vault</span>
+                            <span className="text-[9px] font-black uppercase text-amber-500">✦</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Row 2: Search, Filters & View Switcher */}
+                      <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100 dark:border-white/[0.06]">
+                        {/* Search & Filter Dropdowns */}
+                        <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-[280px]">
+                          {/* Search input */}
+                          <div className="relative w-48 sm:w-56">
+                            <Search size={14} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 pointer-events-none" />
+                            <input
+                              type="text"
+                              placeholder="Search tasks, team..."
+                              value={searchQuery}
+                              onChange={(e) => setSearchQuery(e.target.value)}
+                              className="h-9 pl-8 pr-3 bg-slate-50 dark:bg-[#151e32] border border-slate-200/80 dark:border-white/[0.08] rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/30 w-full transition-all text-slate-900 dark:text-white placeholder:text-slate-400"
+                            />
                           </div>
-                        ) : activeNavTab === 'my-day' ? (
-                          <div className="p-4 rounded-2xl bg-slate-50/70 dark:bg-white/[0.02] border border-slate-200/70 dark:border-white/[0.06] text-center">
-                            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 font-medium">
-                              ✨ All caught up on scheduled tasks for today!
-                            </p>
+
+                          {/* Status Filter Dropdown */}
+                          <CustomDropdown
+                            options={['All', 'To Do', 'In Progress', 'Review', 'Completed', 'Overdue']}
+                            value={filter}
+                            onChange={setFilter}
+                            className="w-32 shrink-0 z-[50]"
+                          />
+
+                          {/* Team Member Filter */}
+                          {allAssignees.length > 0 && (
+                            <CustomDropdown
+                              options={teamFilterOptions}
+                              value={assigneeFilter}
+                              onChange={setAssigneeFilter}
+                              className="w-36 shrink-0 z-[50]"
+                            />
+                          )}
+                        </div>
+
+                        {/* View Switcher: List, Kanban, Spreadsheet Table, Timeline, Calendar */}
+                        <div className="h-9 flex items-center bg-slate-50 dark:bg-[#151e32] border border-slate-200/80 dark:border-white/[0.08] rounded-xl p-0.5 shrink-0">
+                          <button
+                            onClick={() => setViewMode('list')}
+                            className={`h-8 px-2.5 flex items-center gap-1.5 rounded-lg text-xs font-bold transition-all ${viewMode === 'list' ? 'bg-white dark:bg-[#0c121e] shadow-xs text-indigo-600 dark:text-indigo-400 border border-slate-200/60 dark:border-white/[0.08]' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+                              }`}
+                            title="List View"
+                          >
+                            <ListIcon size={14} />
+                            <span className="hidden sm:inline">List</span>
+                          </button>
+                          <button
+                            onClick={() => setViewMode('kanban')}
+                            className={`h-8 px-2.5 flex items-center gap-1.5 rounded-lg text-xs font-bold transition-all ${viewMode === 'kanban' ? 'bg-white dark:bg-[#0c121e] shadow-xs text-indigo-600 dark:text-indigo-400 border border-slate-200/60 dark:border-white/[0.08]' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+                              }`}
+                            title="Kanban Board"
+                          >
+                            <Kanban size={14} />
+                            <span className="hidden sm:inline">Board</span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (!isApex) {
+                                showToast?.("✦ Spreadsheet Table Layout is an Apex prestige capability. Showing interactive preview.", "info");
+                              }
+                              setViewMode('table');
+                            }}
+                            className={`h-8 px-2.5 flex items-center gap-1.5 rounded-lg text-xs font-bold transition-all ${viewMode === 'table' ? 'bg-white dark:bg-[#0c121e] shadow-xs text-emerald-600 dark:text-emerald-400 border border-slate-200/60 dark:border-white/[0.08]' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+                              }`}
+                            title="Spreadsheet Table View ✦ APEX"
+                          >
+                            <FileSpreadsheet size={14} />
+                            <span className="hidden sm:inline">Table</span>
+                            <span className="text-[9px] text-amber-500 font-black">✦</span>
+                          </button>
+                          <button
+                            onClick={() => setViewMode('timeline')}
+                            className={`h-8 px-2.5 flex items-center gap-1.5 rounded-lg text-xs font-bold transition-all ${viewMode === 'timeline' ? 'bg-white dark:bg-[#0c121e] shadow-xs text-indigo-600 dark:text-indigo-400 border border-slate-200/60 dark:border-white/[0.08]' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+                              }`}
+                            title="Timeline View"
+                          >
+                            <Presentation size={14} />
+                            <span className="hidden sm:inline">Timeline</span>
+                          </button>
+                          <button
+                            onClick={() => setViewMode('calendar')}
+                            className={`h-8 px-2.5 flex items-center gap-1.5 rounded-lg text-xs font-bold transition-all ${viewMode === 'calendar' ? 'bg-white dark:bg-[#0c121e] shadow-xs text-indigo-600 dark:text-indigo-400 border border-slate-200/60 dark:border-white/[0.08]' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+                              }`}
+                            title="Calendar View"
+                          >
+                            <CalendarIcon size={14} />
+                            <span className="hidden sm:inline">Calendar</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Views Area */}
+                    {loading ? (
+                      <div className="flex justify-center items-center py-20">
+                        <Loader2 className="animate-spin text-blue-600 w-8 h-8" />
+                      </div>
+                    ) : (displayTasks.length === 0 && (activeNavTab !== 'my-day' || noDeadlineTasks.length === 0)) ? (
+                      <div className="flex flex-col items-center justify-center py-16 text-center px-4">
+                        <div className="bg-gray-50 dark:bg-slate-700 p-5 md:p-6 rounded-full mb-4">
+                          <ListTodo size={32} className="text-gray-400 dark:text-slate-500" />
+                        </div>
+                        <h3 className="text-base md:text-lg font-semibold text-gray-800 dark:text-white mb-1">No tasks found</h3>
+                        <p className="text-xs md:text-sm text-gray-400 dark:text-slate-500">
+                          {searchQuery || filter !== 'All' || assigneeFilter !== 'All Members'
+                            ? 'Try adjusting your search or filters.'
+                            : 'Click "New Task" above or use Quick Capture to get started!'}
+                        </p>
+                      </div>
+                    ) : viewMode === 'list' ? (
+                      <div className="space-y-4">
+                        {/* Planned / Upcoming View with Date Sections (Todoist & MS To Do style) */}
+                        {activeNavTab === 'upcoming' && upcomingBuckets ? (
+                          <div className="space-y-6">
+                            {upcomingBuckets.overdue.length > 0 && (
+                              <div className="space-y-2.5">
+                                <h3 className="text-xs font-black uppercase tracking-wider text-rose-600 dark:text-rose-400 flex items-center gap-1.5">
+                                  <AlertOctagon size={13} /> Overdue ({upcomingBuckets.overdue.length})
+                                </h3>
+                                <div className="space-y-2.5">
+                                  {upcomingBuckets.overdue.map(t => <TaskCard key={t.id} task={t} />)}
+                                </div>
+                              </div>
+                            )}
+
+                            {upcomingBuckets.today.length > 0 && (
+                              <div className="space-y-2.5">
+                                <h3 className="text-xs font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                                  <Sun size={13} /> Today ({upcomingBuckets.today.length})
+                                </h3>
+                                <div className="space-y-2.5">
+                                  {upcomingBuckets.today.map(t => <TaskCard key={t.id} task={t} />)}
+                                </div>
+                              </div>
+                            )}
+
+                            {upcomingBuckets.tomorrow.length > 0 && (
+                              <div className="space-y-2.5">
+                                <h3 className="text-xs font-black uppercase tracking-wider text-purple-600 dark:text-purple-400 flex items-center gap-1.5">
+                                  <CalendarIcon size={13} /> Tomorrow ({upcomingBuckets.tomorrow.length})
+                                </h3>
+                                <div className="space-y-2.5">
+                                  {upcomingBuckets.tomorrow.map(t => <TaskCard key={t.id} task={t} />)}
+                                </div>
+                              </div>
+                            )}
+
+                            {upcomingBuckets.thisWeek.length > 0 && (
+                              <div className="space-y-2.5">
+                                <h3 className="text-xs font-black uppercase tracking-wider text-indigo-600 dark:text-indigo-400 flex items-center gap-1.5">
+                                  <CheckCircle2 size={13} /> Next 7 Days ({upcomingBuckets.thisWeek.length})
+                                </h3>
+                                <div className="space-y-2.5">
+                                  {upcomingBuckets.thisWeek.map(t => <TaskCard key={t.id} task={t} />)}
+                                </div>
+                              </div>
+                            )}
+
+                            {upcomingBuckets.later.length > 0 && (
+                              <div className="space-y-2.5">
+                                <h3 className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                                  <Clock size={13} /> Later ({upcomingBuckets.later.length})
+                                </h3>
+                                <div className="space-y-2.5">
+                                  {upcomingBuckets.later.map(t => <TaskCard key={t.id} task={t} />)}
+                                </div>
+                              </div>
+                            )}
+
+                            {displayTasks.length === 0 && (
+                              <p className="text-xs text-slate-400 italic">No scheduled tasks found.</p>
+                            )}
                           </div>
                         ) : (
-                          <p className="text-xs text-slate-400 italic py-2">No pending tasks.</p>
-                        )}
-
-                        {/* Free? Complete these (Tasks with no deadline in My Day) */}
-                        {activeNavTab === 'my-day' && noDeadlineTasks.length > 0 && (
-                          <div className="pt-5 border-t border-slate-100 dark:border-white/[0.06] space-y-3">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <div className="w-2.5 h-2.5 rounded-full bg-cyan-500 animate-pulse" />
-                                <h3 className="text-sm font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
-                                  Free? Complete these
-                                  <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-cyan-50 dark:bg-cyan-950/50 text-cyan-700 dark:text-cyan-300 border border-cyan-200/60 dark:border-cyan-800/60">
-                                    {noDeadlineTasks.length} Flexible
-                                  </span>
-                                </h3>
+                          <div className="space-y-4">
+                            {uncompletedTasksList.length > 0 ? (
+                              <div className="space-y-2.5">
+                                {uncompletedTasksList.map(t => <TaskCard key={t.id} task={t} />)}
                               </div>
-                              <p className="text-[11px] text-slate-400 font-medium">Tasks with no deadline</p>
-                            </div>
-                            <div className="space-y-2.5">
-                              {noDeadlineTasks.map(t => <TaskCard key={t.id} task={t} />)}
-                            </div>
+                            ) : activeNavTab === 'my-day' ? (
+                              <div className="p-4 rounded-2xl bg-slate-50/70 dark:bg-white/[0.02] border border-slate-200/70 dark:border-white/[0.06] text-center">
+                                <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 font-medium">
+                                  ✨ All caught up on scheduled tasks for today!
+                                </p>
+                              </div>
+                            ) : (
+                              <p className="text-xs text-slate-400 italic py-2">No pending tasks.</p>
+                            )}
+
+                            {/* Free? Complete these (Tasks with no deadline in My Day) */}
+                            {activeNavTab === 'my-day' && noDeadlineTasks.length > 0 && (
+                              <div className="pt-5 border-t border-slate-100 dark:border-white/[0.06] space-y-3">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-2.5 h-2.5 rounded-full bg-cyan-500 animate-pulse" />
+                                    <h3 className="text-sm font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+                                      Free? Complete these
+                                      <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-cyan-50 dark:bg-cyan-950/50 text-cyan-700 dark:text-cyan-300 border border-cyan-200/60 dark:border-cyan-800/60">
+                                        {noDeadlineTasks.length} Flexible
+                                      </span>
+                                    </h3>
+                                  </div>
+                                  <p className="text-[11px] text-slate-400 font-medium">Tasks with no deadline</p>
+                                </div>
+                                <div className="space-y-2.5">
+                                  {noDeadlineTasks.map(t => <TaskCard key={t.id} task={t} />)}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Inline Task Quick-Add (Todoist signature feature) */}
+                        <form
+                          onSubmit={handleInlineCreateTask}
+                          className="flex items-center gap-2.5 p-3 rounded-2xl border border-dashed border-slate-300 dark:border-white/[0.08] hover:border-indigo-400 dark:hover:border-indigo-500/50 transition-colors bg-slate-50/40 dark:bg-white/[0.01]"
+                        >
+                          <button
+                            type="submit"
+                            className="w-5 h-5 rounded-full border border-slate-300 dark:border-slate-600 text-indigo-500 flex items-center justify-center shrink-0 hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
+                          >
+                            <Plus size={13} />
+                          </button>
+                          <input
+                            type="text"
+                            placeholder={`Add task to ${activeNavTab === 'my-day' ? 'My Day' : activeNavTab === 'project' ? activeProject : 'Inbox'}... (press Enter ↵)`}
+                            value={inlineTitle}
+                            onChange={(e) => setInlineTitle(e.target.value)}
+                            className="flex-1 text-xs sm:text-sm bg-transparent outline-none text-slate-900 dark:text-white placeholder:text-slate-400 font-medium"
+                          />
+                          <input
+                            type="date"
+                            value={inlineDeadline}
+                            onChange={(e) => setInlineDeadline(e.target.value)}
+                            className="text-[11px] font-semibold bg-slate-100 dark:bg-white/[0.05] text-slate-700 dark:text-slate-300 px-2 py-1 rounded-lg border border-slate-200 dark:border-white/[0.06] outline-none shrink-0"
+                          />
+                          <button
+                            type="submit"
+                            disabled={!inlineTitle.trim()}
+                            className="px-3 py-1 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white font-bold text-xs transition-colors shadow-xs shrink-0"
+                          >
+                            Add
+                          </button>
+                        </form>
+
+                        {/* Collapsible Completed Tasks Section (Microsoft To Do style) */}
+                        {completedTasksList.length > 0 && (
+                          <div className="pt-4 border-t border-slate-100 dark:border-white/[0.06]">
+                            <button
+                              type="button"
+                              onClick={() => setShowCompletedSection(prev => !prev)}
+                              className="flex items-center gap-2 text-xs font-extrabold text-slate-400 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors py-1"
+                            >
+                              <ChevronRight size={14} className={`transition-transform duration-200 ${showCompletedSection ? 'rotate-90' : ''}`} />
+                              <span>Completed ({completedTasksList.length})</span>
+                            </button>
+                            {showCompletedSection && (
+                              <div className="space-y-2 mt-3 pl-3 border-l-2 border-slate-200 dark:border-white/[0.06]">
+                                {completedTasksList.map(t => <TaskCard key={t.id} task={t} />)}
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
-                    )}
-
-                    {/* Inline Task Quick-Add (Todoist signature feature) */}
-                    <form
-                      onSubmit={handleInlineCreateTask}
-                      className="flex items-center gap-2.5 p-3 rounded-2xl border border-dashed border-slate-300 dark:border-white/[0.08] hover:border-indigo-400 dark:hover:border-indigo-500/50 transition-colors bg-slate-50/40 dark:bg-white/[0.01]"
-                    >
-                      <button
-                        type="submit"
-                        className="w-5 h-5 rounded-full border border-slate-300 dark:border-slate-600 text-indigo-500 flex items-center justify-center shrink-0 hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
-                      >
-                        <Plus size={13} />
-                      </button>
-                      <input
-                        type="text"
-                        placeholder={`Add task to ${activeNavTab === 'my-day' ? 'My Day' : activeNavTab === 'project' ? activeProject : 'Inbox'}... (press Enter ↵)`}
-                        value={inlineTitle}
-                        onChange={(e) => setInlineTitle(e.target.value)}
-                        className="flex-1 text-xs sm:text-sm bg-transparent outline-none text-slate-900 dark:text-white placeholder:text-slate-400 font-medium"
-                      />
-                      <input
-                        type="date"
-                        value={inlineDeadline}
-                        onChange={(e) => setInlineDeadline(e.target.value)}
-                        className="text-[11px] font-semibold bg-slate-100 dark:bg-white/[0.05] text-slate-700 dark:text-slate-300 px-2 py-1 rounded-lg border border-slate-200 dark:border-white/[0.06] outline-none shrink-0"
-                      />
-                      <button
-                        type="submit"
-                        disabled={!inlineTitle.trim()}
-                        className="px-3 py-1 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white font-bold text-xs transition-colors shadow-xs shrink-0"
-                      >
-                        Add
-                      </button>
-                    </form>
-
-                    {/* Collapsible Completed Tasks Section (Microsoft To Do style) */}
-                    {completedTasksList.length > 0 && (
-                      <div className="pt-4 border-t border-slate-100 dark:border-white/[0.06]">
-                        <button
-                          type="button"
-                          onClick={() => setShowCompletedSection(prev => !prev)}
-                          className="flex items-center gap-2 text-xs font-extrabold text-slate-400 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors py-1"
-                        >
-                          <ChevronRight size={14} className={`transition-transform duration-200 ${showCompletedSection ? 'rotate-90' : ''}`} />
-                          <span>Completed ({completedTasksList.length})</span>
-                        </button>
-                        {showCompletedSection && (
-                          <div className="space-y-2 mt-3 pl-3 border-l-2 border-slate-200 dark:border-white/[0.06]">
-                            {completedTasksList.map(t => <TaskCard key={t.id} task={t} />)}
-                          </div>
-                        )}
+                    ) : viewMode === 'kanban' ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 md:gap-6 pb-6">
+                        {['To Do', 'In Progress', 'Review', 'Completed'].map(status => {
+                          const allKanbanTasks = activeNavTab === 'my-day'
+                            ? [...displayTasks, ...noDeadlineTasks]
+                            : displayTasks;
+                          const columnTasks = allKanbanTasks.filter(t => (t.status || 'To Do') === status);
+                          return (
+                            <div
+                              key={status}
+                              onDragOver={(e) => e.preventDefault()}
+                              onDrop={(e) => handleDrop(e, status)}
+                              className="bg-gray-50 dark:bg-slate-900/50 p-4 rounded-3xl border border-gray-100 dark:border-slate-700 min-h-[300px] flex flex-col overflow-visible"
+                            >
+                              <h3 className="font-extrabold text-gray-700 dark:text-slate-300 mb-4 pb-3 border-b border-gray-200 dark:border-slate-700 text-sm md:text-base flex justify-between items-center">
+                                <span>{status}</span>
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-white dark:bg-slate-800 font-bold text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700">
+                                  {columnTasks.length}
+                                </span>
+                              </h3>
+                              <div className="space-y-3 flex-1 pb-16">
+                                {columnTasks.map(t => <TaskCard key={t.id} task={t} />)}
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
+                    ) : viewMode === 'timeline' ? (
+                      renderTimeline()
+                    ) : viewMode === 'table' ? (
+                      <TaskTableView
+                        tasks={activeNavTab === 'my-day' ? [...displayTasks, ...noDeadlineTasks] : displayTasks}
+                        onToggleTask={(taskOrId) => {
+                          const task = typeof taskOrId === 'object' ? taskOrId : tasks.find(t => t.id === taskOrId);
+                          if (task) handleToggleComplete(null, task);
+                        }}
+                        onEditTask={handleOpenEditTask}
+                        onDeleteTask={handleDelete}
+                        onTogglePin={(taskOrId) => {
+                          const task = typeof taskOrId === 'object' ? taskOrId : tasks.find(t => t.id === taskOrId);
+                          if (task) handleTogglePin(task);
+                        }}
+                        onSelectTask={(task) => setDrawerTaskId(task?.id)}
+                        isApex={isApex}
+                        onOpenApexModal={() => setIsApexUpgradeModalOpen(true)}
+                        showToast={showToast}
+                      />
+                    ) : (
+                      renderCalendar()
                     )}
                   </div>
-                ) : viewMode === 'kanban' ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 md:gap-6 pb-6">
-                    {['To Do', 'In Progress', 'Review', 'Completed'].map(status => {
-                      const allKanbanTasks = activeNavTab === 'my-day'
-                        ? [...displayTasks, ...noDeadlineTasks]
-                        : displayTasks;
-                      const columnTasks = allKanbanTasks.filter(t => (t.status || 'To Do') === status);
-                      return (
-                        <div
-                          key={status}
-                          onDragOver={(e) => e.preventDefault()}
-                          onDrop={(e) => handleDrop(e, status)}
-                          className="bg-gray-50 dark:bg-slate-900/50 p-4 rounded-3xl border border-gray-100 dark:border-slate-700 min-h-[300px] flex flex-col overflow-visible"
-                        >
-                          <h3 className="font-extrabold text-gray-700 dark:text-slate-300 mb-4 pb-3 border-b border-gray-200 dark:border-slate-700 text-sm md:text-base flex justify-between items-center">
-                            <span>{status}</span>
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-white dark:bg-slate-800 font-bold text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700">
-                              {columnTasks.length}
-                            </span>
-                          </h3>
-                          <div className="space-y-3 flex-1 pb-16">
-                            {columnTasks.map(t => <TaskCard key={t.id} task={t} />)}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : viewMode === 'timeline' ? (
-                  renderTimeline()
-                ) : (
-                  renderCalendar()
-                )}
-              </div>
-            </>
+                </>
+              )}
+            </div>
           )}
-        </div>
-      )}
         </div>
       </main>
 
@@ -5122,6 +5390,7 @@ export default function Dashboard() {
 
       {/* Microsoft To Do Task Detail Drawer */}
       <TaskDetailDrawer
+        key={drawerTaskId || 'closed'}
         isOpen={!!drawerTaskId}
         task={drawerTask}
         onClose={() => setDrawerTaskId(null)}
@@ -5129,12 +5398,15 @@ export default function Dashboard() {
         onUpdateStatus={handleUpdateStatus}
         onTogglePin={handleTogglePin}
         onDeleteTask={handleDelete}
+        onEditTask={handleOpenEditTask}
         user={effectiveUser}
         allAssignees={allAssignees}
         allProjects={allProjects}
         currentWorkspace={currentWorkspace}
         showToast={showToast}
         onNotifyTeammate={handleDispatchNotification}
+        isApex={isApex}
+        onOpenApexModal={() => setIsApexUpgradeModalOpen(true)}
       />
 
       {/* Quick Create Project Modal (Todoist style) */}
@@ -5238,7 +5510,44 @@ export default function Dashboard() {
         />
       )}
 
-      {/* Apex Prestige Upgrade Modal */}
+      {/* ChronoSync AI Schedule Optimizer Modal */}
+      <ChronoSyncModal
+        isOpen={isChronoSyncOpen}
+        onClose={() => setIsChronoSyncOpen(false)}
+        tasks={tasks}
+        onApplySchedule={handleApplyChronoSync}
+        isApex={isApex}
+        onOpenApexModal={() => setIsApexUpgradeModalOpen(true)}
+        showToast={showToast}
+      />
+
+      {/* Biometric Stealth Vault Modal */}
+      <StealthVaultModal
+        isOpen={isStealthVaultOpen}
+        onClose={() => setIsStealthVaultOpen(false)}
+        isApex={isApex}
+        onOpenApexModal={() => setIsApexUpgradeModalOpen(true)}
+        showToast={showToast}
+        user={effectiveUser}
+      />
+
+      {/* Designer App Icon & Splash Screen Preview Modal */}
+      <AppIconPickerModal
+        isOpen={isAppIconPickerOpen}
+        onClose={() => setIsAppIconPickerOpen(false)}
+        user={effectiveUser}
+        userProfile={userProfile}
+        isApex={isApex}
+        isDarkMode={isDarkMode}
+        onPreviewSplash={() => {
+          setIsAppIconPickerOpen(false);
+          setIsPreviewSplashOpen(true);
+        }}
+        onOpenApexModal={() => setIsApexUpgradeModalOpen(true)}
+        showToast={showToast}
+      />
+
+      {/* Apex Prestige Upgrade Modal (Always pops to absolute foreground above all modals) */}
       <ApexUpgradeModal
         isOpen={isApexUpgradeModalOpen}
         onClose={() => setIsApexUpgradeModalOpen(false)}

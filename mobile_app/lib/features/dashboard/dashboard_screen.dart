@@ -34,6 +34,7 @@ import '../focus/deep_focus_screen.dart';
 import '../super_hub/stealth_vault_sheet.dart';
 import '../tasks/ai_schedule_optimizer_sheet.dart';
 import '../tasks/task_detail_sheet.dart';
+import '../tasks/task_table_view.dart';
 
 class DashboardScreen extends StatefulWidget {
   final VoidCallback onOpenNewTask;
@@ -46,6 +47,7 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   final TextEditingController _searchController = TextEditingController();
+  bool _isTableView = false;
 
   @override
   void initState() {
@@ -1695,7 +1697,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
               const SizedBox(height: 16),
 
-              // Filter Chips
+              // Section Header & View Mode Switcher
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -1707,14 +1709,104 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       color: primaryTextColor,
                     ),
                   ),
-                  TextButton.icon(
-                    onPressed: widget.onOpenNewTask,
-                    icon: const Icon(CupertinoIcons.plus_circle_fill, size: 16),
-                    label: const Text(
-                      'Add Task',
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
-                    ),
-                    style: TextButton.styleFrom(foregroundColor: AppColors.primaryIndigo),
+                  Row(
+                    children: [
+                      // View Mode Switcher: List vs Spreadsheet Table
+                      Container(
+                        padding: const EdgeInsets.all(3),
+                        decoration: BoxDecoration(
+                          color: isDark ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.05),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          children: [
+                            GestureDetector(
+                              onTap: () {
+                                if (_isTableView) {
+                                  HapticFeedback.selectionClick();
+                                  setState(() => _isTableView = false);
+                                }
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: !_isTableView
+                                      ? (isDark ? const Color(0xFF1E293B) : Colors.white)
+                                      : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(8),
+                                  boxShadow: !_isTableView ? [const BoxShadow(color: Colors.black12, blurRadius: 4)] : null,
+                                ),
+                                child: Icon(
+                                  CupertinoIcons.list_bullet,
+                                  size: 15,
+                                  color: !_isTableView ? AppColors.primaryIndigo : secondaryTextColor,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 3),
+                            GestureDetector(
+                              onTap: () {
+                                if (!_isTableView) {
+                                  HapticFeedback.selectionClick();
+                                  if (!FirebaseSyncService.isApex) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('✦ Spreadsheet Table View is an Apex Prestige feature. Showing interactive preview.'),
+                                        duration: Duration(seconds: 2),
+                                      ),
+                                    );
+                                  }
+                                  setState(() => _isTableView = true);
+                                }
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: _isTableView
+                                      ? (isDark ? const Color(0xFF1E293B) : Colors.white)
+                                      : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(8),
+                                  boxShadow: _isTableView ? [const BoxShadow(color: Colors.black12, blurRadius: 4)] : null,
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      CupertinoIcons.table,
+                                      size: 15,
+                                      color: _isTableView ? AppColors.accentEmerald : secondaryTextColor,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                      decoration: BoxDecoration(
+                                        gradient: const LinearGradient(colors: [Color(0xFFF59E0B), Color(0xFF8B5CF6)]),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: const Text('✦ APEX', style: TextStyle(fontSize: 8, fontWeight: FontWeight.w900, color: Colors.white)),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      TextButton.icon(
+                        onPressed: widget.onOpenNewTask,
+                        icon: const Icon(CupertinoIcons.plus_circle_fill, size: 16),
+                        label: const Text(
+                          'Add Task',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+                        ),
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppColors.primaryIndigo,
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -1798,6 +1890,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                   ),
                 )
+              else if (_isTableView)
+                TaskTableView(tasks: tasks)
               else
                 ListView.separated(
                   shrinkWrap: true,

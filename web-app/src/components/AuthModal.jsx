@@ -10,6 +10,8 @@ import {
 } from 'firebase/auth';
 import { auth, googleProvider } from '../firebase';
 import logoDark from '../assets/logo_d.png';
+import { getActiveFestival } from '../utils/festive';
+import { getResolvedAppLogo } from '../utils/appIcons';
 
 export default function AuthModal({ onGuestLogin, showToast }) {
   const [isSignUp, setIsSignUp] = useState(false);
@@ -217,7 +219,7 @@ export default function AuthModal({ onGuestLogin, showToast }) {
         {/* Brand Header with Box-Fitted Logo */}
         <div className="text-center mb-6">
           <div className="w-24 h-24 sm:w-28 sm:h-28 mx-auto mb-3.5 rounded-3xl overflow-hidden shadow-xl flex items-center justify-center border border-slate-200/80 dark:border-slate-700/60">
-            <img src={logoDark} alt="Task Bandhu Logo" className="w-full h-full object-cover" />
+            <img src={getResolvedAppLogo(true).src} alt="Task Bandhu Logo" className="w-full h-full object-cover" />
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 dark:text-white tracking-tight">
             Task Bandhu
@@ -364,7 +366,7 @@ export default function AuthModal({ onGuestLogin, showToast }) {
               type="button"
               onClick={handleGoogleSignIn}
               disabled={isLoading}
-              className="w-full flex items-center justify-center gap-3 py-3 px-4 bg-white dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-2xl font-bold text-sm text-gray-700 dark:text-white shadow-sm hover:bg-gray-50 dark:hover:bg-slate-650 transition-all active:scale-[0.99] disabled:opacity-50"
+              className="w-full flex items-center justify-center gap-3 py-3 px-4 bg-white hover:bg-gray-50 dark:bg-slate-700 dark:hover:bg-slate-600 border border-gray-200 hover:border-gray-300 dark:border-slate-600 dark:hover:border-slate-500 rounded-2xl font-bold text-sm text-gray-700 hover:text-gray-900 dark:text-white dark:hover:text-white shadow-sm transition-all active:scale-[0.99] disabled:opacity-50 cursor-pointer"
             >
               <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
                 <path
@@ -384,7 +386,7 @@ export default function AuthModal({ onGuestLogin, showToast }) {
                   d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
                 />
               </svg>
-              Continue with Google
+              <span>Continue with Google</span>
             </button>
 
             <div className="flex items-center my-5">

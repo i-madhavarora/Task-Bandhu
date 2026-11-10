@@ -46,6 +46,9 @@ class FirebaseSyncService {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('tb_user_plan', plan);
+      if (isRealCloudUser) {
+        ensureUserFirestoreDoc(plan: plan);
+      }
     } catch (_) {}
   }
 
@@ -65,6 +68,10 @@ class FirebaseSyncService {
       if (connJson != null && connJson.isNotEmpty) {
         final List<dynamic> list = jsonDecode(connJson);
         connections = list.map((e) => Map<String, String>.from(e)).toList();
+      }
+
+      if (isRealCloudUser) {
+        ensureUserFirestoreDoc();
       }
     } catch (e) {
       debugPrint('Error loading auth session: $e');
@@ -441,6 +448,16 @@ class FirebaseSyncService {
         await prefs.setString('tb_firebase_name', displayName);
         await prefs.setBool('tb_is_guest', false);
 
+        // Ensure user collection document in Firestore
+        await ensureUserFirestoreDoc(
+          uid: userUid,
+          token: idToken,
+          email: userEmail,
+          name: displayName,
+          provider: 'password',
+          plan: userPlan,
+        );
+
         return {'success': true, 'data': data};
       } else {
         final error = data['error']?['message'] ?? 'Authentication failed';
@@ -503,7 +520,14 @@ class FirebaseSyncService {
         await prefs.setString('tb_last_google_email', userEmail);
         await prefs.setBool('tb_is_guest', false);
 
-        await _ensureUserFirestoreDoc(cleanEmail, displayName);
+        await ensureUserFirestoreDoc(
+          uid: userUid,
+          token: idToken,
+          email: cleanEmail,
+          name: displayName,
+          provider: 'google.com',
+          plan: userPlan,
+        );
         return {'success': true, 'data': signInData};
       }
 
@@ -537,7 +561,14 @@ class FirebaseSyncService {
           await prefs.setString('tb_last_google_email', userEmail);
           await prefs.setBool('tb_is_guest', false);
 
-          await _ensureUserFirestoreDoc(cleanEmail, displayName);
+          await ensureUserFirestoreDoc(
+            uid: userUid,
+            token: idToken,
+            email: cleanEmail,
+            name: displayName,
+            provider: 'google.com',
+            plan: userPlan,
+          );
           return {'success': true, 'data': signUpData};
         } else {
           final sError = signUpData['error']?['message'] ?? 'Google registration failed';
@@ -597,24 +628,132 @@ class FirebaseSyncService {
     }
   }
 
-  static Future<void> _ensureUserFirestoreDoc(String email, String name) async {
+  /// Ensure user document exists in Firestore /users collection matching web app schema
+  static Future<bool> ensureUserFirestoreDoc({
+    String? uid,
+    String? token,
+    String? email,
+    String? name,
+    String? provider,
+    String? plan,
+  }) async {
+    final effectiveUid = (uid ?? userUid).trim();
+    final effectiveToken = token ?? idToken;
+    final effectiveEmail = (email ?? userEmail).trim().toLowerCase();
+    final effectiveName = (name ?? displayName).trim().isNotEmpty
+        ? (name ?? displayName).trim()
+        : (effectiveEmail.contains('@') ? effectiveEmail.split('@').first : 'User');
+    final effectiveProvider = provider ?? 'password';
+    final effectivePlan = plan ?? userPlan;
+
+    if (effectiveUid.isEmpty) {
+      debugPrint('[FirebaseSync] Cannot ensure user doc: UID is empty');
+      return false;
+    }
+
     final client = HttpClient();
     try {
-      final docUrl = '$firestoreBaseUrl/users/$userUid?key=$apiKey';
-      final req = await client.patchUrl(Uri.parse(docUrl));
-      if (idToken != null) req.headers.set('Authorization', 'Bearer $idToken');
-      req.headers.set('Content-Type', 'application/json');
-      req.write(jsonEncode({
-        'fields': {
-          'email': {'stringValue': email},
-          'displayName': {'stringValue': name},
-          'provider': {'stringValue': 'google.com'},
-          'updatedAt': {'stringValue': DateTime.now().toIso8601String()},
+      final docUrl = '$firestoreBaseUrl/users/$effectiveUid?key=$apiKey';
+
+      // 1. Check if user document already exists
+      final getReq = await client.getUrl(Uri.parse(docUrl));
+      _setAuthHeader(getReq, effectiveToken);
+      final getRes = await getReq.close();
+      final getBody = await getRes.transform(utf8.decoder).join();
+
+      Map<String, dynamic> existingFields = {};
+      bool docExists = false;
+      if (getRes.statusCode == 200) {
+        docExists = true;
+        try {
+          final parsed = jsonDecode(getBody);
+          if (parsed['fields'] != null) {
+            existingFields = Map<String, dynamic>.from(parsed['fields']);
+          }
+        } catch (_) {}
+      }
+
+      // If document already has plan, preserve it
+      String docPlan = effectivePlan;
+      if (existingFields['plan']?['stringValue'] != null) {
+        docPlan = existingFields['plan']!['stringValue'] as String;
+        userPlan = docPlan;
+      }
+
+      // 2. Prepare merged document fields matching web app structure
+      final now = DateTime.now().toIso8601String();
+      final Map<String, dynamic> fields = {
+        'email': {'stringValue': effectiveEmail},
+        'displayName': {'stringValue': effectiveName},
+        'jobTitle': {'stringValue': existingFields['jobTitle']?['stringValue'] ?? 'Productivity Champion'},
+        'bio': {'stringValue': existingFields['bio']?['stringValue'] ?? 'Organizing goals, driving deep focus, and managing team projects with Task Bandhu.'},
+        'plan': {'stringValue': docPlan},
+        'provider': {'stringValue': existingFields['provider']?['stringValue'] ?? effectiveProvider},
+        'updatedAt': {'stringValue': now},
+      };
+
+      if (!docExists || existingFields['createdAt'] == null) {
+        fields['createdAt'] = {'stringValue': now};
+      } else {
+        fields['createdAt'] = existingFields['createdAt'];
+      }
+
+      // Preserve existing specialized fields & sync to device cache
+      final prefs = await SharedPreferences.getInstance();
+      if (existingFields['stealthPin'] != null) {
+        fields['stealthPin'] = existingFields['stealthPin'];
+        final p = existingFields['stealthPin']['stringValue'] as String?;
+        if (p != null && p.isNotEmpty) {
+          await prefs.setString('tb_stealth_vault_pin', p);
         }
-      }));
-      final res = await req.close();
-      await res.drain();
-    } catch (_) {} finally {
+      }
+      if (existingFields['stealthVaultTasks'] != null) {
+        fields['stealthVaultTasks'] = existingFields['stealthVaultTasks'];
+        try {
+          final rawTasks = existingFields['stealthVaultTasks']['arrayValue']?['values'] as List<dynamic>?;
+          if (rawTasks != null) {
+            final parsedTasks = rawTasks.map((item) {
+              final m = item['mapValue']?['fields'] as Map<String, dynamic>? ?? {};
+              return {
+                'id': _getString(m['id']),
+                'title': _getString(m['title']),
+                'memo': _getString(m['memo']),
+                'completed': m['completed']?['booleanValue'] ?? false,
+                'createdAt': _getString(m['createdAt']),
+              };
+            }).toList();
+            await prefs.setString('tb_stealth_vault_items', jsonEncode(parsedTasks));
+          }
+        } catch (_) {}
+      }
+      if (existingFields['activeAppIcon'] != null) {
+        fields['activeAppIcon'] = existingFields['activeAppIcon'];
+        final icon = existingFields['activeAppIcon']['stringValue'] as String?;
+        if (icon != null && icon.isNotEmpty) {
+          await prefs.setString('tb_active_app_icon', icon);
+        }
+      }
+
+      // 3. Write / Patch document
+      final patchReq = await client.patchUrl(Uri.parse(docUrl));
+      _setAuthHeader(patchReq, effectiveToken);
+      patchReq.headers.set('Content-Type', 'application/json');
+      patchReq.write(jsonEncode({'fields': fields}));
+
+      final patchRes = await patchReq.close();
+      final patchBody = await patchRes.transform(utf8.decoder).join();
+
+      if (patchRes.statusCode == 200) {
+        debugPrint('[FirebaseSync] User Firestore doc ensured for $effectiveEmail (UID: $effectiveUid, Plan: $docPlan)');
+        return true;
+      } else {
+        debugPrint('[FirebaseSync] Failed to ensure user doc (${patchRes.statusCode}): $patchBody');
+        return false;
+      }
+    } catch (e) {
+      debugPrint('[FirebaseSync] Exception in ensureUserFirestoreDoc: $e');
+      return false;
+    } finally {
       client.close();
     }
   }
@@ -644,6 +783,16 @@ class FirebaseSyncService {
       if (response.statusCode == 200) {
         final tempToken = data['idToken'] as String?;
         final localUid = data['localId'] as String? ?? '';
+
+        // Immediately ensure the user document exists in Firestore /users collection!
+        await ensureUserFirestoreDoc(
+          uid: localUid,
+          token: tempToken,
+          email: cleanEmail,
+          name: cleanName,
+          provider: 'password',
+          plan: 'Core',
+        );
 
         // Generate clean 6-digit confirmation code
         final randCode = (100000 + (cleanEmail.hashCode.abs() % 900000)).toString();
@@ -772,7 +921,14 @@ class FirebaseSyncService {
       await prefs.remove('tb_pending_token');
       await prefs.remove('tb_pending_code');
 
-      await _ensureUserFirestoreDoc(userEmail, displayName);
+      await ensureUserFirestoreDoc(
+        uid: userUid,
+        token: idToken,
+        email: userEmail,
+        name: displayName,
+        provider: 'password',
+        plan: userPlan,
+      );
     } catch (_) {}
   }
 
@@ -808,6 +964,15 @@ class FirebaseSyncService {
         await prefs.setString('tb_firebase_email', userEmail);
         await prefs.setString('tb_firebase_name', displayName);
         await prefs.setBool('tb_is_guest', false);
+
+        await ensureUserFirestoreDoc(
+          uid: userUid,
+          token: idToken,
+          email: userEmail,
+          name: displayName,
+          provider: 'password',
+          plan: 'Core',
+        );
 
         return {'success': true, 'data': data};
       } else {
@@ -1008,12 +1173,14 @@ class FirebaseSyncService {
     return remoteTasks;
   }
 
-  static TaskModel _parseFirestoreDoc(dynamic doc, {required String defaultWorkspaceType, String defaultProject = 'General Workspace'}) {
+  static TaskModel _parseFirestoreDoc(dynamic doc, {required String defaultWorkspaceType, String defaultProject = 'Personal Inbox'}) {
     final fields = doc['fields'] as Map<String, dynamic>? ?? {};
     final docName = doc['name'] as String? ?? '';
     final id = docName.split('/').last;
 
     final wsType = _getString(fields['workspaceType'], fallback: defaultWorkspaceType);
+    final rawProject = _getString(fields['project'], fallback: defaultProject);
+    final normalizedProject = (rawProject == 'General Workspace' || rawProject.isEmpty) ? defaultProject : rawProject;
 
     return TaskModel(
       id: id,
@@ -1024,47 +1191,337 @@ class FirebaseSyncService {
       deadline: _getString(fields['deadline'], fallback: _getString(fields['dueDate'])),
       startTime: _getString(fields['startTime']),
       endTime: _getString(fields['endTime']),
-      project: _getString(fields['project'], fallback: defaultProject),
+      project: normalizedProject,
+      projectId: _getString(fields['projectId']),
       workspaceType: wsType.isNotEmpty ? wsType : defaultWorkspaceType,
       assignee: _getString(fields['assignee'], fallback: 'Me'),
+      pinned: _getBool(fields['pinned']),
+      durationMinutes: _getInt(fields['durationMinutes'], fallback: 45),
+      locationReminder: _getString(fields['locationReminder']),
+      locationAddress: _getString(fields['locationAddress']),
+      locationTrigger: _getString(fields['locationTrigger']),
+      attachmentLink: _getString(fields['attachmentLink']),
+      voiceNote: _getString(fields['voiceNote']),
+      reminders: _getStringList(fields['reminders']),
       tags: _getStringList(fields['tags']),
       steps: _getSteps(fields['steps'] ?? fields['subtasks']),
     );
   }
 
-  /// Push a task to Firestore
+  /// Push a task to Firestore with complete field fidelity
   static Future<bool> saveTaskToFirestore(TaskModel task) async {
     final client = HttpClient();
     try {
       final path = task.workspaceType == 'team'
-          ? '$firestoreBaseUrl/workspaces/default_workspace/tasks/${task.id}'
+          ? (task.projectId != null && task.projectId!.isNotEmpty
+              ? '$firestoreBaseUrl/projects/${task.projectId}/tasks/${task.id}'
+              : '$firestoreBaseUrl/workspaces/default_workspace/tasks/${task.id}')
           : '$firestoreBaseUrl/users/$userUid/tasks/${task.id}';
 
-      final request = await client.patchUrl(Uri.parse(
-          '$path?updateMask.fieldPaths=title&updateMask.fieldPaths=status&updateMask.fieldPaths=priority&updateMask.fieldPaths=description&updateMask.fieldPaths=deadline&updateMask.fieldPaths=project&updateMask.fieldPaths=workspaceType&updateMask.fieldPaths=assignee'));
-      request.headers.set('Content-Type', 'application/json');
-      if (idToken != null) {
-        request.headers.set('Authorization', 'Bearer $idToken');
-      }
+      final fieldPaths = [
+        'title',
+        'status',
+        'priority',
+        'description',
+        'deadline',
+        'startTime',
+        'endTime',
+        'project',
+        'projectId',
+        'workspaceType',
+        'assignee',
+        'pinned',
+        'durationMinutes',
+        'locationReminder',
+        'locationAddress',
+        'locationTrigger',
+        'attachmentLink',
+        'voiceNote',
+        'reminders',
+        'tags',
+        'steps',
+        'updatedAt',
+      ];
+      final queryMask = fieldPaths.map((f) => 'updateMask.fieldPaths=$f').join('&');
 
-      final payload = {
-        'fields': {
-          'title': {'stringValue': task.title},
-          'description': {'stringValue': task.description},
-          'priority': {'stringValue': task.priority},
-          'status': {'stringValue': task.status},
-          'deadline': {'stringValue': task.deadline},
-          'project': {'stringValue': task.project},
-          'workspaceType': {'stringValue': task.workspaceType},
-          'assignee': {'stringValue': task.assignee},
-        }
+      final request = await client.patchUrl(Uri.parse('$path?$queryMask&key=$apiKey'));
+      request.headers.set('Content-Type', 'application/json');
+      _setAuthHeader(request, idToken);
+
+      final Map<String, dynamic> fields = {
+        'title': {'stringValue': task.title},
+        'description': {'stringValue': task.description},
+        'priority': {'stringValue': task.priority},
+        'status': {'stringValue': task.status},
+        'deadline': {'stringValue': task.deadline},
+        'startTime': {'stringValue': task.startTime},
+        'endTime': {'stringValue': task.endTime},
+        'project': {'stringValue': task.project},
+        'projectId': {'stringValue': task.projectId ?? ''},
+        'workspaceType': {'stringValue': task.workspaceType},
+        'assignee': {'stringValue': task.assignee},
+        'pinned': {'booleanValue': task.pinned},
+        'durationMinutes': {'integerValue': task.durationMinutes.toString()},
+        'locationReminder': {'stringValue': task.locationReminder ?? ''},
+        'locationAddress': {'stringValue': task.locationAddress ?? ''},
+        'locationTrigger': {'stringValue': task.locationTrigger ?? 'arrive'},
+        'attachmentLink': {'stringValue': task.attachmentLink ?? ''},
+        'voiceNote': {'stringValue': task.voiceNote ?? ''},
+        'updatedAt': {'stringValue': DateTime.now().toIso8601String()},
+        'reminders': {
+          'arrayValue': {
+            'values': task.reminders.map((r) => {'stringValue': r}).toList()
+          }
+        },
+        'tags': {
+          'arrayValue': {
+            'values': task.tags.map((t) => {'stringValue': t}).toList()
+          }
+        },
+        'steps': {
+          'arrayValue': {
+            'values': task.steps.map((s) => {
+              'mapValue': {
+                'fields': {
+                  'id': {'stringValue': s.id},
+                  'title': {'stringValue': s.title},
+                  'completed': {'booleanValue': s.completed},
+                }
+              }
+            }).toList()
+          }
+        },
       };
 
-      request.write(jsonEncode(payload));
+      request.write(jsonEncode({'fields': fields}));
       final response = await request.close();
       return response.statusCode == 200;
     } catch (e) {
       debugPrint('Error pushing task to Firestore: $e');
+      return false;
+    } finally {
+      client.close();
+    }
+  }
+
+  /// Delete a task from Firestore
+  static Future<bool> deleteTaskFromFirestore(TaskModel task) async {
+    final client = HttpClient();
+    try {
+      final path = task.workspaceType == 'team'
+          ? (task.projectId != null && task.projectId!.isNotEmpty
+              ? '$firestoreBaseUrl/projects/${task.projectId}/tasks/${task.id}'
+              : '$firestoreBaseUrl/workspaces/default_workspace/tasks/${task.id}')
+          : '$firestoreBaseUrl/users/$userUid/tasks/${task.id}';
+
+      final request = await client.deleteUrl(Uri.parse('$path?key=$apiKey'));
+      _setAuthHeader(request, idToken);
+      final response = await request.close();
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('Error deleting task from Firestore: $e');
+      return false;
+    } finally {
+      client.close();
+    }
+  }
+
+  /// Push a project to Firestore
+  static Future<bool> saveProjectToFirestore(ProjectModel project) async {
+    final client = HttpClient();
+    try {
+      final docUrl = '$firestoreBaseUrl/projects/${project.id}?key=$apiKey';
+      final patchReq = await client.patchUrl(Uri.parse(docUrl));
+      _setAuthHeader(patchReq, idToken);
+      patchReq.headers.set('Content-Type', 'application/json');
+
+      final payload = {
+        'fields': {
+          'name': {'stringValue': project.name},
+          'description': {'stringValue': project.description},
+          'color': {'stringValue': project.color},
+          'type': {'stringValue': project.type},
+          'creatorUid': {'stringValue': project.creatorUid.isNotEmpty ? project.creatorUid : userUid},
+          'creatorName': {'stringValue': project.creatorName.isNotEmpty ? project.creatorName : displayName},
+          'updatedAt': {'stringValue': DateTime.now().toIso8601String()},
+          'memberUids': {
+            'arrayValue': {
+              'values': [
+                {'stringValue': userUid}
+              ]
+            }
+          },
+          'memberEmails': {
+            'arrayValue': {
+              'values': [
+                {'stringValue': userEmail}
+              ]
+            }
+          }
+        }
+      };
+
+      patchReq.write(jsonEncode(payload));
+      final res = await patchReq.close();
+      return res.statusCode == 200;
+    } catch (e) {
+      debugPrint('Error pushing project to Firestore: $e');
+      return false;
+    } finally {
+      client.close();
+    }
+  }
+
+  /// Delete a project from Firestore
+  static Future<bool> deleteProjectFromFirestore(String projectId) async {
+    final client = HttpClient();
+    try {
+      final docUrl = '$firestoreBaseUrl/projects/$projectId?key=$apiKey';
+      final delReq = await client.deleteUrl(Uri.parse(docUrl));
+      _setAuthHeader(delReq, idToken);
+      final res = await delReq.close();
+      return res.statusCode == 200;
+    } catch (e) {
+      debugPrint('Error deleting project from Firestore: $e');
+      return false;
+    } finally {
+      client.close();
+    }
+  }
+
+  /// Fetch stealth vault pin and confidential tasks from Firestore users/{userUid}
+  static Future<Map<String, dynamic>> fetchStealthVaultData() async {
+    if (!isRealCloudUser) return {};
+    final client = HttpClient();
+    try {
+      final req = await client.getUrl(Uri.parse('$firestoreBaseUrl/users/$userUid?key=$apiKey'));
+      _setAuthHeader(req, idToken);
+      final res = await req.close();
+      if (res.statusCode == 200) {
+        final body = await res.transform(utf8.decoder).join();
+        final data = jsonDecode(body);
+        final fields = data['fields'] as Map<String, dynamic>? ?? {};
+        final pin = _getString(fields['stealthPin'], fallback: '0000');
+
+        List<Map<String, dynamic>> tasks = [];
+        final rawTasks = fields['stealthVaultTasks']?['arrayValue']?['values'] as List<dynamic>?;
+        if (rawTasks != null) {
+          for (final item in rawTasks) {
+            final map = item['mapValue']?['fields'] as Map<String, dynamic>? ?? {};
+            tasks.add({
+              'id': _getString(map['id']),
+              'title': _getString(map['title']),
+              'memo': _getString(map['memo']),
+              'completed': map['completed']?['booleanValue'] ?? false,
+              'createdAt': _getString(map['createdAt']),
+            });
+          }
+        }
+        return {'pin': pin, 'tasks': tasks};
+      }
+    } catch (e) {
+      debugPrint('Error fetching stealth vault data: $e');
+    } finally {
+      client.close();
+    }
+    return {};
+  }
+
+  /// Save stealth vault PIN to Firestore users/{userUid}
+  static Future<bool> saveStealthVaultPin(String newPin) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('tb_stealth_vault_pin', newPin);
+    if (!isRealCloudUser) return true;
+
+    final client = HttpClient();
+    try {
+      final docUrl = '$firestoreBaseUrl/users/$userUid?updateMask.fieldPaths=stealthPin&updateMask.fieldPaths=updatedAt&key=$apiKey';
+      final patchReq = await client.patchUrl(Uri.parse(docUrl));
+      _setAuthHeader(patchReq, idToken);
+      patchReq.headers.set('Content-Type', 'application/json');
+      patchReq.write(jsonEncode({
+        'fields': {
+          'stealthPin': {'stringValue': newPin},
+          'updatedAt': {'stringValue': DateTime.now().toIso8601String()},
+        }
+      }));
+      final res = await patchReq.close();
+      return res.statusCode == 200;
+    } catch (e) {
+      debugPrint('Error saving stealth vault PIN: $e');
+      return false;
+    } finally {
+      client.close();
+    }
+  }
+
+  /// Save stealth vault tasks list to Firestore users/{userUid}
+  static Future<bool> saveStealthVaultTasks(List<Map<String, dynamic>> tasks) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('tb_stealth_vault_items', jsonEncode(tasks));
+    if (!isRealCloudUser) return true;
+
+    final client = HttpClient();
+    try {
+      final docUrl = '$firestoreBaseUrl/users/$userUid?updateMask.fieldPaths=stealthVaultTasks&updateMask.fieldPaths=updatedAt&key=$apiKey';
+      final patchReq = await client.patchUrl(Uri.parse(docUrl));
+      _setAuthHeader(patchReq, idToken);
+      patchReq.headers.set('Content-Type', 'application/json');
+
+      final arrayValues = tasks.map((t) => {
+        'mapValue': {
+          'fields': {
+            'id': {'stringValue': t['id']?.toString() ?? ''},
+            'title': {'stringValue': t['title']?.toString() ?? ''},
+            'memo': {'stringValue': t['memo']?.toString() ?? ''},
+            'completed': {'booleanValue': t['completed'] == true},
+            'createdAt': {'stringValue': t['createdAt']?.toString() ?? DateTime.now().toIso8601String()},
+          }
+        }
+      }).toList();
+
+      patchReq.write(jsonEncode({
+        'fields': {
+          'stealthVaultTasks': {
+            'arrayValue': {
+              'values': arrayValues,
+            }
+          },
+          'updatedAt': {'stringValue': DateTime.now().toIso8601String()},
+        }
+      }));
+      final res = await patchReq.close();
+      return res.statusCode == 200;
+    } catch (e) {
+      debugPrint('Error saving stealth vault tasks: $e');
+      return false;
+    } finally {
+      client.close();
+    }
+  }
+
+  /// Save active app icon to Firestore users/{userUid}
+  static Future<bool> saveActiveAppIcon(String iconId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('tb_active_app_icon', iconId);
+    if (!isRealCloudUser) return true;
+
+    final client = HttpClient();
+    try {
+      final docUrl = '$firestoreBaseUrl/users/$userUid?updateMask.fieldPaths=activeAppIcon&updateMask.fieldPaths=updatedAt&key=$apiKey';
+      final patchReq = await client.patchUrl(Uri.parse(docUrl));
+      _setAuthHeader(patchReq, idToken);
+      patchReq.headers.set('Content-Type', 'application/json');
+      patchReq.write(jsonEncode({
+        'fields': {
+          'activeAppIcon': {'stringValue': iconId},
+          'updatedAt': {'stringValue': DateTime.now().toIso8601String()},
+        }
+      }));
+      final res = await patchReq.close();
+      return res.statusCode == 200;
+    } catch (e) {
+      debugPrint('Error saving active app icon to Firestore: $e');
       return false;
     } finally {
       client.close();
@@ -1113,6 +1570,26 @@ class FirebaseSyncService {
     }
 
     return remoteProjects;
+  }
+
+  static void _setAuthHeader(HttpClientRequest req, String? token) {
+    final t = token ?? idToken;
+    if (t != null && t.isNotEmpty && t.contains('.') && !t.startsWith('cloud_')) {
+      req.headers.set('Authorization', 'Bearer $t');
+    }
+  }
+
+  static bool _getBool(dynamic field, {bool fallback = false}) {
+    if (field == null) return fallback;
+    return field['booleanValue'] ?? fallback;
+  }
+
+  static int _getInt(dynamic field, {int fallback = 0}) {
+    if (field == null) return fallback;
+    if (field['integerValue'] != null) {
+      return int.tryParse(field['integerValue'].toString()) ?? fallback;
+    }
+    return fallback;
   }
 
   static String _getString(dynamic field, {String fallback = ''}) {

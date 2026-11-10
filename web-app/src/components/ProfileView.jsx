@@ -2,9 +2,10 @@ import { useState } from 'react';
 import {
   User, Mail, ShieldCheck, Zap, Flame, Crown, CheckCircle2,
   Copy, Edit3, Save, Sparkles,
-  Globe, LogOut, DownloadCloud
+  Globe, LogOut, DownloadCloud, Eye
 } from 'lucide-react';
 import { isApexPlan } from '../utils/planLimits';
+import { getResolvedAppLogo } from '../utils/appIcons';
 
 export default function ProfileView({
   user,
@@ -21,9 +22,13 @@ export default function ProfileView({
   onSignOut,
   onExportBackup,
   onOpenApexModal,
+  onOpenAppIconPicker,
+  onPreviewSplash,
+  isDarkMode = true,
   showToast
 }) {
   const [isEditing, setIsEditing] = useState(false);
+  const resolvedAppLogo = getResolvedAppLogo(isDarkMode);
   const [displayName, setDisplayName] = useState(profileData.displayName || user?.displayName || 'Productivity User');
   const [jobTitle, setJobTitle] = useState(profileData.jobTitle || 'Productivity Champion');
   const [bio, setBio] = useState(profileData.bio || 'Organizing goals, driving deep focus, and managing team projects with Task Bandhu.');
@@ -394,6 +399,50 @@ export default function ProfileView({
                   <Copy size={13} />
                 </button>
               </div>
+            </div>
+          </div>
+
+          {/* Brand Aesthetics & Personalized Loading Screen */}
+          <div className="bg-white dark:bg-[#0c121e] border border-gray-200/80 dark:border-white/[0.08] rounded-3xl p-6 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-black uppercase tracking-wider text-gray-400 dark:text-slate-500">
+                Aesthetics & Splash Screen
+              </span>
+              <span className="p-1.5 rounded-xl bg-purple-50 dark:bg-purple-900/30 text-purple-600">
+                <Sparkles size={18} />
+              </span>
+            </div>
+
+            <div className="flex items-center gap-3.5 p-3 rounded-2xl bg-gray-50 dark:bg-slate-900/60 border border-gray-100 dark:border-slate-800">
+              <div className="w-12 h-12 rounded-xl p-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 flex items-center justify-center shrink-0 overflow-hidden shadow-xs">
+                <img src={resolvedAppLogo.src} alt="Active App Icon" className="w-full h-full object-contain rounded-lg" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-slate-900 dark:text-white truncate">{resolvedAppLogo.name}</span>
+                  {resolvedAppLogo.isFestive && (
+                    <span className="text-[10px] font-black text-amber-500 bg-amber-500/10 px-1 rounded">🪔 Festive</span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">{resolvedAppLogo.subtitle}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={onOpenAppIconPicker}
+                className="py-2.5 px-3 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 active:scale-95"
+              >
+                <Sparkles size={13} /> App Icons
+              </button>
+              <button
+                type="button"
+                onClick={onPreviewSplash}
+                className="py-2.5 px-3 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 active:scale-95"
+              >
+                <Eye size={13} /> Splash Screen
+              </button>
             </div>
           </div>
 

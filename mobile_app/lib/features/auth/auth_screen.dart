@@ -266,7 +266,7 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
           context.read<ProjectProvider>().syncWithFirestore();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('🎉 Welcome $displayName! Google Cloud connected.'),
+              content: Text('🎉 Welcome $displayName! Cloud workspace connected.'),
               backgroundColor: AppColors.accentEmerald,
               duration: const Duration(seconds: 3),
             ),

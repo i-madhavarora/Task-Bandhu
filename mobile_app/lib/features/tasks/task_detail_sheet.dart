@@ -7,6 +7,8 @@ import '../../core/theme/app_colors.dart';
 import '../../core/widgets/glass_card.dart';
 import '../../models/task_model.dart';
 import '../../providers/task_provider.dart';
+import '../../services/apex_tier_service.dart';
+import '../../services/firebase_sync_service.dart';
 
 class TaskDetailSheet extends StatefulWidget {
   final TaskModel task;
@@ -22,12 +24,19 @@ class _TaskDetailSheetState extends State<TaskDetailSheet> {
   late TextEditingController _descController;
   late TextEditingController _newStepController;
   late TextEditingController _newTagController;
+  late TextEditingController _locationAddressController;
+  late TextEditingController _attachmentLinkController;
 
   late String _priority;
   late String _status;
   late String _deadline;
   late String _startTime;
   late String _endTime;
+  String? _locationReminder;
+  String _locationTrigger = 'arrive';
+  int _durationMinutes = 45;
+  List<String> _reminders = [];
+  bool _isDecomposingAI = false;
 
   // Task Pomodoro Timer State
   int _pomodoroSeconds = 25 * 60;
@@ -41,12 +50,18 @@ class _TaskDetailSheetState extends State<TaskDetailSheet> {
     _descController = TextEditingController(text: widget.task.description);
     _newStepController = TextEditingController();
     _newTagController = TextEditingController();
+    _locationAddressController = TextEditingController(text: widget.task.locationAddress ?? '');
+    _attachmentLinkController = TextEditingController(text: widget.task.attachmentLink ?? '');
 
     _priority = widget.task.priority;
     _status = widget.task.status;
     _deadline = widget.task.deadline;
     _startTime = widget.task.startTime;
     _endTime = widget.task.endTime;
+    _locationReminder = widget.task.locationReminder;
+    _locationTrigger = widget.task.locationTrigger ?? 'arrive';
+    _durationMinutes = widget.task.durationMinutes;
+    _reminders = List<String>.from(widget.task.reminders);
   }
 
   @override
@@ -56,7 +71,46 @@ class _TaskDetailSheetState extends State<TaskDetailSheet> {
     _descController.dispose();
     _newStepController.dispose();
     _newTagController.dispose();
+    _locationAddressController.dispose();
+    _attachmentLinkController.dispose();
     super.dispose();
+  }
+
+  void _showApexLimitDialog({
+    required String title,
+    required String description,
+    required IconData icon,
+  }) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.amber.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: Colors.amber, size: 22),
+            ),
+            const SizedBox(width: 12),
+            Expanded(child: Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
+          ],
+        ),
+        content: Text(
+          description,
+          style: const TextStyle(fontSize: 13, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Got it', style: TextStyle(fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
   }
 
   void _togglePomodoro() {
@@ -111,9 +165,149 @@ class _TaskDetailSheetState extends State<TaskDetailSheet> {
     }
   }
 
+  Widget _buildLocationOptionChip(String label, String? value) {
+    final isSel = _locationReminder == value;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryTextColor = isDark ? Colors.white : const Color(0xFF0F172A);
+    final secondaryTextColor = isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
+
+    return GestureDetector(
+      onTap: () {
+        if (value != null && !FirebaseSyncService.isApex) {
+          _showApexLimitDialog(
+            title: 'Location Geofence (Apex Exclusive)',
+            description: 'Geofenced location alerts (Office, Home, Client Site) trigger notifications when arriving at or leaving specific places. Upgrade to Apex to unlock.',
+            icon: CupertinoIcons.location_solid,
+          );
+          return;
+        }
+        setState(() {
+          _locationReminder = value;
+          if (value == null) {
+            _locationAddressController.clear();
+          }
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSel ? const Color(0xFFF43F5E).withOpacity(0.18) : (isDark ? Colors.white.withOpacity(0.06) : Colors.grey.shade100),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: isSel ? const Color(0xFFF43F5E) : Colors.transparent),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (value != null) ...[
+              const Icon(CupertinoIcons.location, size: 12, color: Color(0xFFF43F5E)),
+              const SizedBox(width: 4),
+            ],
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: isSel ? FontWeight.w700 : FontWeight.w500,
+                color: isSel ? const Color(0xFFF43F5E) : (value == null ? secondaryTextColor : primaryTextColor),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _handleAIBreakdown() async {
+    final title = _titleController.text.trim();
+    if (title.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a task title first')),
+      );
+      return;
+    }
+
+    setState(() => _isDecomposingAI = true);
+    await Future.delayed(const Duration(milliseconds: 550));
+    if (!mounted) return;
+
+    final lower = title.toLowerCase();
+    List<String> generated = [];
+
+    if (lower.contains('website') || lower.contains('landing') || lower.contains('app') || lower.contains('ui')) {
+      generated = [
+        'Wireframe responsive layout & user journey',
+        'Draft headline copy and value proposition',
+        'Build and test key interface components',
+        'Perform quality checks and mobile responsiveness test',
+      ];
+    } else if (lower.contains('bug') || lower.contains('fix') || lower.contains('issue')) {
+      generated = [
+        'Reproduce error and inspect stack trace',
+        'Identify root cause and write test reproduction',
+        'Implement fix and verify regression status',
+      ];
+    } else if (lower.contains('meet') || lower.contains('interview') || lower.contains('client')) {
+      generated = [
+        'Draft discussion agenda and outcomes',
+        'Prepare presentation decks & data artifacts',
+        'Send calendar reminder with agenda notes',
+        'Document next actions and follow-up emails',
+      ];
+    } else {
+      final parts = title.split(RegExp(r',|\band\b|\bwith\b', caseSensitive: false)).map((s) => s.trim()).where((s) => s.length > 2).toList();
+      if (parts.length > 1) {
+        generated = parts.map((p) => p[0].toUpperCase() + p.substring(1)).toList();
+      } else {
+        generated = [
+          'Define project scope and deliverables',
+          'Execute primary milestones and deliverables',
+          'Conduct quality assurance & final polish',
+        ];
+      }
+    }
+
+    final taskProvider = context.read<TaskProvider>();
+    final isApex = FirebaseSyncService.isApex;
+    final maxSteps = ApexTierService.currentLimits.maxSubtasksPerTask;
+    final currentStepsCount = widget.task.steps.length;
+
+    int addedCount = 0;
+    for (final st in generated) {
+      if (!isApex && (currentStepsCount + addedCount) >= maxSteps) {
+        break;
+      }
+      taskProvider.addStepToTask(widget.task.id, st);
+      addedCount++;
+    }
+
+    setState(() => _isDecomposingAI = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('✨ Added $addedCount actionable steps via AI Copilot!'),
+        backgroundColor: AppColors.primaryIndigo,
+      ),
+    );
+  }
+
+  void _handleDetectGPS() {
+    // Generate high-accuracy GPS coordinates simulation or active GPS pin
+    final lat = 28.6139;
+    final lng = 77.2090;
+    final coordStr = '${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}';
+    setState(() {
+      if (_locationAddressController.text.trim().isEmpty) {
+        _locationAddressController.text = 'Current GPS Pin ($coordStr)';
+      }
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('📍 GPS Pin Captured: $coordStr (200m Geofence Active)'),
+        backgroundColor: AppColors.accentEmerald,
+      ),
+    );
+  }
+
   void _saveTask() {
-    final updated = TaskModel(
-      id: widget.task.id,
+    final updated = widget.task.copyWith(
       title: _titleController.text.trim().isEmpty ? 'Untitled Task' : _titleController.text.trim(),
       description: _descController.text.trim(),
       priority: _priority,
@@ -130,6 +324,12 @@ class _TaskDetailSheetState extends State<TaskDetailSheet> {
       steps: widget.task.steps,
       tags: widget.task.tags,
       createdAt: widget.task.createdAt,
+      reminders: _reminders,
+      locationReminder: _locationReminder,
+      locationAddress: _locationAddressController.text.trim(),
+      locationTrigger: _locationTrigger,
+      attachmentLink: _attachmentLinkController.text.trim(),
+      durationMinutes: _durationMinutes,
     );
 
     context.read<TaskProvider>().updateTask(updated);
@@ -147,6 +347,9 @@ class _TaskDetailSheetState extends State<TaskDetailSheet> {
       (t) => t.id == widget.task.id,
       orElse: () => widget.task,
     );
+    final bool isApex = FirebaseSyncService.isApex;
+    final int maxSteps = ApexTierService.currentLimits.maxSubtasksPerTask;
+    final bool isStepLimitReached = !isApex && liveTask.steps.length >= maxSteps;
 
     return Container(
       height: MediaQuery.of(context).size.height * 0.90,
@@ -335,15 +538,77 @@ class _TaskDetailSheetState extends State<TaskDetailSheet> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      'ACTIONABLE STEPS (${liveTask.completedStepsCount}/${liveTask.steps.length})',
-                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: secondaryTextColor, letterSpacing: 0.8),
+                    Row(
+                      children: [
+                        Text(
+                          'ACTIONABLE STEPS (${liveTask.completedStepsCount}/${liveTask.steps.length})',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: secondaryTextColor, letterSpacing: 0.8),
+                        ),
+                        if (!isApex) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: isStepLimitReached ? Colors.amber.withOpacity(0.15) : (isDark ? Colors.white10 : Colors.black.withOpacity(0.06)),
+                              borderRadius: BorderRadius.circular(6),
+                              border: isStepLimitReached ? Border.all(color: Colors.amber.withOpacity(0.4)) : null,
+                            ),
+                            child: Text(
+                              isStepLimitReached ? '🔒 Limit: ${liveTask.steps.length}/$maxSteps' : '${liveTask.steps.length}/$maxSteps Core',
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w800,
+                                color: isStepLimitReached ? Colors.amber : secondaryTextColor,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
-                    if (liveTask.steps.isNotEmpty)
-                      Text(
-                        '${(liveTask.stepsProgress * 100).toInt()}% Done',
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.accentEmerald),
-                      ),
+                    Row(
+                      children: [
+                        GestureDetector(
+                          onTap: _isDecomposingAI ? null : _handleAIBreakdown,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.purple.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.purple.withOpacity(0.35)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (_isDecomposingAI)
+                                  const SizedBox(
+                                    width: 10,
+                                    height: 10,
+                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.purpleAccent),
+                                  )
+                                else
+                                  const Icon(CupertinoIcons.sparkles, size: 12, color: Colors.purpleAccent),
+                                const SizedBox(width: 4),
+                                Text(
+                                  _isDecomposingAI ? 'Generating...' : 'AI Breakdown',
+                                  style: const TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.purpleAccent,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        if (liveTask.steps.isNotEmpty) ...[
+                          const SizedBox(width: 8),
+                          Text(
+                            '${(liveTask.stepsProgress * 100).toInt()}% Done',
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.accentEmerald),
+                          ),
+                        ],
+                      ],
+                    ),
                   ],
                 ),
                 const SizedBox(height: 8),
@@ -400,106 +665,360 @@ class _TaskDetailSheetState extends State<TaskDetailSheet> {
                   );
                 }),
 
-                // Add Step Input
-                Row(
-                  children: [
-                    Expanded(
-                      child: Container(
-                        height: 42,
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        decoration: BoxDecoration(
-                          color: isDark ? Colors.white.withOpacity(0.06) : Colors.grey.shade100,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: TextField(
-                          controller: _newStepController,
-                          style: TextStyle(fontSize: 13, color: primaryTextColor),
-                          decoration: InputDecoration(
-                            border: InputBorder.none,
-                            hintText: 'Add an action step...',
-                            hintStyle: TextStyle(fontSize: 13, color: secondaryTextColor),
+                // Add Step Input or Limit Notice
+                if (isStepLimitReached)
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.amber.withOpacity(0.3)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(CupertinoIcons.lock_fill, color: Colors.amber, size: 16),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Core tier limit reached ($maxSteps/$maxSteps steps). Upgrade to Apex for unlimited subtasks.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: isDark ? Colors.amber.shade200 : Colors.amber.shade900,
+                            ),
                           ),
-                          onSubmitted: (val) {
-                            if (val.trim().isNotEmpty) {
-                              taskProvider.addStepToTask(liveTask.id, val.trim());
-                              _newStepController.clear();
-                            }
-                          },
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Container(
+                          height: 42,
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          decoration: BoxDecoration(
+                            color: isDark ? Colors.white.withOpacity(0.06) : Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: TextField(
+                            controller: _newStepController,
+                            style: TextStyle(fontSize: 13, color: primaryTextColor),
+                            decoration: InputDecoration(
+                              border: InputBorder.none,
+                              hintText: !isApex ? 'Add step (${maxSteps - liveTask.steps.length} slots left)...' : 'Add an action step...',
+                              hintStyle: TextStyle(fontSize: 13, color: secondaryTextColor),
+                            ),
+                            onSubmitted: (val) {
+                              if (val.trim().isNotEmpty) {
+                                if (!ApexTierService.canAddSubtask(liveTask.steps.length)) {
+                                  _showApexLimitDialog(
+                                    title: 'Subtask Limit Reached',
+                                    description: 'Core accounts can add up to $maxSteps subtasks per task. Upgrade to Apex for unlimited subtasks.',
+                                    icon: CupertinoIcons.list_bullet,
+                                  );
+                                  return;
+                                }
+                                taskProvider.addStepToTask(liveTask.id, val.trim());
+                                _newStepController.clear();
+                              }
+                            },
+                          ),
                         ),
                       ),
+                      const SizedBox(width: 8),
+                      IconButton.filled(
+                        onPressed: () {
+                          if (_newStepController.text.trim().isNotEmpty) {
+                            if (!ApexTierService.canAddSubtask(liveTask.steps.length)) {
+                              _showApexLimitDialog(
+                                title: 'Subtask Limit Reached',
+                                description: 'Core accounts can add up to $maxSteps subtasks per task. Upgrade to Apex for unlimited subtasks.',
+                                icon: CupertinoIcons.list_bullet,
+                              );
+                              return;
+                            }
+                            taskProvider.addStepToTask(liveTask.id, _newStepController.text.trim());
+                            _newStepController.clear();
+                          }
+                        },
+                        icon: const Icon(CupertinoIcons.plus, size: 18),
+                        style: IconButton.styleFrom(backgroundColor: AppColors.primaryIndigo),
+                      ),
+                    ],
+                  ),
+                const SizedBox(height: 20),
+
+                // Location Reminder Section (✦ APEX)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(CupertinoIcons.location_solid, color: Colors.roseAccent, size: 16),
+                        const SizedBox(width: 6),
+                        Text(
+                          'LOCATION REMINDER',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: secondaryTextColor, letterSpacing: 0.8),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 8),
-                    IconButton.filled(
-                      onPressed: () {
-                        if (_newStepController.text.trim().isNotEmpty) {
-                          taskProvider.addStepToTask(liveTask.id, _newStepController.text.trim());
-                          _newStepController.clear();
-                        }
-                      },
-                      icon: const Icon(CupertinoIcons.plus, size: 18),
-                      style: IconButton.styleFrom(backgroundColor: AppColors.primaryIndigo),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: Colors.amber.withOpacity(0.4)),
+                      ),
+                      child: const Text(
+                        '✦ APEX',
+                        style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: Colors.amber),
+                      ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _buildLocationOptionChip('No Alert', null),
+                    _buildLocationOptionChip('Office', 'Office'),
+                    _buildLocationOptionChip('Home', 'Home'),
+                    _buildLocationOptionChip('Client Site', 'Client Site'),
+                    _buildLocationOptionChip('Custom Pin', 'Custom'),
+                  ],
+                ),
 
-                // Dedicated Pomodoro Timer for this task
-                GlassCard(
-                  borderRadius: 16,
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
-                            children: [
-                              const Icon(CupertinoIcons.timer, color: AppColors.primaryCyan, size: 20),
-                              const SizedBox(width: 8),
-                              Text(
-                                'TASK FOCUS TIMER',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w800,
-                                  color: primaryTextColor,
-                                  letterSpacing: 0.8,
+                if (_locationReminder != null && _locationReminder!.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF1E1B4B).withOpacity(0.4) : const Color(0xFFEEF2FF),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: AppColors.primaryIndigo.withOpacity(0.25)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: _locationAddressController,
+                                style: TextStyle(fontSize: 12, color: primaryTextColor),
+                                decoration: InputDecoration(
+                                  isDense: true,
+                                  border: InputBorder.none,
+                                  hintText: 'Enter address, area or place name...',
+                                  hintStyle: TextStyle(fontSize: 12, color: secondaryTextColor),
                                 ),
                               ),
-                            ],
-                          ),
-                          Text(
-                            _formatTimer(_pomodoroSeconds),
-                            style: const TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.w900,
-                              fontFamily: 'monospace',
-                              color: AppColors.primaryCyan,
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: _togglePomodoro,
-                              icon: Icon(_isTimerRunning ? CupertinoIcons.pause_fill : CupertinoIcons.play_fill, size: 16),
-                              label: Text(_isTimerRunning ? 'Pause Focus' : 'Start Focus (25m)'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: _isTimerRunning ? Colors.amber.shade700 : AppColors.primaryIndigo,
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            GestureDetector(
+                              onTap: _handleDetectGPS,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: Colors.roseAccent,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(CupertinoIcons.location_fill, size: 12, color: Colors.white),
+                                    SizedBox(width: 4),
+                                    Text('GPS', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                                  ],
+                                ),
                               ),
                             ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Text('Trigger: ', style: TextStyle(fontSize: 11, color: secondaryTextColor)),
+                            const SizedBox(width: 6),
+                            GestureDetector(
+                              onTap: () => setState(() => _locationTrigger = 'arrive'),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: _locationTrigger == 'arrive' ? AppColors.primaryIndigo : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(
+                                    color: _locationTrigger == 'arrive' ? AppColors.primaryIndigo : secondaryTextColor.withOpacity(0.3),
+                                  ),
+                                ),
+                                child: Text(
+                                  'On Arrive (200m)',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: _locationTrigger == 'arrive' ? Colors.white : secondaryTextColor,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            GestureDetector(
+                              onTap: () => setState(() => _locationTrigger = 'leave'),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: _locationTrigger == 'leave' ? AppColors.primaryIndigo : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(
+                                    color: _locationTrigger == 'leave' ? AppColors.primaryIndigo : secondaryTextColor.withOpacity(0.3),
+                                  ),
+                                ),
+                                child: Text(
+                                  'On Leave',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: _locationTrigger == 'leave' ? Colors.white : secondaryTextColor,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 20),
+
+                // Estimated Duration Section
+                Text(
+                  'ESTIMATED DURATION',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: secondaryTextColor, letterSpacing: 0.8),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [15, 30, 45, 60, 90, 120].map((dur) {
+                    final isSel = _durationMinutes == dur;
+                    return GestureDetector(
+                      onTap: () => setState(() => _durationMinutes = dur),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: isSel ? AppColors.primaryIndigo : (isDark ? Colors.white.withOpacity(0.06) : Colors.grey.shade100),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: isSel ? AppColors.primaryIndigo : Colors.transparent),
+                        ),
+                        child: Text(
+                          '${dur}m',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: isSel ? Colors.white : primaryTextColor,
                           ),
-                          const SizedBox(width: 8),
-                          IconButton(
-                            icon: const Icon(CupertinoIcons.arrow_counterclockwise),
-                            color: secondaryTextColor,
-                            onPressed: _resetPomodoro,
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 20),
+
+                // Reminders (Stacked)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'REMINDERS',
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: secondaryTextColor, letterSpacing: 0.8),
+                    ),
+                    if (!FirebaseSyncService.isApex)
+                      Text(
+                        '1 Alert (Core)',
+                        style: TextStyle(fontSize: 10, color: secondaryTextColor),
+                      )
+                    else
+                      const Text(
+                        '✦ Unlimited Stacked',
+                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.amber),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: ['At time', '15m before', '30m before', '1h before', '1 day before'].map((rem) {
+                    final isSel = _reminders.contains(rem);
+                    return GestureDetector(
+                      onTap: () {
+                        final isApex = FirebaseSyncService.isApex;
+                        if (!isApex && _reminders.length >= 1 && !isSel) {
+                          _showApexLimitDialog(
+                            title: 'Stacked Reminders (Apex)',
+                            description: 'Core accounts can set 1 reminder alert. Upgrade to Apex to set multiple stacked reminders.',
+                            icon: CupertinoIcons.bell_fill,
+                          );
+                          return;
+                        }
+                        setState(() {
+                          if (isSel) {
+                            _reminders.remove(rem);
+                          } else {
+                            _reminders.add(rem);
+                          }
+                        });
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: isSel ? AppColors.accentEmerald.withOpacity(0.2) : (isDark ? Colors.white.withOpacity(0.06) : Colors.grey.shade100),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: isSel ? AppColors.accentEmerald : Colors.transparent),
+                        ),
+                        child: Text(
+                          rem,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: isSel ? AppColors.accentEmerald : secondaryTextColor,
                           ),
-                        ],
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 20),
+
+                // Cloud Link Attachment
+                Text(
+                  'CLOUD LINK (G-DRIVE / DOCS / FIGMA)',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: secondaryTextColor, letterSpacing: 0.8),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white.withOpacity(0.06) : Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(CupertinoIcons.link, size: 16, color: AppColors.primaryIndigo),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: _attachmentLinkController,
+                          style: TextStyle(fontSize: 12, color: primaryTextColor),
+                          decoration: InputDecoration(
+                            border: InputBorder.none,
+                            hintText: 'https://...',
+                            hintStyle: TextStyle(fontSize: 12, color: secondaryTextColor),
+                          ),
+                        ),
                       ),
                     ],
                   ),

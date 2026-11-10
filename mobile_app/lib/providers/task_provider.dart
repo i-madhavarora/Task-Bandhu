@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import '../models/task_model.dart';
 import '../services/firebase_sync_service.dart';
 import '../services/sound_service.dart';
+import '../services/apex_tier_service.dart';
 
 class TaskProvider extends ChangeNotifier {
   static const String _tasksStorageKey = 'tb_tasks_v2';
@@ -283,9 +284,14 @@ class TaskProvider extends ChangeNotifier {
   }
 
   Future<void> deleteTask(String id) async {
+    final tIndex = _tasks.indexWhere((t) => t.id == id);
+    final taskToDelete = tIndex != -1 ? _tasks[tIndex] : null;
     _tasks.removeWhere((t) => t.id == id);
     notifyListeners();
     await _saveToStorage();
+    if (taskToDelete != null && FirebaseSyncService.isRealCloudUser) {
+      FirebaseSyncService.deleteTaskFromFirestore(taskToDelete);
+    }
   }
 
   Future<void> _updateStreakOnCompletion() async {
@@ -351,6 +357,9 @@ class TaskProvider extends ChangeNotifier {
   Future<void> addStepToTask(String taskId, String stepTitle) async {
     final tIndex = _tasks.indexWhere((t) => t.id == taskId);
     if (tIndex != -1) {
+      if (!ApexTierService.canAddSubtask(_tasks[tIndex].steps.length)) {
+        return;
+      }
       _tasks[tIndex].steps.add(TaskStep(
         id: const Uuid().v4(),
         title: stepTitle,

@@ -92,7 +92,7 @@ class _GoogleSignInSheetState extends State<GoogleSignInSheet> {
     if (!mounted) return;
 
     setState(() {
-      _loadingMessage = 'Authenticating with Google Cloud...';
+      _loadingMessage = 'Authenticating with Secure Cloud...';
     });
 
     final result = await authProvider.signInWithGoogle(email, name: name);

@@ -8,20 +8,30 @@ export const PLAN_LIMITS = {
     name: 'Core',
     badge: 'Core Starter',
     pinnedTasks: 2,
-    customProjects: 2,
-    teamMembers: 2,
+    customProjects: 5,
+    teamMembers: 5,
+    customFilters: 3,
+    labels: 5,
+    fileUploadMb: 5,
     dailyAIBreakdowns: 3,
     subtasksPerTask: 5,
     focusSounds: ['Standard Bell'],
     cloudBackups: 'Manual Export',
-    historyDays: 7
+    historyDays: 7,
+    hasTableLayout: false,
+    hasLocationReminders: false,
+    hasVoiceRamble: false,
+    hasChronoSync: false
   },
   APEX: {
     name: 'Apex',
     badge: '✦ Apex Prestige',
-    pinnedTasks: Infinity,
-    customProjects: 10,
-    teamMembers: 50,
+    pinnedTasks: 10,
+    customProjects: 300,
+    teamMembers: 25,
+    customFilters: 150,
+    labels: 250,
+    fileUploadMb: 100,
     dailyAIBreakdowns: Infinity,
     subtasksPerTask: Infinity,
     focusSounds: [
@@ -33,7 +43,11 @@ export const PLAN_LIMITS = {
       'Cosmic White Noise'
     ],
     cloudBackups: 'Automated Real-Time Cloud + PDF Reports',
-    historyDays: 365
+    historyDays: Infinity,
+    hasTableLayout: true,
+    hasLocationReminders: true,
+    hasVoiceRamble: true,
+    hasChronoSync: true
   }
 };
 
@@ -42,4 +56,5 @@ export const isApexPlan = (plan) => {
   const p = plan.toString().trim().toLowerCase();
   return p === 'apex' || p === 'prestige' || p === 'elite';
 };
+
 

@@ -46,6 +46,24 @@ class _StealthVaultSheetState extends State<StealthVaultSheet> {
         _vaultTasks = list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
       }
       setState(() {});
+
+      if (FirebaseSyncService.isRealCloudUser) {
+        final cloudData = await FirebaseSyncService.fetchStealthVaultData();
+        if (cloudData.isNotEmpty) {
+          if (cloudData['pin'] != null && cloudData['pin'].toString().isNotEmpty) {
+            _savedPin = cloudData['pin'].toString();
+            await prefs.setString(_vaultPinKey, _savedPin!);
+          }
+          if (cloudData['tasks'] != null) {
+            final tList = cloudData['tasks'] as List<dynamic>;
+            if (tList.isNotEmpty) {
+              _vaultTasks = tList.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+              await prefs.setString(_vaultPrefKey, jsonEncode(_vaultTasks));
+            }
+          }
+          if (mounted) setState(() {});
+        }
+      }
     } catch (_) {}
   }
 
@@ -53,7 +71,96 @@ class _StealthVaultSheetState extends State<StealthVaultSheet> {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_vaultPrefKey, jsonEncode(_vaultTasks));
+      if (FirebaseSyncService.isRealCloudUser) {
+        await FirebaseSyncService.saveStealthVaultTasks(_vaultTasks);
+      }
     } catch (_) {}
+  }
+
+  Future<void> _promptChangePin() async {
+    final pinController = TextEditingController();
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF0F172A),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(CupertinoIcons.lock_shield_fill, color: Color(0xFFF59E0B), size: 20),
+            SizedBox(width: 8),
+            Text('Set 4-Digit Vault PIN', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Enter a new 4-digit code to securely protect your confidential vault across all your devices.',
+              style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: pinController,
+              keyboardType: TextInputType.number,
+              maxLength: 4,
+              obscureText: true,
+              style: const TextStyle(color: Colors.white, fontSize: 20, letterSpacing: 8, fontWeight: FontWeight.bold),
+              textAlign: TextAlign.center,
+              decoration: InputDecoration(
+                counterText: '',
+                hintText: '••••',
+                hintStyle: const TextStyle(color: Colors.white24, letterSpacing: 8),
+                filled: true,
+                fillColor: const Color(0xFF1E293B),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFF59E0B),
+              foregroundColor: Colors.black,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () async {
+              final newPin = pinController.text.trim();
+              if (newPin.length == 4 && RegExp(r'^\d{4}$').hasMatch(newPin)) {
+                setState(() => _savedPin = newPin);
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.setString(_vaultPinKey, newPin);
+                if (FirebaseSyncService.isRealCloudUser) {
+                  await FirebaseSyncService.saveStealthVaultPin(newPin);
+                }
+                Navigator.pop(ctx);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('🔒 Vault PIN updated and synced to cloud!'),
+                      backgroundColor: AppColors.accentEmerald,
+                    ),
+                  );
+                }
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('PIN must be exactly 4 numeric digits.'),
+                    backgroundColor: AppColors.accentRose,
+                  ),
+                );
+              }
+            },
+            child: const Text('Save PIN', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
   }
 
   void _onKeypadTap(String digit) {
@@ -553,25 +660,43 @@ class _StealthVaultSheetState extends State<StealthVaultSheet> {
                 ),
         ),
 
-        // Lock Vault Button
+        // Action Buttons: Change PIN & Lock Vault
         Padding(
-          padding: const EdgeInsets.all(16),
-          child: SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: () {
-                HapticFeedback.mediumImpact();
-                setState(() => _isUnlocked = false);
-              },
-              icon: const Icon(CupertinoIcons.lock_fill, size: 16, color: Color(0xFFF59E0B)),
-              label: const Text('Lock Vault & Exit', style: TextStyle(fontWeight: FontWeight.w800)),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: const Color(0xFFF59E0B),
-                side: const BorderSide(color: Color(0xFFF59E0B)),
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _promptChangePin,
+                  icon: const Icon(CupertinoIcons.key_fill, size: 15, color: Color(0xFFF59E0B)),
+                  label: const Text('Change PIN', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFFF59E0B),
+                    side: const BorderSide(color: Color(0xFFF59E0B)),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                ),
               ),
-            ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    HapticFeedback.mediumImpact();
+                    setState(() => _isUnlocked = false);
+                  },
+                  icon: const Icon(CupertinoIcons.lock_fill, size: 15, color: Colors.black),
+                  label: const Text('Lock Vault', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFF59E0B),
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    elevation: 0,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ],

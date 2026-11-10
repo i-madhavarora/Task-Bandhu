@@ -1,26 +1,21 @@
 import {
   X, CheckCircle2, Sparkles, Zap, ShieldCheck,
-  Pin, Folder, Users, ArrowRight,
-  Headphones, FileSpreadsheet, BellRing
+  Pin, Folder, Users,
+  FileSpreadsheet, MapPin,
+  Clock, Database, Layers, Tag
 } from 'lucide-react';
 
 export default function ApexUpgradeModal({
   isOpen,
   onClose,
-  currentPlan = 'Core',
-  showToast
+  currentPlan = 'Core'
 }) {
   if (!isOpen) return null;
 
   const isApex = currentPlan?.toLowerCase() === 'apex' || currentPlan?.toLowerCase() === 'prestige';
 
-  const handleNotifyLaunch = () => {
-    showToast?.("✦ You're on the priority notification list! We'll announce Apex tier availability soon.", "success");
-    onClose();
-  };
-
   return (
-    <div className="fixed inset-0 bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4 z-[300] animate-in fade-in">
+    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 z-[700] animate-in fade-in">
       <div className="bg-slate-900 text-white rounded-3xl w-full max-w-2xl border border-violet-500/30 shadow-[0_0_50px_rgba(139,92,246,0.25)] overflow-hidden flex flex-col max-h-[92vh]">
         {/* Modal Top Banner with Apex Branding */}
         <div className="relative p-6 sm:p-8 bg-gradient-to-br from-violet-950 via-slate-900 to-indigo-950 border-b border-violet-800/30 overflow-hidden shrink-0">
@@ -36,7 +31,7 @@ export default function ApexUpgradeModal({
                 Task Bandhu <span className="bg-gradient-to-r from-amber-300 via-violet-300 to-indigo-300 bg-clip-text text-transparent">Apex</span>
               </h2>
               <p className="text-slate-300 text-xs sm:text-sm leading-relaxed">
-                Engineered for maximum velocity, unlimited team scalability, and deep cognitive focus.
+                Engineered for maximum velocity, executive capacity, and deep cognitive productivity.
               </p>
             </div>
 
@@ -59,7 +54,7 @@ export default function ApexUpgradeModal({
               <span className={`px-2.5 py-0.5 rounded-full font-black uppercase text-[10px] tracking-wide ${
                 isApex ? 'bg-amber-400/20 text-amber-300 border border-amber-400/30' : 'bg-slate-700 text-slate-300'
               }`}>
-                {isApex ? '✦ Apex Prestige' : 'Core Edition'}
+                {isApex ? '✦ Apex Prestige' : 'Core Starter Edition'}
               </span>
             </div>
             {isApex ? (
@@ -80,101 +75,148 @@ export default function ApexUpgradeModal({
             </h3>
 
             <div className="border border-slate-800 rounded-2xl overflow-hidden divide-y divide-slate-800/80 bg-slate-950/40 text-xs">
-              {/* Row 1 */}
+              {/* Row 1: Personal Projects */}
               <div className="grid grid-cols-12 p-3 sm:p-3.5 items-center">
                 <div className="col-span-6 flex items-center gap-2.5 font-bold text-slate-200">
-                  <Pin size={15} className="text-amber-400 shrink-0" />
-                  <span>Pinned Priority Tasks</span>
+                  <Folder size={15} className="text-amber-400 shrink-0" />
+                  <span>Active Personal Projects</span>
                 </div>
-                <div className="col-span-3 text-center text-slate-400 font-medium">Max 2 tasks</div>
+                <div className="col-span-3 text-center text-slate-400 font-medium">5 projects</div>
                 <div className="col-span-3 text-center text-amber-300 font-black flex items-center justify-center gap-1">
-                  <CheckCircle2 size={13} className="text-emerald-400" /> Unlimited
+                  <CheckCircle2 size={13} className="text-emerald-400" /> Up to 300
                 </div>
               </div>
 
-              {/* Row 2 */}
+              {/* Row 2: Collaborators per Project */}
               <div className="grid grid-cols-12 p-3 sm:p-3.5 items-center bg-white/[0.02]">
-                <div className="col-span-6 flex items-center gap-2.5 font-bold text-slate-200">
-                  <Folder size={15} className="text-blue-400 shrink-0" />
-                  <span>Custom Project Workspaces</span>
-                </div>
-                <div className="col-span-3 text-center text-slate-400 font-medium">Up to 2 projects</div>
-                <div className="col-span-3 text-center text-amber-300 font-black flex items-center justify-center gap-1">
-                  <CheckCircle2 size={13} className="text-emerald-400" /> Unlimited
-                </div>
-              </div>
-
-              {/* Row 3 */}
-              <div className="grid grid-cols-12 p-3 sm:p-3.5 items-center">
                 <div className="col-span-6 flex items-center gap-2.5 font-bold text-slate-200">
                   <Users size={15} className="text-cyan-400 shrink-0" />
-                  <span>Team Workspaces & Members</span>
+                  <span>Collaborators per Shared Project</span>
                 </div>
-                <div className="col-span-3 text-center text-slate-400 font-medium">Owner + 1 Teammate</div>
+                <div className="col-span-3 text-center text-slate-400 font-medium">5 members</div>
                 <div className="col-span-3 text-center text-amber-300 font-black flex items-center justify-center gap-1">
-                  <CheckCircle2 size={13} className="text-emerald-400" /> Up to 50 Members
+                  <CheckCircle2 size={13} className="text-emerald-400" /> Up to 25 members
                 </div>
               </div>
 
-              {/* Row 4 */}
-              <div className="grid grid-cols-12 p-3 sm:p-3.5 items-center bg-white/[0.02]">
-                <div className="col-span-6 flex items-center gap-2.5 font-bold text-slate-200">
-                  <Sparkles size={15} className="text-purple-400 shrink-0" />
-                  <span>AI Task Decomposition</span>
-                </div>
-                <div className="col-span-3 text-center text-slate-400 font-medium">Standard Preview</div>
-                <div className="col-span-3 text-center text-amber-300 font-black flex items-center justify-center gap-1">
-                  <CheckCircle2 size={13} className="text-emerald-400" /> Unlimited
-                </div>
-              </div>
-
-              {/* Row 5 */}
+              {/* Row 3: Custom Filters */}
               <div className="grid grid-cols-12 p-3 sm:p-3.5 items-center">
                 <div className="col-span-6 flex items-center gap-2.5 font-bold text-slate-200">
-                  <Headphones size={15} className="text-indigo-400 shrink-0" />
-                  <span>Deep Focus Audio Soundscapes</span>
+                  <Layers size={15} className="text-purple-400 shrink-0" />
+                  <span>Custom Filter Views</span>
                 </div>
-                <div className="col-span-3 text-center text-slate-400 font-medium">Standard chime</div>
+                <div className="col-span-3 text-center text-slate-400 font-medium">3 filters</div>
                 <div className="col-span-3 text-center text-amber-300 font-black flex items-center justify-center gap-1">
-                  <CheckCircle2 size={13} className="text-emerald-400" /> Full Sound Library
+                  <CheckCircle2 size={13} className="text-emerald-400" /> Up to 150 filters
                 </div>
               </div>
 
-              {/* Row 6 */}
+              {/* Row 4: Labels */}
               <div className="grid grid-cols-12 p-3 sm:p-3.5 items-center bg-white/[0.02]">
                 <div className="col-span-6 flex items-center gap-2.5 font-bold text-slate-200">
-                  <FileSpreadsheet size={15} className="text-emerald-400 shrink-0" />
-                  <span>Productivity Backups & Reports</span>
+                  <Tag size={15} className="text-blue-400 shrink-0" />
+                  <span>Tags & Custom Labels</span>
                 </div>
-                <div className="col-span-3 text-center text-slate-400 font-medium">Standard Export</div>
+                <div className="col-span-3 text-center text-slate-400 font-medium">5 labels</div>
                 <div className="col-span-3 text-center text-amber-300 font-black flex items-center justify-center gap-1">
-                  <CheckCircle2 size={13} className="text-emerald-400" /> Priority Cloud Sync
+                  <CheckCircle2 size={13} className="text-emerald-400" /> Up to 250 labels
+                </div>
+              </div>
+
+              {/* Row 5: File Uploads */}
+              <div className="grid grid-cols-12 p-3 sm:p-3.5 items-center">
+                <div className="col-span-6 flex items-center gap-2.5 font-bold text-slate-200">
+                  <FileSpreadsheet size={15} className="text-emerald-400 shrink-0" />
+                  <span>File Attachment Size</span>
+                </div>
+                <div className="col-span-3 text-center text-slate-400 font-medium">5 MB max</div>
+                <div className="col-span-3 text-center text-amber-300 font-black flex items-center justify-center gap-1">
+                  <CheckCircle2 size={13} className="text-emerald-400" /> 100 MB max
+                </div>
+              </div>
+
+              {/* Row 6: Spreadsheet Table Layout */}
+              <div className="grid grid-cols-12 p-3 sm:p-3.5 items-center bg-white/[0.02]">
+                <div className="col-span-6 flex items-center gap-2.5 font-bold text-slate-200">
+                  <FileSpreadsheet size={15} className="text-indigo-400 shrink-0" />
+                  <span>Spreadsheet Table Layout</span>
+                </div>
+                <div className="col-span-3 text-center text-slate-400 font-medium">Preview only</div>
+                <div className="col-span-3 text-center text-amber-300 font-black flex items-center justify-center gap-1">
+                  <CheckCircle2 size={13} className="text-emerald-400" /> Full Access
+                </div>
+              </div>
+
+              {/* Row 7: ChronoSync AI Optimizer */}
+              <div className="grid grid-cols-12 p-3 sm:p-3.5 items-center">
+                <div className="col-span-6 flex items-center gap-2.5 font-bold text-slate-200">
+                  <Clock size={15} className="text-rose-400 shrink-0" />
+                  <span>ChronoSync AI Schedule Balancer</span>
+                </div>
+                <div className="col-span-3 text-center text-slate-400 font-medium">Manual</div>
+                <div className="col-span-3 text-center text-amber-300 font-black flex items-center justify-center gap-1">
+                  <CheckCircle2 size={13} className="text-emerald-400" /> 3 Energy Curves
+                </div>
+              </div>
+
+              {/* Row 8: Biometric Stealth Vault */}
+              <div className="grid grid-cols-12 p-3 sm:p-3.5 items-center bg-white/[0.02]">
+                <div className="col-span-6 flex items-center gap-2.5 font-bold text-slate-200">
+                  <ShieldCheck size={15} className="text-amber-400 shrink-0" />
+                  <span>PIN-Encrypted Stealth Vault</span>
+                </div>
+                <div className="col-span-3 text-center text-slate-400 font-medium">Standard</div>
+                <div className="col-span-3 text-center text-amber-300 font-black flex items-center justify-center gap-1">
+                  <CheckCircle2 size={13} className="text-emerald-400" /> Hardware Isolated
+                </div>
+              </div>
+
+              {/* Row 9: Location & Stacked Reminders */}
+              <div className="grid grid-cols-12 p-3 sm:p-3.5 items-center">
+                <div className="col-span-6 flex items-center gap-2.5 font-bold text-slate-200">
+                  <MapPin size={15} className="text-cyan-400 shrink-0" />
+                  <span>Location & Stacked Reminders</span>
+                </div>
+                <div className="col-span-3 text-center text-slate-400 font-medium">Single alert</div>
+                <div className="col-span-3 text-center text-amber-300 font-black flex items-center justify-center gap-1">
+                  <CheckCircle2 size={13} className="text-emerald-400" /> GPS & Offsets
+                </div>
+              </div>
+
+              {/* Row 10: History Retention */}
+              <div className="grid grid-cols-12 p-3 sm:p-3.5 items-center bg-white/[0.02]">
+                <div className="col-span-6 flex items-center gap-2.5 font-bold text-slate-200">
+                  <Database size={15} className="text-teal-400 shrink-0" />
+                  <span>Activity History & Audit</span>
+                </div>
+                <div className="col-span-3 text-center text-slate-400 font-medium">7 Days</div>
+                <div className="col-span-3 text-center text-amber-300 font-black flex items-center justify-center gap-1">
+                  <CheckCircle2 size={13} className="text-emerald-400" /> Unlimited Indefinite
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Launch Status Announcement */}
-          <div className="p-6 rounded-3xl bg-gradient-to-br from-violet-900/40 via-slate-800/60 to-purple-900/30 border border-violet-500/40 text-center space-y-4">
-            <div className="w-12 h-12 rounded-2xl bg-amber-400/10 border border-amber-400/20 text-amber-400 flex items-center justify-center mx-auto shadow-inner">
-              <Sparkles size={22} />
-            </div>
-            <div className="space-y-1">
-              <h4 className="font-extrabold text-base text-white">Apex Tier Coming in the Next Release</h4>
-              <p className="text-xs text-slate-300 max-w-md mx-auto leading-relaxed">
-                Task Bandhu Apex is currently in preview preparation for official public release. All core features remain 100% active and free for all users.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={handleNotifyLaunch}
-              className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 via-violet-600 to-indigo-600 hover:from-amber-400 hover:to-indigo-500 text-white text-xs font-black tracking-wide shadow-md active:scale-95 transition-all inline-flex items-center gap-2"
-            >
-              <BellRing size={14} />
-              <span>Get Notified When Apex Launches</span>
-              <ArrowRight size={14} />
-            </button>
+          {/* Informational Guidance Notice (Zero direct payment buttons) */}
+          <div className="p-5 rounded-2xl bg-white/[0.03] border border-white/10 text-center space-y-2">
+            <p className="text-xs text-slate-300 font-medium">
+              Apex tier features activate automatically for authorized Apex prestige accounts across mobile and web simultaneously.
+            </p>
+            <p className="text-[11px] text-slate-500">
+              Account status is verified via End-to-End Encrypted Cloud Synchronization across all your active devices.
+            </p>
           </div>
+        </div>
+
+        {/* Footer */}
+        <div className="p-4 bg-slate-950/80 border-t border-slate-800 text-center shrink-0">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-6 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-white font-bold text-xs transition-colors"
+          >
+            Close Overview
+          </button>
         </div>
       </div>
     </div>

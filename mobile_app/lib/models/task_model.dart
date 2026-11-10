@@ -42,6 +42,9 @@ class TaskModel {
   DateTime createdAt;
   List<String> reminders;
   String? locationReminder;
+  String? locationAddress;
+  String? locationTrigger; // 'arrive' | 'leave'
+  String? attachmentLink;
   int durationMinutes;
   String? voiceNote;
 
@@ -54,7 +57,7 @@ class TaskModel {
     this.deadline = '',
     this.startTime = '',
     this.endTime = '',
-    this.project = 'General Workspace',
+    this.project = 'Personal Inbox',
     this.projectId,
     this.workspaceType = 'personal',
     this.assignee = 'Me',
@@ -65,12 +68,32 @@ class TaskModel {
     DateTime? createdAt,
     List<String>? reminders,
     this.locationReminder,
+    this.locationAddress,
+    this.locationTrigger,
+    this.attachmentLink,
     this.durationMinutes = 45,
     this.voiceNote,
   })  : steps = steps ?? [],
         tags = tags ?? [],
         createdAt = createdAt ?? DateTime.now(),
         reminders = reminders ?? [];
+
+  bool get isCompleted => status == 'Completed';
+  int get completedStepsCount => steps.where((s) => s.completed).length;
+
+  bool get isOverdue {
+    if (status == 'Completed' || deadline.isEmpty) return false;
+    try {
+      final d = DateTime.tryParse(deadline);
+      if (d == null) return false;
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final taskDate = DateTime(d.year, d.month, d.day);
+      return taskDate.isBefore(today);
+    } catch (_) {
+      return false;
+    }
+  }
 
   TaskModel copyWith({
     String? id,
@@ -92,6 +115,9 @@ class TaskModel {
     DateTime? createdAt,
     List<String>? reminders,
     String? locationReminder,
+    String? locationAddress,
+    String? locationTrigger,
+    String? attachmentLink,
     int? durationMinutes,
     String? voiceNote,
   }) {
@@ -115,6 +141,9 @@ class TaskModel {
       createdAt: createdAt ?? this.createdAt,
       reminders: reminders ?? List.from(this.reminders),
       locationReminder: locationReminder ?? this.locationReminder,
+      locationAddress: locationAddress ?? this.locationAddress,
+      locationTrigger: locationTrigger ?? this.locationTrigger,
+      attachmentLink: attachmentLink ?? this.attachmentLink,
       durationMinutes: durationMinutes ?? this.durationMinutes,
       voiceNote: voiceNote ?? this.voiceNote,
     );
@@ -150,6 +179,9 @@ class TaskModel {
     'createdAt': createdAt.toIso8601String(),
     'reminders': reminders,
     'locationReminder': locationReminder,
+    'locationAddress': locationAddress,
+    'locationTrigger': locationTrigger,
+    'attachmentLink': attachmentLink,
     'durationMinutes': durationMinutes,
     'voiceNote': voiceNote,
   };
@@ -163,7 +195,7 @@ class TaskModel {
     deadline: map['deadline'] ?? '',
     startTime: map['startTime'] ?? '',
     endTime: map['endTime'] ?? '',
-    project: map['project'] ?? 'General Workspace',
+    project: (map['project'] == null || map['project'] == 'General Workspace') ? 'Personal Inbox' : map['project'],
     projectId: map['projectId'],
     workspaceType: map['workspaceType'] ?? 'personal',
     assignee: map['assignee'] ?? 'Me',
@@ -179,6 +211,9 @@ class TaskModel {
         : DateTime.now(),
     reminders: List<String>.from(map['reminders'] ?? []),
     locationReminder: map['locationReminder'] as String?,
+    locationAddress: map['locationAddress'] as String?,
+    locationTrigger: map['locationTrigger'] as String?,
+    attachmentLink: map['attachmentLink'] as String?,
     durationMinutes: map['durationMinutes'] as int? ?? 45,
     voiceNote: map['voiceNote'] as String?,
   );

@@ -29,147 +29,75 @@ class AppIconService extends ChangeNotifier {
   static final List<DesignerAppIcon> availableIcons = [
     const DesignerAppIcon(
       id: 'default',
-      name: 'Neon Signature',
-      subtitle: 'Original vibrant cyan-indigo monogram with starburst',
+      name: 'Dynamic Auto',
+      subtitle: 'Adapts dynamically to Light or Dark system theme',
       assetPath: 'assets/logo.png',
       isApex: false,
-      gradientColors: [0xFF38BDF8, 0xFF818CF8],
-    ),
-    const DesignerAppIcon(
-      id: 'diwali',
-      name: 'Diwali Festival 🪔',
-      subtitle: 'Golden diya luminescence & celestial starlight sparks',
-      assetPath: 'assets/tb_d_diwali.png',
-      isApex: false,
-      gradientColors: [0xFFF59E0B, 0xFFEA580C],
-    ),
-    const DesignerAppIcon(
-      id: 'holi',
-      name: 'Holi Colors 🎨',
-      subtitle: 'Vibrant gulal splashes & playful neon powder bursts',
-      assetPath: 'assets/tb_l_holi.png',
-      isApex: false,
-      gradientColors: [0xFFEC4899, 0xFF06B6D4],
-    ),
-    const DesignerAppIcon(
-      id: 'newyear',
-      name: 'New Year Midnight ✨',
-      subtitle: 'Celebratory golden champagne stars & midnight horizon glow',
-      assetPath: 'assets/tb_d_newyear.png',
-      isApex: false,
-      gradientColors: [0xFFF59E0B, 0xFF6366F1],
-    ),
-    const DesignerAppIcon(
-      id: 'christmas',
-      name: 'Christmas Holiday 🎄',
-      subtitle: 'Evergreen holly wreaths, holiday ribbon & warm velvet glow',
-      assetPath: 'assets/tb_d_christmas.png',
-      isApex: false,
-      gradientColors: [0xFFDC2626, 0xFF16A34A],
-    ),
-    const DesignerAppIcon(
-      id: 'dark',
-      name: 'Obsidian Stealth',
-      subtitle: 'Deep midnight carbon with subtle luminescent outline',
-      assetPath: 'assets/logo_dark.png',
-      isApex: true,
-      gradientColors: [0xFF1E293B, 0xFF0F172A],
+      gradientColors: [0xFF6366F1, 0xFFA855F7],
     ),
     const DesignerAppIcon(
       id: 'light',
-      name: 'Crystal Pearl',
-      subtitle: 'Pure frosted titanium white with polished chrome monogram',
+      name: 'Task Bandhu Light',
+      subtitle: 'Official clean luminescence light edition',
       assetPath: 'assets/logo_light.png',
-      isApex: true,
-      gradientColors: [0xFFF8FAFC, 0xFFE2E8F0],
+      isApex: false,
+      gradientColors: [0xFF38BDF8, 0xFF6366F1],
     ),
     const DesignerAppIcon(
-      id: 'gold',
-      name: 'Solaris 24K Gold',
-      subtitle: 'Prestige champagne gold with warm incandescent luster',
-      assetPath: 'assets/logo_gold.png',
-      isApex: true,
-      gradientColors: [0xFFF59E0B, 0xFFD97706],
+      id: 'dark',
+      name: 'Task Bandhu Dark',
+      subtitle: 'Official midnight obsidian dark edition',
+      assetPath: 'assets/logo_dark.png',
+      isApex: false,
+      gradientColors: [0xFF1E293B, 0xFF0F172A],
     ),
     const DesignerAppIcon(
-      id: 'cyber',
-      name: 'Cyberpunk Hologram',
-      subtitle: 'Laser magenta & hyper-cyan neon starlight matrix',
-      assetPath: 'assets/logo_cyber.png',
-      isApex: true,
-      gradientColors: [0xFFE879F9, 0xFF06B6D4],
-    ),
-    const DesignerAppIcon(
-      id: 'retro',
-      name: '2011 Vintage Leather',
-      subtitle: 'Skeuomorphic stitched leather, optical lens & rainbow ribbon',
-      assetPath: 'assets/logo_retro.png',
-      isApex: true,
-      gradientColors: [0xFF8B4513, 0xFFD2C6BC],
-    ),
-    const DesignerAppIcon(
-      id: 'flame',
-      name: 'Solar Flare Gold',
-      subtitle: 'Molten liquid 3D gold & fiery flame loops with luminous embers',
-      assetPath: 'assets/logo_flame.png',
+      id: 'premium_1',
+      name: 'Apex Prestige 01',
+      subtitle: 'Handcrafted luxury executive emblem 1',
+      assetPath: 'assets/premium_1.png',
       isApex: true,
       gradientColors: [0xFFF59E0B, 0xFFEA580C],
     ),
     const DesignerAppIcon(
-      id: 'cosmic',
-      name: 'Cosmic Orbit Rings',
-      subtitle: 'Saturn neon cyan & purple 3D orbital glass tubes',
-      assetPath: 'assets/logo_cosmic.png',
+      id: 'premium_2',
+      name: 'Apex Prestige 02',
+      subtitle: 'Handcrafted luxury executive emblem 2',
+      assetPath: 'assets/premium_2.png',
       isApex: true,
-      gradientColors: [0xFF06B6D4, 0xFFA855F7],
+      gradientColors: [0xFF6366F1, 0xFF9333EA],
     ),
     const DesignerAppIcon(
-      id: 'mercury',
-      name: 'Chrome Liquid Mercury',
-      subtitle: 'High-gloss polished liquid metal droplet reflections',
-      assetPath: 'assets/logo_mercury.png',
+      id: 'premium_3',
+      name: 'Apex Prestige 03',
+      subtitle: 'Handcrafted luxury executive emblem 3',
+      assetPath: 'assets/premium_3.png',
       isApex: true,
-      gradientColors: [0xFF94A3B8, 0xFF334155],
+      gradientColors: [0xFF06B6D4, 0xFF2563EB],
     ),
     const DesignerAppIcon(
-      id: 'neon_tube',
-      name: 'Cyber Neon Tube',
-      subtitle: 'Vibrant hot magenta glowing gas discharge glass tube',
-      assetPath: 'assets/logo_neon_tube.png',
+      id: 'premium_4',
+      name: 'Apex Prestige 04',
+      subtitle: 'Handcrafted luxury executive emblem 4',
+      assetPath: 'assets/premium_4.png',
       isApex: true,
-      gradientColors: [0xFFEC4899, 0xFFD946EF],
+      gradientColors: [0xFFA855F7, 0xFFEC4899],
     ),
     const DesignerAppIcon(
-      id: 'tg_sunset',
-      name: 'Sunset Paper Plane',
-      subtitle: 'Telegram sunset peach-magenta-violet gradient origami',
-      assetPath: 'assets/logo_tg_sunset.png',
+      id: 'premium_5',
+      name: 'Apex Prestige 05',
+      subtitle: 'Handcrafted luxury executive emblem 5',
+      assetPath: 'assets/premium_5.png',
       isApex: true,
-      gradientColors: [0xFFF97316, 0xFF7C3AED],
+      gradientColors: [0xFF10B981, 0xFF0D9488],
     ),
     const DesignerAppIcon(
-      id: 'tg_cyan',
-      name: 'Sky Cyan Aero',
-      subtitle: 'Telegram iconic sky blue minimal paper plane',
-      assetPath: 'assets/logo_tg_cyan.png',
+      id: 'premium_6',
+      name: 'Apex Prestige 06',
+      subtitle: 'Handcrafted luxury executive emblem 6',
+      assetPath: 'assets/premium_6.png',
       isApex: true,
-      gradientColors: [0xFF0088CC, 0xFF38BDF8],
-    ),
-    const DesignerAppIcon(
-      id: 'wa_emerald',
-      name: 'Emerald Minimalist',
-      subtitle: 'WhatsApp-inspired emerald green outline on frosted glass',
-      assetPath: 'assets/logo_wa_emerald.png',
-      isApex: true,
-      gradientColors: [0xFF10B981, 0xFF059669],
-    ),
-    const DesignerAppIcon(
-      id: 'wa_mono',
-      name: 'Obsidian Mono Ink',
-      subtitle: 'Clean obsidian monochrome laser-etched outline',
-      assetPath: 'assets/logo_wa_mono.png',
-      isApex: true,
-      gradientColors: [0xFF0F172A, 0xFFF8FAFC],
+      gradientColors: [0xFFF43F5E, 0xFFF59E0B],
     ),
   ];
 
@@ -181,8 +109,8 @@ class AppIconService extends ChangeNotifier {
         orElse: () => availableIcons.first,
       );
 
-  static bool isFestive(String id) => ['diwali', 'holi', 'newyear', 'christmas'].contains(id);
-  static bool isApexExclusive(String id) => id != 'default' && !isFestive(id);
+  static bool isFestive(String id) => false;
+  static bool isApexExclusive(String id) => id.startsWith('premium_');
 
   Future<void> init() async {
     try {
@@ -236,6 +164,9 @@ class AppIconService extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_prefKey, id);
+      if (FirebaseSyncService.isRealCloudUser) {
+        FirebaseSyncService.saveActiveAppIcon(id);
+      }
       await _channel.invokeMethod('setAppIcon', {'icon': id});
       return true;
     } catch (e) {

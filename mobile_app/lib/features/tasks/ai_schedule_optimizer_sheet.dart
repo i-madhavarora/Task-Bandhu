@@ -85,8 +85,28 @@ class _AiScheduleOptimizerSheetState extends State<AiScheduleOptimizerSheet> {
       });
 
       final plan = <Map<String, dynamic>>[];
+      final now = DateTime.now();
+      final isToday = widget.selectedDate.year == now.year &&
+          widget.selectedDate.month == now.month &&
+          widget.selectedDate.day == now.day;
+
       int currentHour = _selectedStrategy == 2 ? 10 : 9;
       int currentMinute = 0;
+
+      if (isToday) {
+        // Dynamic start based on current real-time rounded to next 15-minute slot so time is never in the past
+        int rem = now.minute % 15;
+        int m = now.minute + (rem == 0 ? 0 : (15 - rem));
+        int h = now.hour;
+        if (m >= 60) {
+          h = (h + 1) % 24;
+          m = 0;
+        }
+        if (h > currentHour || (h == currentHour && m > currentMinute)) {
+          currentHour = h;
+          currentMinute = m;
+        }
+      }
 
       for (int i = 0; i < sortedTasks.length; i++) {
         final task = sortedTasks[i];
