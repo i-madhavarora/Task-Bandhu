@@ -149,12 +149,8 @@ class TaskModel {
     );
   }
 
-  bool get isCompleted => status == 'Completed';
-
   /// Convenience / compatibility alias for task date/deadline
   String get date => deadline;
-
-  int get completedStepsCount => steps.where((s) => s.completed).length;
 
   double get stepsProgress =>
       steps.isEmpty ? 0.0 : completedStepsCount / steps.length;

@@ -83,55 +83,62 @@ class _TaskScheduleScreenState extends State<TaskScheduleScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Top Header: Date pill & New Task shortcut
+                // Top Header: Date pill & New Task shortcut (Overflow-Safe)
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    GestureDetector(
-                      onTap: () {
-                        HapticFeedback.lightImpact();
-                        setState(() => _isFullCalendarView = !_isFullCalendarView);
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: isDark ? const Color(0xFF1E293B) : Colors.white,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: isDark ? const Color(0x33FFFFFF) : const Color(0xFFE2E8F0),
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.04),
-                              blurRadius: 10,
-                              offset: const Offset(0, 2),
+                    Flexible(
+                      child: GestureDetector(
+                        onTap: () {
+                          HapticFeedback.lightImpact();
+                          setState(() => _isFullCalendarView = !_isFullCalendarView);
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: isDark ? const Color(0x33FFFFFF) : const Color(0xFFE2E8F0),
                             ),
-                          ],
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(CupertinoIcons.calendar, size: 14, color: AppColors.primaryIndigo),
-                            const SizedBox(width: 6),
-                            Text(
-                              DateFormat('EEEE, MMM d').format(_selectedDate),
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w800,
-                                color: primaryTextColor,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.04),
+                                blurRadius: 10,
+                                offset: const Offset(0, 2),
                               ),
-                            ),
-                            const SizedBox(width: 4),
-                            Icon(
-                              _isFullCalendarView ? CupertinoIcons.chevron_up : CupertinoIcons.chevron_down,
-                              size: 12,
-                              color: secondaryTextColor,
-                            ),
-                          ],
+                            ],
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(CupertinoIcons.calendar, size: 14, color: AppColors.primaryIndigo),
+                              const SizedBox(width: 5),
+                              Flexible(
+                                child: Text(
+                                  DateFormat('EEE, MMM d').format(_selectedDate),
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w800,
+                                    color: primaryTextColor,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 3),
+                              Icon(
+                                _isFullCalendarView ? CupertinoIcons.chevron_up : CupertinoIcons.chevron_down,
+                                size: 11,
+                                color: secondaryTextColor,
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
+                    const SizedBox(width: 6),
                     Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         // ChronoSync AI Plan Button (Apex Feature)
                         GestureDetector(
@@ -146,7 +153,7 @@ class _TaskScheduleScreenState extends State<TaskScheduleScreen> {
                             );
                           },
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
                             decoration: BoxDecoration(
                               gradient: const LinearGradient(
                                 colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
@@ -163,12 +170,12 @@ class _TaskScheduleScreenState extends State<TaskScheduleScreen> {
                             child: const Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(CupertinoIcons.sparkles, color: Colors.white, size: 12),
-                                SizedBox(width: 4),
+                                Icon(CupertinoIcons.sparkles, color: Colors.white, size: 11),
+                                SizedBox(width: 3),
                                 Text(
                                   'AI Plan',
                                   style: TextStyle(
-                                    fontSize: 11,
+                                    fontSize: 10.5,
                                     fontWeight: FontWeight.w900,
                                     color: Colors.white,
                                   ),
@@ -177,12 +184,12 @@ class _TaskScheduleScreenState extends State<TaskScheduleScreen> {
                             ),
                           ),
                         ),
-                        const SizedBox(width: 6),
+                        const SizedBox(width: 5),
                         // Jump to today button
                         GestureDetector(
                           onTap: _jumpToToday,
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
                             decoration: BoxDecoration(
                               color: isDark ? Colors.white10 : Colors.black.withOpacity(0.04),
                               borderRadius: BorderRadius.circular(16),
@@ -192,11 +199,11 @@ class _TaskScheduleScreenState extends State<TaskScheduleScreen> {
                             ),
                             child: const Text(
                               'Today',
-                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800),
+                              style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800),
                             ),
                           ),
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 6),
                         // Add Task Floating Button
                         GestureDetector(
                           onTap: () {
@@ -209,8 +216,8 @@ class _TaskScheduleScreenState extends State<TaskScheduleScreen> {
                             );
                           },
                           child: Container(
-                            width: 38,
-                            height: 38,
+                            width: 34,
+                            height: 34,
                             decoration: BoxDecoration(
                               gradient: AppColors.primaryGradient,
                               shape: BoxShape.circle,
@@ -222,7 +229,7 @@ class _TaskScheduleScreenState extends State<TaskScheduleScreen> {
                                 ),
                               ],
                             ),
-                            child: const Icon(CupertinoIcons.add, color: Colors.white, size: 20),
+                            child: const Icon(CupertinoIcons.add, color: Colors.white, size: 18),
                           ),
                         ),
                       ],
@@ -232,23 +239,21 @@ class _TaskScheduleScreenState extends State<TaskScheduleScreen> {
 
                 const SizedBox(height: 18),
 
-                // Title & Calendar View Switcher
+                // Title & Calendar View Switcher (Overflow-Proof)
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Task\nSchedule 🗓️',
-                          style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                                height: 1.12,
-                                fontWeight: FontWeight.w900,
-                              ),
-                        ),
-                      ],
+                    Expanded(
+                      child: Text(
+                        'Task\nSchedule 🗓️',
+                        style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                              height: 1.12,
+                              fontWeight: FontWeight.w900,
+                            ),
+                      ),
                     ),
+                    const SizedBox(width: 8),
                     // Segmented Calendar Mode Switcher (Week Strip vs Full Month)
                     Container(
                       padding: const EdgeInsets.all(3),

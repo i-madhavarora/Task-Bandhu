@@ -7,7 +7,7 @@ import {
   Copy, Link as LinkIcon, Eraser, Folder, Users, MessageSquare, Menu,
   Sparkles, Settings2, Bell, CheckCircle, ShieldAlert, ShieldCheck,
   Award, Star, Lightbulb, ChevronRight, Sun, X,
-  LogOut, Lock, FileSpreadsheet, Pencil
+  LogOut, Lock, FileSpreadsheet, Pencil, FileText, Save
 } from 'lucide-react';
 import { collection, onSnapshot, query, doc, deleteDoc, updateDoc, addDoc, setDoc, getDoc, where, getDocs, writeBatch, orderBy, arrayUnion } from 'firebase/firestore';
 import { onAuthStateChanged, signOut, updateProfile } from 'firebase/auth';
@@ -274,6 +274,9 @@ export default function Dashboard() {
   const [projectMessages, setProjectMessages] = useState([]);
   const [projectChatMessageText, setProjectChatMessageText] = useState('');
   const [isSendingProjectMessage, setIsSendingProjectMessage] = useState(false);
+  const [projectNotes, setProjectNotes] = useState('');
+  const [isSavingNotes, setIsSavingNotes] = useState(false);
+  const [lastSavedNotesTime, setLastSavedNotesTime] = useState(null);
   const chatMessagesEndRef = useRef(null);
   const [managingMembersProject, setManagingMembersProject] = useState(null);
   const [managingMemberUids, setManagingMemberUids] = useState(new Set());
@@ -293,8 +296,18 @@ export default function Dashboard() {
     }
   });
 
+  // Dedicated Projects View Filter State ('personal' | 'team' | 'all')
+  const [projectsViewTab, setProjectsViewTab] = useState(() => {
+    try {
+      return localStorage.getItem('tb_workspace_mode') || 'personal';
+    } catch {
+      return 'personal';
+    }
+  });
+
   const handleSwitchWorkspace = useCallback((mode) => {
     setCurrentWorkspace(mode);
+    setProjectsViewTab(mode);
     try {
       localStorage.setItem('tb_workspace_mode', mode);
     } catch {
@@ -1796,6 +1809,14 @@ export default function Dashboard() {
 
   const handleApplyChronoSync = async (scheduledPlan) => {
     if (!scheduledPlan || scheduledPlan.length === 0) return;
+    setTasks(prev => prev.map(t => {
+      const match = scheduledPlan.find(p => p.id === t.id);
+      if (match) {
+        return { ...t, startTime: match.startTime, endTime: match.endTime, durationMinutes: match.duration || 45 };
+      }
+      return t;
+    }));
+
     try {
       const batch = writeBatch(db);
       for (const item of scheduledPlan) {
@@ -1813,14 +1834,7 @@ export default function Dashboard() {
       await batch.commit();
       showToast("ChronoSync applied and saved to cloud!", "success");
     } catch {
-      // For local or fallback, update local state
-      setTasks(prev => prev.map(t => {
-        const match = scheduledPlan.find(p => p.id === t.id);
-        if (match) {
-          return { ...t, startTime: match.startTime, endTime: match.endTime, durationMinutes: match.duration || 45 };
-        }
-        return t;
-      }));
+      showToast("ChronoSync applied locally!", "info");
     }
   };
 
@@ -2552,6 +2566,76 @@ export default function Dashboard() {
     }
   };
 
+  // Load project notes and auto-adjust subtab whenever active project changes
+  useEffect(() => {
+    if (currentActiveProjectObj?.id) {
+      const saved = currentActiveProjectObj.notes || localStorage.getItem(`tb_proj_notes_${currentActiveProjectObj.id}`) || '';
+      setProjectNotes(saved);
+      setLastSavedNotesTime(null);
+
+      // Auto-correct subtab: Personal projects use 'notes', Team projects use 'chat'
+      if (currentActiveProjectObj.type !== 'team' && projectSubTab === 'chat') {
+        setProjectSubTab('notes');
+      } else if (currentActiveProjectObj.type === 'team' && projectSubTab === 'notes') {
+        setProjectSubTab('chat');
+      }
+    }
+  }, [currentActiveProjectObj?.id, currentActiveProjectObj?.type]);
+
+  const saveProjectNotes = useCallback(async (text) => {
+    if (!currentActiveProjectObj?.id) return;
+    const projId = currentActiveProjectObj.id;
+    setIsSavingNotes(true);
+    try {
+      localStorage.setItem(`tb_proj_notes_${projId}`, text);
+    } catch { /* ignore */ }
+    setAllProjects(prev => prev.map(p => p.id === projId ? { ...p, notes: text } : p));
+
+    if (effectiveUser && !effectiveUser.isGuest) {
+      try {
+        await updateDoc(doc(db, 'projects', projId), {
+          notes: text,
+          updatedAt: new Date().toISOString()
+        });
+      } catch (err) {
+        console.warn("Failed to save project notes to cloud:", err);
+      }
+    }
+    setIsSavingNotes(false);
+    setLastSavedNotesTime(new Date());
+  }, [currentActiveProjectObj?.id, effectiveUser]);
+
+  // Debounced auto-save for project notes (1 second after typing stops)
+  useEffect(() => {
+    if (!currentActiveProjectObj?.id || projectSubTab !== 'notes') return;
+    const currentSaved = currentActiveProjectObj.notes || localStorage.getItem(`tb_proj_notes_${currentActiveProjectObj.id}`) || '';
+    if (projectNotes === currentSaved) return;
+
+    const timer = setTimeout(() => {
+      saveProjectNotes(projectNotes);
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [projectNotes, currentActiveProjectObj?.id, projectSubTab, saveProjectNotes]);
+
+  const handleCopyNotes = () => {
+    if (!projectNotes) return;
+    navigator.clipboard.writeText(projectNotes);
+    showToast("Project notes copied to clipboard!", "success");
+  };
+
+  const handleClearNotes = () => {
+    if (!projectNotes) return;
+    if (window.confirm(`Are you sure you want to clear your notes for #${currentActiveProjectObj?.name || 'this project'}?`)) {
+      setProjectNotes('');
+      saveProjectNotes('');
+      showToast("Project notes cleared.", "info");
+    }
+  };
+
+  const handleInsertNoteSnippet = (snippet) => {
+    setProjectNotes(prev => (prev ? prev + snippet : snippet.trimStart()));
+  };
+
   const calculateRealStreak = () => {
     if (tasks.length === 0) return 0;
     const completedDates = [...new Set(tasks.filter(t => t.status === 'Completed' && t.completedAt).map(t => t.completedAt.split('T')[0]))].sort((a, b) => new Date(b) - new Date(a));
@@ -3132,6 +3216,60 @@ export default function Dashboard() {
     completed: workspaceTasks.filter(t => t.status === 'Completed').length,
     overdue: workspaceTasks.filter(t => isTaskOverdue(t)).length
   }), [workspaceTasks]);
+
+  // View-scoped tasks & stats (scoping accurately to My Day, Important, Upcoming, Project, etc.)
+  const activeViewScopedTasks = useMemo(() => {
+    return workspaceTasks.filter(task => {
+      if (activeNavTab === 'my-day') {
+        const isDueToday = isTaskDueToday(task);
+        const isOverdue = isTaskOverdue(task);
+        const isInMyDay = !!task.inMyDay || (task.myDayDate === todayStr);
+        return isDueToday || isOverdue || isInMyDay;
+      }
+      if (activeNavTab === 'inbox') {
+        return !task.project || task.project === 'Inbox' || task.project === 'General Workspace' || task.project === 'Personal Inbox';
+      }
+      if (activeNavTab === 'favorites') {
+        return !!task.pinned;
+      }
+      if (activeNavTab === 'upcoming') {
+        return !!task.deadline;
+      }
+      if (activeNavTab === 'assigned-to-me') {
+        const myName = (effectiveUser?.displayName || '').trim().toLowerCase();
+        const myEmail = (effectiveUser?.email || '').trim().toLowerCase();
+        const a = (task.assignee || '').trim().toLowerCase();
+        return a === 'me' || (myName && a === myName) || (myEmail && a === myEmail);
+      }
+      if (activeNavTab === 'project') {
+        return (task.projectId && task.projectId === activeProject) ||
+          (task.project && activeProject && task.project.trim().toLowerCase() === activeProject.trim().toLowerCase());
+      }
+      return true;
+    });
+  }, [workspaceTasks, activeNavTab, activeProject, todayStr, effectiveUser]);
+
+  const viewStats = useMemo(() => {
+    const total = activeViewScopedTasks.length;
+    const completed = activeViewScopedTasks.filter(t => t.status === 'Completed').length;
+    const pending = total - completed;
+    const overdue = activeViewScopedTasks.filter(t => isTaskOverdue(t)).length;
+    const rate = total > 0 ? Math.round((completed / total) * 100) : 0;
+    return { total, completed, pending, overdue, rate };
+  }, [activeViewScopedTasks]);
+
+  const viewStatsSubtitle = useMemo(() => {
+    switch (activeNavTab) {
+      case 'my-day': return 'In My Day';
+      case 'inbox': return 'In Personal Inbox';
+      case 'favorites': return 'In Important Priorities';
+      case 'upcoming': return 'In Upcoming Deadlines';
+      case 'assigned-to-me': return 'Assigned to me';
+      case 'project': return currentActiveProjectObj?.name ? `In #${currentActiveProjectObj.name}` : 'In current project';
+      case 'all-tasks': return 'Across current workspace';
+      default: return 'In active view';
+    }
+  }, [activeNavTab, currentActiveProjectObj?.name]);
 
   const upcomingCount = useMemo(() => workspaceTasks.filter(t => t.status !== 'Completed' && t.deadline).length, [workspaceTasks]);
   const assignedCount = useMemo(() => {
@@ -3968,6 +4106,7 @@ export default function Dashboard() {
           setActiveProject(projName);
           setFilter('All');
           setSearchQuery('');
+          setProjectSubTab('tasks');
         }}
         onOpenNewProject={() => setIsNewProjectModalOpen(true)}
         stats={{
@@ -3993,6 +4132,11 @@ export default function Dashboard() {
         onSwitchWorkspace={handleSwitchWorkspace}
         pendingRequestsCount={incomingRequests.length}
         onOpenAppIconPicker={() => setIsAppIconPickerOpen(true)}
+        projectsFilter={projectsViewTab}
+        onOpenProjectsView={(filter) => {
+          setProjectsViewTab(filter);
+          setActiveNavTab('projects');
+        }}
       />
 
       {/* Main App Workspace Area */}
@@ -4113,20 +4257,33 @@ export default function Dashboard() {
                 <h1 className="text-2xl font-black text-slate-900 dark:text-white capitalize tracking-tight">
                   {activeNavTab === 'project'
                     ? (activeProject || 'Project')
-                    : activeNavTab === 'my-day'
-                      ? 'My Day'
-                      : activeNavTab === 'favorites'
-                        ? 'Important'
-                        : activeNavTab === 'upcoming'
-                          ? 'Planned (Upcoming)'
-                          : activeNavTab === 'assigned-to-me'
-                            ? 'Assigned to Me'
-                            : activeNavTab.replace('-', ' ')}
+                    : activeNavTab === 'projects'
+                      ? (projectsViewTab === 'personal' ? 'Personal Projects' : projectsViewTab === 'team' ? 'Team Projects' : 'Projects & Hubs')
+                      : activeNavTab === 'my-day'
+                        ? 'My Day'
+                        : activeNavTab === 'favorites'
+                          ? 'Important'
+                          : activeNavTab === 'upcoming'
+                            ? 'Planned (Upcoming)'
+                            : activeNavTab === 'assigned-to-me'
+                              ? 'Assigned to Me'
+                              : activeNavTab.replace('-', ' ')}
                 </h1>
                 <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 px-3 py-1 rounded-full bg-slate-100 dark:bg-white/[0.05] border border-slate-200/60 dark:border-white/[0.06]">
                   {new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                 </span>
-                {!effectiveUser?.isGuest && (
+                {activeNavTab === 'projects' ? (
+                  <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 px-2.5 py-1 rounded-full bg-slate-100 dark:bg-white/[0.04] border border-slate-200/50 dark:border-white/[0.05] flex items-center gap-1.5 ml-1">
+                    <span className={`w-1.5 h-1.5 rounded-full ${projectsViewTab === 'all' ? 'bg-emerald-500 animate-pulse' : 'bg-indigo-500'}`} />
+                    <span>
+                      {projectsViewTab === 'personal'
+                        ? 'Personal Only'
+                        : projectsViewTab === 'team'
+                        ? 'Team Only'
+                        : 'Combined (Personal + Team)'}
+                    </span>
+                  </span>
+                ) : !effectiveUser?.isGuest && (
                   <div className="p-0.5 bg-slate-100 dark:bg-white/[0.04] rounded-2xl border border-slate-200/60 dark:border-white/[0.06] flex items-center gap-1 shadow-xs ml-1">
                     <button
                       type="button"
@@ -4172,8 +4329,8 @@ export default function Dashboard() {
                     <ShieldAlert size={11} /> Guest Mode • On this device
                   </span>
                 ) : isApex ? (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-amber-400/20 via-violet-500/20 to-purple-500/20 text-amber-300 border border-amber-400/30 shadow-xs">
-                    <Sparkles size={11} className="text-amber-400" /> Apex Prestige
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-amber-200 via-amber-300 to-amber-200 dark:from-amber-400/20 dark:via-amber-500/20 dark:to-amber-400/20 text-amber-950 dark:text-amber-300 border border-amber-400/80 dark:border-amber-400/40 shadow-xs">
+                    <Sparkles size={11} className="text-amber-800 dark:text-amber-400" /> Apex Prestige
                   </span>
                 ) : null}
               </div>
@@ -4283,6 +4440,8 @@ export default function Dashboard() {
               tasks={tasks}
               user={effectiveUser}
               currentWorkspace={currentWorkspace}
+              initialTab={projectsViewTab}
+              onTabChange={(tab) => setProjectsViewTab(tab)}
               connections={connections}
               onCreateProject={handleCreateProject}
               onDeleteProject={handleDeleteProject}
@@ -4295,9 +4454,11 @@ export default function Dashboard() {
               isDarkMode={isDarkMode}
               showToast={showToast}
               onFilterProject={(projectName) => {
+                setActiveNavTab('project');
+                setActiveProject(projectName);
                 setFilter('All');
-                setSearchQuery(projectName);
-                setActiveNavTab('all-tasks');
+                setSearchQuery('');
+                setProjectSubTab('tasks');
               }}
               onOpenNewTask={(projectName) => {
                 handleOpenNewTask({ project: projectName });
@@ -4462,90 +4623,117 @@ export default function Dashboard() {
                       )}
                     </div>
 
-                    <div className="flex items-center gap-2 flex-wrap self-stretch md:self-auto">
-                      <button
-                        type="button"
-                        onClick={() => setProjectSubTab(prev => prev === 'chat' ? 'tasks' : 'chat')}
-                        className={`px-3.5 py-2 rounded-2xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs border ${projectSubTab === 'chat'
-                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-indigo-500/20'
-                          : 'bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/50'
-                          }`}
-                      >
-                        <MessageSquare size={14} />
-                        <span>{projectSubTab === 'chat' ? 'View Tasks' : 'Team Chat'}</span>
-                        {projectMessages.length > 0 && projectSubTab !== 'chat' && (
-                          <span className="ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-600 text-white font-extrabold">
-                            {projectMessages.length}
-                          </span>
-                        )}
-                      </button>
+                    {/* SubTab Toggle & Project Action Buttons */}
+                    {(() => {
+                      const isTeamProj = currentActiveProjectObj.type === 'team';
+                      const isViewingSecondaryTab = isTeamProj ? projectSubTab === 'chat' : projectSubTab === 'notes';
 
-                      {currentActiveProjectObj.type === 'team' && (
-                        (currentActiveProjectObj.creatorUid === effectiveUser?.uid || !currentActiveProjectObj.creatorUid) ? (
+                      return (
+                        <div className="flex items-center gap-2 flex-wrap self-stretch md:self-auto">
                           <button
                             type="button"
-                            onClick={() => handleOpenManageMembers(currentActiveProjectObj)}
-                            className="px-3.5 py-2 rounded-2xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/50 text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs"
+                            onClick={() => setProjectSubTab(prev => isViewingSecondaryTab ? 'tasks' : (isTeamProj ? 'chat' : 'notes'))}
+                            className={`px-3.5 py-2 rounded-2xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs border ${isViewingSecondaryTab
+                              ? 'bg-indigo-600 text-white border-indigo-600 shadow-indigo-500/20'
+                              : 'bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/50'
+                              }`}
                           >
-                            <Users size={14} /> Manage Members
+                            {isTeamProj ? <MessageSquare size={14} /> : <FileText size={14} />}
+                            <span>{isViewingSecondaryTab ? 'View Tasks' : (isTeamProj ? 'Team Chat' : 'Personal Notes')}</span>
+                            {isTeamProj && projectMessages.length > 0 && !isViewingSecondaryTab && (
+                              <span className="ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-600 text-white font-extrabold">
+                                {projectMessages.length}
+                              </span>
+                            )}
                           </button>
-                        ) : (
+
+                          {isTeamProj && (
+                            (currentActiveProjectObj.creatorUid === effectiveUser?.uid || !currentActiveProjectObj.creatorUid) ? (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenManageMembers(currentActiveProjectObj)}
+                                className="px-3.5 py-2 rounded-2xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/50 text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs"
+                              >
+                                <Users size={14} /> Manage Members
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleLeaveProject(currentActiveProjectObj.id, currentActiveProjectObj.name)}
+                                className="px-3.5 py-2 rounded-2xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/40 text-rose-600 dark:text-rose-400 border border-rose-200/80 dark:border-rose-900/40 text-xs font-bold transition-all flex items-center gap-1.5"
+                              >
+                                <LogOut size={14} /> Leave Team
+                              </button>
+                            )
+                          )}
                           <button
                             type="button"
-                            onClick={() => handleLeaveProject(currentActiveProjectObj.id, currentActiveProjectObj.name)}
-                            className="px-3.5 py-2 rounded-2xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/40 text-rose-600 dark:text-rose-400 border border-rose-200/80 dark:border-rose-900/40 text-xs font-bold transition-all flex items-center gap-1.5"
+                            onClick={() => handleOpenNewTask({ project: currentActiveProjectObj.name })}
+                            className="px-4 py-2 rounded-2xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white text-xs font-black shadow-md shadow-indigo-500/20 active:scale-95 transition-all flex items-center gap-1.5"
                           >
-                            <LogOut size={14} /> Leave Team
+                            <Plus size={14} /> Add Task
                           </button>
-                        )
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => handleOpenNewTask({ project: currentActiveProjectObj.name })}
-                        className="px-4 py-2 rounded-2xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white text-xs font-black shadow-md shadow-indigo-500/20 active:scale-95 transition-all flex items-center gap-1.5"
-                      >
-                        <Plus size={14} /> Add Task
-                      </button>
-                    </div>
+                        </div>
+                      );
+                    })()}
                   </div>
 
-                  {/* Project View Tabs: Tasks vs Team Chat */}
-                  <div className="flex items-center gap-2 border-b border-slate-200/80 dark:border-white/[0.08] pb-1">
-                    <button
-                      type="button"
-                      onClick={() => setProjectSubTab('tasks')}
-                      className={`flex items-center gap-2 px-4 py-2 font-black text-xs sm:text-sm rounded-2xl transition-all ${projectSubTab === 'tasks'
-                        ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md shadow-indigo-500/20'
-                        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/[0.05]'
-                        }`}
-                    >
-                      <ListTodo size={15} />
-                      <span>Project Tasks</span>
-                    </button>
+                  {/* Project View Tabs: Tasks vs (Team Chat OR Personal Notes) */}
+                  {(() => {
+                    const isTeamProj = currentActiveProjectObj.type === 'team';
 
-                    <button
-                      type="button"
-                      onClick={() => setProjectSubTab('chat')}
-                      className={`flex items-center gap-2 px-4 py-2 font-black text-xs sm:text-sm rounded-2xl transition-all ${projectSubTab === 'chat'
-                        ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md shadow-indigo-500/20'
-                        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/[0.05]'
-                        }`}
-                    >
-                      <MessageSquare size={15} />
-                      <span>Team Chat</span>
-                      {projectMessages.length > 0 && (
-                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${projectSubTab === 'chat'
-                          ? 'bg-white/20 text-white'
-                          : 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300'
-                          }`}>
-                          {projectMessages.length}
-                        </span>
-                      )}
-                    </button>
-                  </div>
+                    return (
+                      <div className="flex items-center gap-2 border-b border-slate-200/80 dark:border-white/[0.08] pb-1">
+                        <button
+                          type="button"
+                          onClick={() => setProjectSubTab('tasks')}
+                          className={`flex items-center gap-2 px-4 py-2 font-black text-xs sm:text-sm rounded-2xl transition-all ${projectSubTab === 'tasks'
+                            ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md shadow-indigo-500/20'
+                            : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/[0.05]'
+                            }`}
+                        >
+                          <ListTodo size={15} />
+                          <span>Project Tasks</span>
+                        </button>
 
-                  {/* Real-Time Team Chat for Every Project */}
-                  {projectSubTab === 'chat' && (
+                        <button
+                          type="button"
+                          onClick={() => setProjectSubTab(isTeamProj ? 'chat' : 'notes')}
+                          className={`flex items-center gap-2 px-4 py-2 font-black text-xs sm:text-sm rounded-2xl transition-all ${
+                            (isTeamProj ? projectSubTab === 'chat' : projectSubTab === 'notes')
+                              ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md shadow-indigo-500/20'
+                              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/[0.05]'
+                            }`}
+                        >
+                          {isTeamProj ? (
+                            <>
+                              <MessageSquare size={15} />
+                              <span>Team Chat</span>
+                              {projectMessages.length > 0 && (
+                                <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${projectSubTab === 'chat'
+                                  ? 'bg-white/20 text-white'
+                                  : 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300'
+                                  }`}>
+                                  {projectMessages.length}
+                                </span>
+                              )}
+                            </>
+                          ) : (
+                            <>
+                              <FileText size={15} />
+                              <span>Personal Notes</span>
+                              {projectNotes.trim() && (
+                                <span className="w-2 h-2 rounded-full bg-emerald-500" title="Notes recorded" />
+                              )}
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Real-Time Team Chat (Strictly for Team Projects) */}
+                  {projectSubTab === 'chat' && currentActiveProjectObj.type === 'team' && (
                     <div className="bg-white dark:bg-[#0f1523] rounded-3xl border border-slate-200/80 dark:border-white/[0.08] shadow-sm flex flex-col h-[600px] overflow-hidden animate-in fade-in">
                       {/* Chat Header */}
                       <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-white/[0.06] flex items-center justify-between gap-3 bg-slate-50/70 dark:bg-[#111827]/70">
@@ -4685,6 +4873,132 @@ export default function Dashboard() {
                           <span className="hidden sm:inline">Send</span>
                         </button>
                       </form>
+                    </div>
+                  )}
+
+                  {/* Dedicated Personal Notes Workspace (Personal Projects Only) */}
+                  {projectSubTab === 'notes' && currentActiveProjectObj.type !== 'team' && (
+                    <div className="bg-white dark:bg-[#0f1523] rounded-3xl border border-slate-200/80 dark:border-white/[0.08] shadow-sm flex flex-col min-h-[580px] overflow-hidden animate-in fade-in">
+                      {/* Notes Header Bar */}
+                      <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-white/[0.06] flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/70 dark:bg-[#111827]/70">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-white shadow-md ${
+                            PROJECT_COLOR_BG[currentActiveProjectObj.color] || 'bg-indigo-500'
+                          }`}>
+                            <FileText size={20} />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h3 className="font-extrabold text-base text-slate-900 dark:text-white">
+                                #{currentActiveProjectObj.name} Personal Notes
+                              </h3>
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 border border-indigo-200/60 dark:border-indigo-800/60 flex items-center gap-1">
+                                <Lock size={10} /> Private Notes
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                              Scratchpad, learning journal, documentation, and checklists for this personal project
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Save Status & Action Buttons */}
+                        <div className="flex items-center gap-2 flex-wrap self-end sm:self-auto">
+                          <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 flex items-center gap-1.5 mr-1">
+                            {isSavingNotes ? (
+                              <>
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
+                                <span>Saving...</span>
+                              </>
+                            ) : lastSavedNotesTime ? (
+                              <>
+                                <CheckCircle2 size={12} className="text-emerald-500" />
+                                <span>Saved</span>
+                              </>
+                            ) : (
+                              <span>Auto-saves as you type</span>
+                            )}
+                          </span>
+
+                          <button
+                            type="button"
+                            onClick={handleCopyNotes}
+                            className="px-3 py-1.5 rounded-xl bg-white dark:bg-white/5 hover:bg-slate-100 dark:hover:bg-white/10 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-white/10 text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs"
+                            title="Copy notes to clipboard"
+                          >
+                            <Copy size={13} />
+                            <span>Copy</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => saveProjectNotes(projectNotes)}
+                            disabled={isSavingNotes}
+                            className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black transition-all flex items-center gap-1.5 shadow-xs disabled:opacity-50"
+                            title="Manually save notes now"
+                          >
+                            <Save size={13} />
+                            <span>Save</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Quick Insert Formatting Toolbar */}
+                      <div className="px-4 py-2 border-b border-slate-100 dark:border-white/[0.04] bg-slate-50/40 dark:bg-slate-900/40 flex items-center justify-between gap-2 text-xs flex-wrap">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mr-1">Insert:</span>
+                          <button
+                            type="button"
+                            onClick={() => handleInsertNoteSnippet('\n- [ ] ')}
+                            className="px-2 py-1 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-[11px] font-semibold transition-colors"
+                          >
+                            + Checkbox [ ]
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleInsertNoteSnippet('\n• ')}
+                            className="px-2 py-1 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-[11px] font-semibold transition-colors"
+                          >
+                            + Bullet •
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleInsertNoteSnippet(`\n[${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}] `)}
+                            className="px-2 py-1 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-[11px] font-semibold transition-colors"
+                          >
+                            + Timestamp
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleInsertNoteSnippet('\n```\n// Code snippet\n```\n')}
+                            className="px-2 py-1 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-[11px] font-semibold transition-colors"
+                          >
+                            + Code Block
+                          </button>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={handleClearNotes}
+                          className="px-2 py-1 text-[11px] text-slate-400 hover:text-rose-600 transition-colors"
+                        >
+                          Clear All
+                        </button>
+                      </div>
+
+                      {/* Notes Textarea */}
+                      <div className="flex-1 p-4 sm:p-6 flex flex-col">
+                        <textarea
+                          value={projectNotes}
+                          onChange={(e) => setProjectNotes(e.target.value)}
+                          placeholder={`Write your personal notes, brainstorms, code snippets, learnings, or checklists for #${currentActiveProjectObj.name} here...\n\nExample:\n- [ ] Master two-pointer technique\n- [ ] Practice 3 sliding window problems\n- Key formula: left & right pointers with while (r < n)...`}
+                          className="w-full flex-1 min-h-[380px] p-4 rounded-2xl bg-slate-50/50 dark:bg-[#121929]/50 border border-slate-200/60 dark:border-white/[0.06] text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-600 text-sm leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all font-mono"
+                        />
+                        <div className="flex items-center justify-between mt-3 text-[11px] text-slate-400 dark:text-slate-500 font-medium px-1">
+                          <span>{projectNotes.length} characters • {projectNotes.trim() ? projectNotes.trim().split(/\s+/).length : 0} words</span>
+                          <span>Markdown formatted • Auto-saved to project</span>
+                        </div>
+                      </div>
                     </div>
                   )}
 
@@ -4908,8 +5222,8 @@ export default function Dashboard() {
                         </div>
                       </div>
                       <div>
-                        <p className="text-2xl md:text-3xl font-black text-slate-900 dark:text-white tracking-tight">{stats.total}</p>
-                        <p className="text-[11px] text-slate-400 dark:text-slate-400 font-medium mt-1">Across all workspaces</p>
+                        <p className="text-2xl md:text-3xl font-black text-slate-900 dark:text-white tracking-tight">{viewStats.total}</p>
+                        <p className="text-[11px] text-slate-400 dark:text-slate-400 font-medium mt-1">{viewStatsSubtitle}</p>
                       </div>
                     </div>
 
@@ -4922,8 +5236,8 @@ export default function Dashboard() {
                         </div>
                       </div>
                       <div>
-                        <p className="text-2xl md:text-3xl font-black text-emerald-600 dark:text-emerald-400 tracking-tight">{stats.completed}</p>
-                        <p className="text-[11px] text-emerald-600/80 dark:text-emerald-400/80 font-bold mt-1">{dailyCompletionRate}% completion rate</p>
+                        <p className="text-2xl md:text-3xl font-black text-emerald-600 dark:text-emerald-400 tracking-tight">{viewStats.completed}</p>
+                        <p className="text-[11px] text-emerald-600/80 dark:text-emerald-400/80 font-bold mt-1">{viewStats.rate}% completion rate</p>
                       </div>
                     </div>
 
@@ -4936,33 +5250,33 @@ export default function Dashboard() {
                         </div>
                       </div>
                       <div>
-                        <p className="text-2xl md:text-3xl font-black text-slate-900 dark:text-white tracking-tight">{Math.max(0, stats.total - stats.completed)}</p>
+                        <p className="text-2xl md:text-3xl font-black text-slate-900 dark:text-white tracking-tight">{viewStats.pending}</p>
                         <p className="text-[11px] text-slate-400 dark:text-slate-400 font-medium mt-1">Active in queue</p>
                       </div>
                     </div>
 
                     {/* Overdue / Schedule Risk */}
-                    <div className={`p-5 rounded-3xl border transition-all flex flex-col justify-between ${stats.overdue > 0
+                    <div className={`p-5 rounded-3xl border transition-all flex flex-col justify-between ${viewStats.overdue > 0
                       ? 'bg-rose-50/70 dark:bg-rose-950/30 border-rose-300 dark:border-rose-800/60 shadow-md shadow-rose-500/10'
                       : 'bg-white dark:bg-[#0f1523] border-slate-200/80 dark:border-white/[0.08] shadow-sm'
                       }`}>
                       <div className="flex items-center justify-between mb-3">
-                        <span className={`font-bold text-[10px] uppercase tracking-wider ${stats.overdue > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400 dark:text-slate-400'}`}>
+                        <span className={`font-bold text-[10px] uppercase tracking-wider ${viewStats.overdue > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400 dark:text-slate-400'}`}>
                           Overdue
                         </span>
-                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${stats.overdue > 0
+                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${viewStats.overdue > 0
                           ? 'bg-rose-500 text-white shadow-xs'
                           : 'bg-slate-100 dark:bg-white/[0.05] text-slate-400 dark:text-slate-400'
                           }`}>
-                          <AlertOctagon size={16} className={stats.overdue > 0 ? "animate-pulse" : ""} />
+                          <AlertOctagon size={16} className={viewStats.overdue > 0 ? "animate-pulse" : ""} />
                         </div>
                       </div>
                       <div>
                         <div className="flex items-baseline justify-between gap-2">
-                          <p className={`text-2xl md:text-3xl font-black tracking-tight ${stats.overdue > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-white'}`}>
-                            {stats.overdue}
+                          <p className={`text-2xl md:text-3xl font-black tracking-tight ${viewStats.overdue > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-white'}`}>
+                            {viewStats.overdue}
                           </p>
-                          {stats.overdue > 0 && (
+                          {viewStats.overdue > 0 && (
                             <button
                               onClick={handleSmartReschedule}
                               className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-[10px] font-black transition-transform active:scale-95 shadow-xs"
@@ -4971,8 +5285,8 @@ export default function Dashboard() {
                             </button>
                           )}
                         </div>
-                        <p className={`text-[11px] font-medium mt-1 ${stats.overdue > 0 ? 'text-rose-600 dark:text-rose-400 font-semibold' : 'text-slate-400 dark:text-slate-400'}`}>
-                          {stats.overdue > 0 ? "Past due deadline" : "All deadlines on schedule"}
+                        <p className={`text-[11px] font-medium mt-1 ${viewStats.overdue > 0 ? 'text-rose-600 dark:text-rose-400 font-semibold' : 'text-slate-400 dark:text-slate-400'}`}>
+                          {viewStats.overdue > 0 ? "Past due deadline" : "All deadlines on schedule"}
                         </p>
                       </div>
                     </div>
@@ -4986,7 +5300,19 @@ export default function Dashboard() {
                       <div className="flex flex-wrap items-center justify-between gap-3 w-full">
                         <div className="flex items-center gap-3">
                           <h2 className="text-xl md:text-2xl font-black text-gray-900 dark:text-white capitalize tracking-tight">
-                            {activeNavTab === 'my-day' ? "Today's Tasks" : activeNavTab === 'inbox' ? "Inbox Tasks" : activeNavTab === 'favorites' ? "Pinned Tasks" : "All Tasks"}
+                            {activeNavTab === 'project'
+                              ? `${activeProject || 'Project'} Tasks`
+                              : activeNavTab === 'my-day'
+                                ? "Today's Tasks"
+                                : activeNavTab === 'inbox'
+                                  ? "Inbox Tasks"
+                                  : activeNavTab === 'favorites'
+                                    ? "Important Tasks"
+                                    : activeNavTab === 'upcoming'
+                                      ? "Planned Tasks"
+                                      : activeNavTab === 'assigned-to-me'
+                                        ? "Assigned to Me"
+                                        : "All Tasks"}
                           </h2>
                           <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800/80 font-bold text-slate-500 dark:text-slate-400 border border-slate-200/60 dark:border-white/[0.08]">
                             {displayTasks.length} {displayTasks.length === 1 ? 'task' : 'tasks'}

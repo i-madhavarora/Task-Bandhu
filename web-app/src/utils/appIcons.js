@@ -104,7 +104,43 @@ export const DESIGNER_APP_ICONS = [
   }
 ];
 
-export function getResolvedAppLogo(isDark = false) {
+export function getAutoAppLogo(isDark = false) {
+  // Dynamic Auto: Check if a festival is currently active (Diwali, Holi, Christmas, New Year)
+  const activeFestival = getActiveFestival();
+  if (activeFestival) {
+    const src = isDark ? activeFestival.darkAsset : activeFestival.lightAsset;
+    return {
+      src,
+      name: `${activeFestival.name} Edition`,
+      festivalName: activeFestival.name,
+      subtitle: `${activeFestival.greeting} • Auto`,
+      glowColor: 'rgba(245, 158, 11, 0.65)',
+      gradient: 'from-amber-400 via-rose-500 to-indigo-600',
+      isFestive: true,
+      festivalId: activeFestival.id,
+      iconId: 'auto',
+      isApex: false
+    };
+  }
+
+  // Standard Normal Default Logo
+  return {
+    src: isDark ? '/tb_dark.png' : '/tb_light.png',
+    name: isDark ? 'Task Bandhu Dark' : 'Task Bandhu Light',
+    subtitle: 'Dynamic Auto • Adapts to system theme',
+    glowColor: isDark ? 'rgba(99, 102, 241, 0.5)' : 'rgba(59, 130, 246, 0.4)',
+    gradient: 'from-sky-400 to-indigo-600',
+    isFestive: false,
+    iconId: 'auto',
+    isApex: false
+  };
+}
+
+export function getResolvedAppLogo(isDark = false, forceAuto = false) {
+  if (forceAuto) {
+    return getAutoAppLogo(isDark);
+  }
+
   const savedId = (typeof window !== 'undefined' ? localStorage.getItem('tb_active_app_icon') : null) || 'auto';
 
   // If user selected a specific icon (not auto)
@@ -127,35 +163,7 @@ export function getResolvedAppLogo(isDark = false) {
     }
   }
 
-  // Dynamic Auto (savedId === 'auto' or default):
-  // Check if a festival is currently active (Diwali, Holi, Christmas, New Year)
-  const activeFestival = getActiveFestival();
-  if (activeFestival) {
-    const src = isDark ? activeFestival.darkAsset : activeFestival.lightAsset;
-    return {
-      src,
-      name: `${activeFestival.name} • Dynamic Auto`,
-      subtitle: `${activeFestival.greeting} • Automatically active`,
-      glowColor: 'rgba(245, 158, 11, 0.65)',
-      gradient: 'from-amber-400 via-rose-500 to-indigo-600',
-      isFestive: true,
-      festivalId: activeFestival.id,
-      iconId: 'auto',
-      isApex: false
-    };
-  }
-
-  // Standard Normal Default Logo
-  return {
-    src: isDark ? '/tb_dark.png' : '/tb_light.png',
-    name: isDark ? 'Task Bandhu Dark' : 'Task Bandhu Light',
-    subtitle: 'Dynamic Auto • Adapts to system theme',
-    glowColor: isDark ? 'rgba(99, 102, 241, 0.5)' : 'rgba(59, 130, 246, 0.4)',
-    gradient: 'from-sky-400 to-indigo-600',
-    isFestive: false,
-    iconId: 'auto',
-    isApex: false
-  };
+  return getAutoAppLogo(isDark);
 }
 
 export function setActiveAppIcon(iconId) {

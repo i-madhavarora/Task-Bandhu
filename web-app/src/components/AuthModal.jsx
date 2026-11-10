@@ -11,9 +11,14 @@ import {
 import { auth, googleProvider } from '../firebase';
 import logoDark from '../assets/logo_d.png';
 import { getActiveFestival } from '../utils/festive';
-import { getResolvedAppLogo } from '../utils/appIcons';
+import { getAutoAppLogo } from '../utils/appIcons';
 
-export default function AuthModal({ onGuestLogin, showToast }) {
+export default function AuthModal({ onGuestLogin, showToast, isDarkMode: isDarkModeProp }) {
+  const isDarkMode = isDarkModeProp !== undefined
+    ? isDarkModeProp
+    : (typeof document !== 'undefined' ? document.documentElement.classList.contains('dark') : true);
+  const autoLogo = getAutoAppLogo(isDarkMode);
+
   const [isSignUp, setIsSignUp] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -210,16 +215,16 @@ export default function AuthModal({ onGuestLogin, showToast }) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 relative overflow-hidden">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center p-4 relative overflow-hidden transition-colors">
       {/* Background glowing orbs */}
-      <div className="absolute top-1/4 -left-20 w-96 h-96 bg-blue-600/20 rounded-full blur-3xl pointer-events-none"></div>
-      <div className="absolute bottom-1/4 -right-20 w-96 h-96 bg-purple-600/20 rounded-full blur-3xl pointer-events-none"></div>
+      <div className="absolute top-1/4 -left-20 w-96 h-96 bg-blue-600/10 dark:bg-blue-600/20 rounded-full blur-3xl pointer-events-none"></div>
+      <div className="absolute bottom-1/4 -right-20 w-96 h-96 bg-purple-600/10 dark:bg-purple-600/20 rounded-full blur-3xl pointer-events-none"></div>
 
       <div className="bg-white dark:bg-slate-800/95 backdrop-blur-xl border border-gray-100 dark:border-slate-700/80 rounded-3xl p-6 sm:p-10 max-w-md w-full shadow-2xl relative z-10 transition-all">
-        {/* Brand Header with Box-Fitted Logo */}
+        {/* Brand Header with Box-Fitted Auto Logo (Festive + Theme, never personalized) */}
         <div className="text-center mb-6">
-          <div className="w-24 h-24 sm:w-28 sm:h-28 mx-auto mb-3.5 rounded-3xl overflow-hidden shadow-xl flex items-center justify-center border border-slate-200/80 dark:border-slate-700/60">
-            <img src={getResolvedAppLogo(true).src} alt="Task Bandhu Logo" className="w-full h-full object-cover" />
+          <div className="w-24 h-24 sm:w-28 sm:h-28 mx-auto mb-3.5 rounded-3xl overflow-hidden shadow-xl flex items-center justify-center border border-slate-200/80 dark:border-slate-700/60 p-1 bg-white dark:bg-slate-900">
+            <img src={autoLogo.src} alt="Task Bandhu Logo" className="w-full h-full object-contain rounded-2xl" />
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 dark:text-white tracking-tight">
             Task Bandhu

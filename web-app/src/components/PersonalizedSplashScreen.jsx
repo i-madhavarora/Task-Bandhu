@@ -154,7 +154,7 @@ export default function PersonalizedSplashScreen({
               {resolvedLogo.name} Edition
             </span>
           ) : isApex ? (
-            <span className="flex items-center gap-1 text-amber-500 dark:text-amber-400 border-amber-500/30 bg-amber-500/10 px-2 py-0.5 rounded-full">
+            <span className="flex items-center gap-1 text-amber-950 dark:text-amber-300 font-black border-amber-400/40 bg-amber-300/30 dark:bg-amber-500/15 px-2 py-0.5 rounded-full">
               <span className="text-[11px] font-black">✦</span> APEX PRESTIGE WORKSPACE
             </span>
           ) : (

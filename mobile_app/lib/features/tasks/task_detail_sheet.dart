@@ -756,7 +756,7 @@ class _TaskDetailSheetState extends State<TaskDetailSheet> {
                   children: [
                     Row(
                       children: [
-                        const Icon(CupertinoIcons.location_solid, color: Colors.roseAccent, size: 16),
+                        const Icon(CupertinoIcons.location_solid, color: Color(0xFFF43F5E), size: 16),
                         const SizedBox(width: 6),
                         Text(
                           'LOCATION REMINDER',
@@ -822,7 +822,7 @@ class _TaskDetailSheetState extends State<TaskDetailSheet> {
                               child: Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                                 decoration: BoxDecoration(
-                                  color: Colors.roseAccent,
+                                  color: const Color(0xFFF43F5E),
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: const Row(

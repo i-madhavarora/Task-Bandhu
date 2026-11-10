@@ -153,23 +153,23 @@ export default function StealthVaultModal({
 
   return (
     <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 z-[300] animate-in fade-in">
-      <div className="bg-slate-900 text-white rounded-3xl w-full max-w-lg border border-amber-500/30 shadow-[0_0_50px_rgba(245,158,11,0.2)] overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white rounded-3xl w-full max-w-lg border border-amber-300 dark:border-amber-500/30 shadow-[0_0_50px_rgba(245,158,11,0.2)] overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
-        <div className="p-6 bg-gradient-to-br from-amber-950/60 via-slate-900 to-slate-950 border-b border-amber-800/30 flex items-start justify-between shrink-0">
+        <div className="p-6 bg-gradient-to-br from-amber-50 via-orange-50/50 to-slate-50 dark:from-amber-950/60 dark:via-slate-900 dark:to-slate-950 border-b border-amber-200 dark:border-amber-800/30 flex items-start justify-between shrink-0">
           <div className="space-y-1">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-400/30 text-amber-300 text-[11px] font-black uppercase tracking-wider">
-              <ShieldCheck size={13} className="text-amber-400" /> Biometric Stealth Vault
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-r from-amber-100 to-orange-100 dark:from-amber-500/20 dark:to-orange-500/20 border border-amber-300 dark:border-amber-400/30 text-amber-800 dark:text-amber-300 text-[11px] font-black uppercase tracking-wider">
+              <ShieldCheck size={13} className="text-amber-600 dark:text-amber-400" /> Biometric Stealth Vault
             </div>
-            <h2 className="text-xl font-black text-white flex items-center gap-2">
+            <h2 className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
               Confidential Task Vault
             </h2>
-            <p className="text-slate-300 text-xs">
+            <p className="text-slate-600 dark:text-slate-300 text-xs">
               Isolated, encrypted storage for sensitive executive tasks and private memos.
             </p>
           </div>
           <button
             onClick={onClose}
-            className="p-2 rounded-2xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors border border-white/10 shrink-0"
+            className="p-2 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors border border-slate-200 dark:border-white/10 shrink-0"
           >
             <X size={18} />
           </button>
@@ -179,12 +179,12 @@ export default function StealthVaultModal({
         <div className="p-6 overflow-y-auto hide-scrollbar">
           {!isApex ? (
             <div className="text-center py-8 space-y-4">
-              <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400 flex items-center justify-center mx-auto">
+              <div className="w-16 h-16 rounded-2xl bg-amber-100 dark:bg-amber-500/10 border border-amber-300 dark:border-amber-500/30 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto">
                 <Lock size={30} />
               </div>
               <div className="space-y-1.5">
-                <h3 className="font-extrabold text-base text-white">✦ Apex Prestige Exclusive</h3>
-                <p className="text-xs text-slate-300 max-w-xs mx-auto leading-relaxed">
+                <h3 className="font-extrabold text-base text-slate-900 dark:text-white">✦ Apex Prestige Exclusive</h3>
+                <p className="text-xs text-slate-600 dark:text-slate-300 max-w-xs mx-auto leading-relaxed">
                   Stealth Vault is isolated with custom PIN authentication, hiding private deliverables from team dashboards and collaborative views.
                 </p>
               </div>
@@ -198,14 +198,14 @@ export default function StealthVaultModal({
           ) : !isUnlocked ? (
             /* PIN Keypad Screen */
             <div className="text-center py-4 space-y-6">
-              <div className="w-14 h-14 rounded-2xl bg-slate-800 border border-slate-700 text-amber-400 flex items-center justify-center mx-auto shadow-inner">
+              <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto shadow-inner">
                 <KeyRound size={26} />
               </div>
               <div>
-                <h3 className="font-extrabold text-sm text-white">
+                <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">
                   {isSettingPin ? 'Create a 4-Digit Vault PIN' : 'Enter 4-Digit Security PIN'}
                 </h3>
-                <p className="text-[11px] text-slate-400 mt-1">
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
                   {isSettingPin ? 'Set your private passkey to lock and unlock your secret tasks.' : 'Enter your PIN to decrypt and access confidential records.'}
                 </p>
               </div>
@@ -216,7 +216,7 @@ export default function StealthVaultModal({
                   <div
                     key={i}
                     className={`w-4 h-4 rounded-full border transition-all ${
-                      pin.length > i ? 'bg-amber-400 border-amber-400 scale-110 shadow-sm shadow-amber-400/50' : 'border-slate-600 bg-slate-800'
+                      pin.length > i ? 'bg-amber-400 border-amber-400 scale-110 shadow-sm shadow-amber-400/50' : 'border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-800'
                     }`}
                   />
                 ))}
@@ -229,7 +229,7 @@ export default function StealthVaultModal({
                     key={n}
                     type="button"
                     onClick={() => handlePinDigit(String(n))}
-                    className="h-12 rounded-2xl bg-slate-800 hover:bg-slate-750 active:scale-95 text-sm font-bold text-white border border-slate-700 transition-all flex items-center justify-center"
+                    className="h-12 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 active:scale-95 text-sm font-bold text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700 transition-all flex items-center justify-center"
                   >
                     {n}
                   </button>
@@ -237,21 +237,21 @@ export default function StealthVaultModal({
                 <button
                   type="button"
                   onClick={() => setPin('')}
-                  className="h-12 rounded-2xl bg-slate-800/50 hover:bg-slate-800 text-xs font-bold text-slate-400 border border-slate-800 transition-all flex items-center justify-center"
+                  className="h-12 rounded-2xl bg-slate-100/60 hover:bg-slate-200 dark:bg-slate-800/50 dark:hover:bg-slate-800 text-xs font-bold text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-800 transition-all flex items-center justify-center"
                 >
                   Clear
                 </button>
                 <button
                   type="button"
                   onClick={() => handlePinDigit('0')}
-                  className="h-12 rounded-2xl bg-slate-800 hover:bg-slate-750 active:scale-95 text-sm font-bold text-white border border-slate-700 transition-all flex items-center justify-center"
+                  className="h-12 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 active:scale-95 text-sm font-bold text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700 transition-all flex items-center justify-center"
                 >
                   0
                 </button>
                 <button
                   type="button"
                   onClick={() => setPin(prev => prev.slice(0, -1))}
-                  className="h-12 rounded-2xl bg-slate-800/50 hover:bg-slate-800 text-xs font-bold text-slate-400 border border-slate-800 transition-all flex items-center justify-center"
+                  className="h-12 rounded-2xl bg-slate-100/60 hover:bg-slate-200 dark:bg-slate-800/50 dark:hover:bg-slate-800 text-xs font-bold text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-800 transition-all flex items-center justify-center"
                 >
                   ⌫
                 </button>
@@ -260,7 +260,7 @@ export default function StealthVaultModal({
           ) : (
             /* Unlocked Vault */
             <div className="space-y-5">
-              <div className="flex items-center justify-between p-3 rounded-2xl bg-emerald-950/30 border border-emerald-500/30 text-xs text-emerald-300">
+              <div className="flex items-center justify-between p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-500/30 text-xs text-emerald-800 dark:text-emerald-300">
                 <span className="flex items-center gap-1.5 font-bold">
                   <Unlock size={14} /> Vault Decrypted • Secure Session
                 </span>
@@ -268,14 +268,14 @@ export default function StealthVaultModal({
                   <button
                     type="button"
                     onClick={handleResetPin}
-                    className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-lg bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-colors flex items-center gap-1"
+                    className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-lg bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-500/30 transition-colors flex items-center gap-1"
                   >
                     <KeyRound size={11} /> Change PIN
                   </button>
                   <button
                     type="button"
                     onClick={handleLockVault}
-                    className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 transition-colors"
+                    className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-lg bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-500/30 transition-colors"
                   >
                     Lock Now
                   </button>
@@ -283,23 +283,23 @@ export default function StealthVaultModal({
               </div>
 
               {/* Add Secret Memo Form */}
-              <form onSubmit={handleAddVaultTask} className="space-y-3 bg-slate-950/40 p-4 rounded-2xl border border-slate-800">
-                <h4 className="text-xs font-extrabold text-slate-300 flex items-center gap-1.5">
-                  <Plus size={13} className="text-amber-400" /> New Confidential Deliverable
+              <form onSubmit={handleAddVaultTask} className="space-y-3 bg-slate-50 dark:bg-slate-950/40 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
+                <h4 className="text-xs font-extrabold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                  <Plus size={13} className="text-amber-500 dark:text-amber-400" /> New Confidential Deliverable
                 </h4>
                 <input
                   type="text"
                   placeholder="Task or initiative title..."
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white placeholder:text-slate-500 outline-none focus:ring-1 focus:ring-amber-400"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none focus:ring-1 focus:ring-amber-400"
                 />
                 <textarea
                   placeholder="Confidential notes, budget, key deliverables..."
                   value={newMemo}
                   rows={2}
                   onChange={(e) => setNewMemo(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white placeholder:text-slate-500 outline-none focus:ring-1 focus:ring-amber-400"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none focus:ring-1 focus:ring-amber-400"
                 />
                 <div className="text-right">
                   <button
@@ -313,26 +313,26 @@ export default function StealthVaultModal({
 
               {/* Vault Task List */}
               <div className="space-y-2">
-                <h4 className="text-xs font-black uppercase tracking-wider text-slate-400">
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
                   Stored Confidential Memos ({vaultTasks.length})
                 </h4>
                 {vaultTasks.length === 0 ? (
-                  <p className="text-xs text-slate-500 py-4 text-center">No confidential memos saved yet.</p>
+                  <p className="text-xs text-slate-400 dark:text-slate-500 py-4 text-center">No confidential memos saved yet.</p>
                 ) : (
                   <div className="space-y-2 max-h-56 overflow-y-auto hide-scrollbar">
                     {vaultTasks.map(task => (
                       <div
                         key={task.id}
-                        className="p-3 rounded-xl bg-slate-950/50 border border-slate-800/80 flex items-start justify-between gap-3 text-xs"
+                        className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800/80 flex items-start justify-between gap-3 text-xs"
                       >
                         <div className="space-y-0.5">
-                          <p className="font-bold text-slate-200">{task.title}</p>
-                          {task.memo && <p className="text-[11px] text-slate-400">{task.memo}</p>}
+                          <p className="font-bold text-slate-800 dark:text-slate-200">{task.title}</p>
+                          {task.memo && <p className="text-[11px] text-slate-500 dark:text-slate-400">{task.memo}</p>}
                         </div>
                         <button
                           type="button"
                           onClick={() => handleDeleteVaultTask(task.id)}
-                          className="p-1 text-slate-500 hover:text-rose-400 transition-colors shrink-0"
+                          className="p-1 text-slate-400 hover:text-rose-500 transition-colors shrink-0"
                           title="Delete confidential item"
                         >
                           <Trash2 size={13} />

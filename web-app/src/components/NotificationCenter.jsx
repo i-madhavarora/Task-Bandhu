@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import {
   Bell, CheckSquare, Users, MessageSquare, AlertCircle, Check, Trash2,
-  ExternalLink, Sparkles, CheckCheck, Clock, CheckCircle2, Filter
+  ExternalLink, Sparkles, CheckCheck, Clock, CheckCircle2, Filter, Edit3
 } from 'lucide-react';
 
 export default function NotificationCenter({
@@ -21,7 +21,7 @@ export default function NotificationCenter({
   // Filter notifications based on tab
   const filteredNotifications = notifications.filter(n => {
     if (filterType === 'all') return true;
-    if (filterType === 'tasks') return n.type === 'task_assigned' || n.type === 'task_completed';
+    if (filterType === 'tasks') return n.type === 'task_assigned' || n.type === 'task_completed' || n.type === 'task_updated';
     if (filterType === 'deadlines') return n.type === 'due_today' || n.type === 'overdue' || n.type === 'deadline';
     if (filterType === 'team') return n.type === 'team_join' || n.type === 'comment';
     return true;
@@ -79,6 +79,12 @@ export default function NotificationCenter({
           icon: <CheckSquare size={16} className="text-blue-500" />,
           badgeBg: 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300',
           label: 'Assigned'
+        };
+      case 'task_updated':
+        return {
+          icon: <Edit3 size={16} className="text-amber-500" />,
+          badgeBg: 'bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300',
+          label: 'Updated'
         };
       case 'task_completed':
         return {

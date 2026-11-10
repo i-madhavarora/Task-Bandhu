@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import {
   CheckCircle2, Circle, AlertCircle, Calendar, Clock,
   Pin, Edit3, Trash2, ArrowUpDown, ChevronUp, ChevronDown,
-  Sparkles, Lock, Folder, Tag, User
+  Lock, Folder, User, Table, FileSpreadsheet
 } from 'lucide-react';
 
 const PRIORITY_ORDER = { 'Urgent': 4, 'High': 3, 'Medium': 2, 'Low': 1 };
@@ -31,8 +31,11 @@ export default function TaskTableView({
   };
 
   const sortedTasks = useMemo(() => {
-    const list = Array.isArray(tasks) ? [...tasks] : [];
+    const list = Array.isArray(tasks) ? tasks.filter(Boolean) : [];
     list.sort((a, b) => {
+      if (!a && !b) return 0;
+      if (!a) return 1;
+      if (!b) return -1;
       let valA, valB;
       switch (sortField) {
         case 'title':
@@ -83,9 +86,9 @@ export default function TaskTableView({
     <div className="space-y-4">
       {/* Table Header Info Bar */}
       <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-white dark:bg-[#0c121e] border border-slate-200/80 dark:border-white/[0.08] rounded-2xl shadow-xs">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-500 text-white flex items-center justify-center font-bold text-xs shadow-sm">
-            📊
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-600 text-white flex items-center justify-center shadow-sm shadow-emerald-500/20">
+            <FileSpreadsheet size={16} className="text-white stroke-[2.2]" />
           </div>
           <div>
             <div className="flex items-center gap-2">

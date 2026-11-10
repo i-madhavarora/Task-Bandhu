@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/theme/app_colors.dart';
@@ -30,98 +31,303 @@ class _GoogleSignInSheetState extends State<GoogleSignInSheet> {
   String _loadingMessage = 'Connecting to Google Services...';
   String _errorMsg = '';
   String _savedEmail = '';
-  bool _showCustomInput = false;
-  final _customEmailController = TextEditingController();
+  bool _needsPassword = false;
+  bool _obscurePassword = true;
+  bool _showManualEmail = false;
 
-  final List<Map<String, String>> _detectedAccounts = [
-    {
-      'name': 'Madhav Arora',
-      'email': 'arora.madhav@gmail.com',
-      'avatarColor': '0xFF4285F4',
-    },
-    {
-      'name': 'Task Bandhu Cloud',
-      'email': 'madhav.developer@gmail.com',
-      'avatarColor': '0xFF34A853',
-    },
-  ];
+  List<Map<String, String>> _deviceGoogleAccounts = [];
+  static const MethodChannel _platformChannel = MethodChannel('com.taskbandhu.apex/audio');
+  final GoogleSignIn _googleSignIn = GoogleSignIn(scopes: ['email', 'profile']);
+
+  late final TextEditingController _emailController;
+  final _passwordController = TextEditingController();
+
+  Future<void> _triggerGoogleSignInSdk() async {
+    HapticFeedback.mediumImpact();
+    setState(() {
+      _isLoading = true;
+      _loadingMessage = 'Connecting with Google...';
+      _errorMsg = '';
+    });
+
+    try {
+      final GoogleSignInAccount? account = await _googleSignIn.signIn();
+      if (account == null) {
+        if (mounted) setState(() => _isLoading = false);
+        return;
+      }
+
+      final GoogleSignInAuthentication auth = await account.authentication;
+      if (!mounted) return;
+      final authProvider = context.read<AuthProvider>();
+
+      final result = await authProvider.signInWithGoogle(
+        account.email,
+        name: account.displayName,
+        idToken: auth.idToken,
+        accessToken: auth.accessToken,
+      );
+
+      if (!mounted) return;
+      if (result['success'] == true) {
+        await _completeSuccess(authProvider, account.displayName ?? account.email.split('@').first);
+        return;
+      } else {
+        // Fallback to checking password or displaying friendly error
+        if (result['has_password'] == true) {
+          setState(() {
+            _isLoading = false;
+            _needsPassword = true;
+            _emailController.text = account.email;
+            _errorMsg = 'This account has a password set. Enter your password to connect:';
+          });
+          return;
+        }
+        setState(() {
+          _isLoading = false;
+          _errorMsg = FirebaseSyncService.getFriendlyError(result['error']);
+        });
+        return;
+      }
+    } catch (e) {
+      debugPrint("Google Sign In SDK exception: $e. Falling back to native picker...");
+    }
+
+    // Fallback to native account picker if GoogleSignIn SDK was cancelled or errored
+    await _triggerNativeAccountPicker();
+  }
 
   @override
   void initState() {
     super.initState();
+    _emailController = TextEditingController(text: widget.initialEmail);
     _loadSavedEmail();
+    _loadDeviceGoogleAccounts();
   }
 
   void _loadSavedEmail() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final last = prefs.getString('tb_last_google_email') ?? '';
+      final last = prefs.getString('tb_last_google_email') ?? prefs.getString('tb_firebase_email') ?? '';
       if (mounted && last.isNotEmpty) {
         setState(() {
           _savedEmail = last;
-          if (!_detectedAccounts.any((a) => a['email']!.toLowerCase() == last.toLowerCase())) {
-            _detectedAccounts.insert(0, {
-              'name': last.split('@').first.replaceAll('.', ' '),
-              'email': last,
-              'avatarColor': '0xFFEA4335',
-            });
+          if (_emailController.text.isEmpty) {
+            _emailController.text = last;
           }
         });
       }
     } catch (_) {}
   }
 
-  @override
-  void dispose() {
-    _customEmailController.dispose();
-    super.dispose();
+  Future<void> _loadDeviceGoogleAccounts() async {
+    try {
+      final res = await _platformChannel.invokeMethod('getDeviceGoogleAccounts');
+      if (res is List && res.isNotEmpty) {
+        final List<Map<String, String>> list = [];
+        for (final item in res) {
+          if (item is Map) {
+            final email = item['email']?.toString() ?? '';
+            final name = item['name']?.toString() ?? '';
+            if (email.isNotEmpty) {
+              list.add({'email': email, 'name': name});
+            }
+          }
+        }
+        if (mounted && list.isNotEmpty) {
+          setState(() {
+            _deviceGoogleAccounts = list;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('getDeviceGoogleAccounts error: $e');
+    }
   }
 
-  Future<void> _handleSelectAccount(String email, String name) async {
+  Future<void> _triggerNativeAccountPicker() async {
     HapticFeedback.mediumImpact();
     setState(() {
       _isLoading = true;
-      _loadingMessage = 'Signing in as $name...';
+      _loadingMessage = 'Choosing Google Account...';
+      _errorMsg = '';
+    });
+
+    try {
+      final res = await _platformChannel.invokeMethod('pickGoogleAccount');
+      if (res is Map) {
+        if (res['success'] == true) {
+          final email = res['email']?.toString() ?? '';
+          final name = res['name']?.toString();
+          if (email.isNotEmpty) {
+            _emailController.text = email;
+            await _signInWithSelectedAccount(email, name);
+            return;
+          }
+        } else if (res['cancelled'] == true) {
+          if (mounted) setState(() => _isLoading = false);
+          return;
+        } else if (res['error'] != null) {
+          if (mounted) {
+            setState(() {
+              _isLoading = false;
+              _errorMsg = res['error'].toString();
+            });
+          }
+          return;
+        }
+      }
+    } catch (e) {
+      debugPrint('pickGoogleAccount error: $e');
+    }
+
+    if (mounted) {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _signInWithSelectedAccount(String email, String? name) async {
+    HapticFeedback.mediumImpact();
+    setState(() {
+      _isLoading = true;
+      _loadingMessage = 'Authenticating with $email...';
+      _errorMsg = '';
+    });
+
+    _emailController.text = email;
+    final authProvider = context.read<AuthProvider>();
+    final result = await authProvider.signInWithGoogle(email, name: name);
+    if (!mounted) return;
+
+    if (result['success'] == true) {
+      await _completeSuccess(authProvider, name ?? email.split('@').first);
+    } else {
+      if (result['has_password'] == true) {
+        setState(() {
+          _isLoading = false;
+          _needsPassword = true;
+          _errorMsg = 'This account requires your password to connect:';
+        });
+      } else {
+        setState(() {
+          _isLoading = false;
+          _errorMsg = FirebaseSyncService.getFriendlyError(result['error']);
+        });
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleSignIn() async {
+    final email = _emailController.text.trim();
+    if (email.isEmpty || !email.contains('@')) {
+      setState(() => _errorMsg = 'Please enter a valid Google Account email.');
+      return;
+    }
+
+    HapticFeedback.mediumImpact();
+    setState(() {
+      _isLoading = true;
+      _loadingMessage = 'Authenticating with Google Account...';
       _errorMsg = '';
     });
 
     final authProvider = context.read<AuthProvider>();
 
-    // Step 1: Simulated Google Play Services OAuth credential handshake
-    await Future.delayed(const Duration(milliseconds: 650));
-    if (!mounted) return;
+    // If password step is active, authenticate with password directly
+    if (_needsPassword) {
+      final pwd = _passwordController.text.trim();
+      if (pwd.isEmpty) {
+        setState(() {
+          _isLoading = false;
+          _errorMsg = 'Please enter your password to connect.';
+        });
+        return;
+      }
+      final res = await authProvider.signIn(email, pwd);
+      if (!mounted) return;
+      if (res['success'] == true) {
+        await _completeSuccess(authProvider, email.split('@').first);
+      } else {
+        setState(() {
+          _isLoading = false;
+          _errorMsg = FirebaseSyncService.getFriendlyError(res['error']);
+        });
+      }
+      return;
+    }
 
-    setState(() {
-      _loadingMessage = 'Authenticating with Secure Cloud...';
-    });
-
-    final result = await authProvider.signInWithGoogle(email, name: name);
+    // Standard Google Handshake
+    final result = await authProvider.signInWithGoogle(email, name: email.split('@').first);
     if (!mounted) return;
 
     if (result['success'] == true) {
-      setState(() {
-        _loadingMessage = 'Syncing cloud workspaces...';
-      });
+      await _completeSuccess(authProvider, email.split('@').first);
+    } else {
+      // Check if user already exists with a password
+      if (result['has_password'] == true) {
+        setState(() {
+          _isLoading = false;
+          _needsPassword = true;
+          _errorMsg = 'This account has a password set. Enter your password to connect:';
+        });
+      } else {
+        setState(() {
+          _isLoading = false;
+          _errorMsg = FirebaseSyncService.getFriendlyError(result['error']);
+        });
+      }
+    }
+  }
 
-      try {
-        await Future.wait([
-          context.read<TaskProvider>().syncWithFirestore(),
-          context.read<ProjectProvider>().syncWithFirestore(),
-        ]);
-      } catch (_) {}
+  Future<void> _completeSuccess(AuthProvider authProvider, String fallbackName) async {
+    setState(() {
+      _loadingMessage = 'Syncing cloud workspace...';
+    });
 
-      final displayName = authProvider.displayName.isNotEmpty
-          ? authProvider.displayName
-          : name;
+    try {
+      await Future.wait([
+        context.read<TaskProvider>().syncWithFirestore(),
+        context.read<ProjectProvider>().syncWithFirestore(),
+      ]);
+    } catch (_) {}
 
+    final displayName = authProvider.displayName.isNotEmpty
+        ? authProvider.displayName
+        : fallbackName;
+
+    if (mounted) {
       Navigator.pop(context);
       widget.onSuccess(displayName);
-    } else {
-      setState(() {
-        _isLoading = false;
-        _errorMsg = FirebaseSyncService.getFriendlyError(result['error']);
-      });
     }
+  }
+
+  Future<void> _handleForgotPassword() async {
+    final email = _emailController.text.trim();
+    if (email.isEmpty) {
+      setState(() => _errorMsg = 'Enter your email to receive a password reset link.');
+      return;
+    }
+    setState(() {
+      _isLoading = true;
+      _loadingMessage = 'Sending password reset email...';
+    });
+    final res = await FirebaseSyncService.sendPasswordReset(email);
+    if (!mounted) return;
+    setState(() {
+      _isLoading = false;
+      if (res['success'] == true) {
+        _errorMsg = '✓ Password reset link sent to $email. Check your inbox.';
+      } else {
+        _errorMsg = FirebaseSyncService.getFriendlyError(res['error']);
+      }
+    });
   }
 
   Widget _buildGoogleGLogo({double size = 26}) {
@@ -182,19 +388,22 @@ class _GoogleSignInSheetState extends State<GoogleSignInSheet> {
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Bottom sheet drag indicator
-              Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: isDark ? Colors.white24 : Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(10),
+              // Drag indicator
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white24 : Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
 
-              // Authentic Google Identity Header
+              // Header
               Row(
                 children: [
                   _buildGoogleGLogo(size: 28),
@@ -212,7 +421,7 @@ class _GoogleSignInSheetState extends State<GoogleSignInSheet> {
                           ),
                         ),
                         Text(
-                          'Choose an account to continue to Task Bandhu',
+                          'Connect your Google Account to sync cloud tasks',
                           style: TextStyle(
                             fontSize: 12,
                             color: secondaryTextColor,
@@ -225,12 +434,11 @@ class _GoogleSignInSheetState extends State<GoogleSignInSheet> {
               ),
               const SizedBox(height: 14),
               Divider(height: 1, color: isDark ? Colors.white12 : Colors.grey.shade200),
-              const SizedBox(height: 12),
+              const SizedBox(height: 14),
 
-              // Loading or Error State
               if (_isLoading) ...[
                 Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 36),
+                  padding: const EdgeInsets.symmetric(vertical: 32),
                   child: Column(
                     children: [
                       const DesignerLoader.small(),
@@ -255,183 +463,334 @@ class _GoogleSignInSheetState extends State<GoogleSignInSheet> {
                 if (_errorMsg.isNotEmpty)
                   Container(
                     margin: const EdgeInsets.only(bottom: 12),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: AppColors.accentRose.withOpacity(0.1),
+                      color: _errorMsg.startsWith('✓')
+                          ? AppColors.accentEmerald.withOpacity(0.12)
+                          : AppColors.accentRose.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.accentRose.withOpacity(0.3)),
+                      border: Border.all(
+                        color: _errorMsg.startsWith('✓')
+                            ? AppColors.accentEmerald.withOpacity(0.3)
+                            : AppColors.accentRose.withOpacity(0.3),
+                      ),
                     ),
                     child: Row(
                       children: [
-                        const Icon(CupertinoIcons.exclamationmark_circle_fill, color: AppColors.accentRose, size: 16),
+                        Icon(
+                          _errorMsg.startsWith('✓')
+                              ? CupertinoIcons.checkmark_circle_fill
+                              : CupertinoIcons.exclamationmark_circle_fill,
+                          color: _errorMsg.startsWith('✓') ? AppColors.accentEmerald : AppColors.accentRose,
+                          size: 16,
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             _errorMsg,
-                            style: const TextStyle(color: AppColors.accentRose, fontSize: 12, fontWeight: FontWeight.w600),
+                            style: TextStyle(
+                              color: _errorMsg.startsWith('✓') ? AppColors.accentEmerald : AppColors.accentRose,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
                       ],
                     ),
                   ),
 
-                // Accounts List (Google Credential Selector)
-                ..._detectedAccounts.map((account) {
-                  final name = account['name']!;
-                  final email = account['email']!;
-                  final colorVal = int.parse(account['avatarColor']!);
-
-                  return Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(16),
-                      onTap: () => _handleSelectAccount(email, name),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 38,
-                              height: 38,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: Color(colorVal),
-                              ),
-                              child: Center(
-                                child: Text(
-                                  name.isNotEmpty ? name[0].toUpperCase() : 'G',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w900,
-                                    fontSize: 16,
-                                  ),
-                                ),
-                              ),
+                // Primary One-Tap Google Sign-In SDK Button
+                if (!_needsPassword && !_showManualEmail) ...[
+                  SizedBox(
+                    height: 50,
+                    child: ElevatedButton(
+                      onPressed: _triggerGoogleSignInSdk,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF4285F4),
+                        foregroundColor: Colors.white,
+                        elevation: 1,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(3),
+                            decoration: const BoxDecoration(
+                              color: Colors.white,
+                              shape: BoxShape.circle,
                             ),
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    name,
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w700,
-                                      color: primaryTextColor,
-                                    ),
-                                  ),
-                                  Text(
-                                    email,
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: secondaryTextColor,
-                                    ),
-                                  ),
-                                ],
-                              ),
+                            child: _buildGoogleGLogo(size: 20),
+                          ),
+                          const SizedBox(width: 12),
+                          const Text(
+                            'Continue with Google',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 14,
+                              letterSpacing: 0.2,
                             ),
-                            Icon(
-                              CupertinoIcons.chevron_forward,
-                              size: 16,
-                              color: secondaryTextColor.withOpacity(0.6),
-                            ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
                     ),
-                  );
-                }),
+                  ),
+                  const SizedBox(height: 16),
+                ],
 
-                // Add / Use another account option
-                if (!_showCustomInput)
-                  Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(16),
-                      onTap: () => setState(() => _showCustomInput = true),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 38,
-                              height: 38,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: isDark ? const Color(0xFF1F2937) : const Color(0xFFF3F4F6),
-                              ),
-                              child: Icon(
-                                CupertinoIcons.person_badge_plus,
-                                size: 18,
-                                color: isDark ? Colors.white70 : const Color(0xFF4B5563),
-                              ),
-                            ),
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: Text(
-                                'Use another Google account',
-                                style: TextStyle(
-                                  fontSize: 13.5,
-                                  fontWeight: FontWeight.w600,
-                                  color: primaryTextColor,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                // Device Google Accounts Picker (Native 1-tap experience)
+                if (!_needsPassword && _deviceGoogleAccounts.isNotEmpty && !_showManualEmail) ...[
+                  Text(
+                    'Or select a detected Google account:',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: secondaryTextColor,
                     ),
-                  )
-                else ...[
+                  ),
                   const SizedBox(height: 10),
+
+                  ..._deviceGoogleAccounts.map((acc) {
+                    final accEmail = acc['email'] ?? '';
+                    final accName = acc['name'] ?? accEmail.split('@').first;
+                    final initial = accName.isNotEmpty ? accName[0].toUpperCase() : 'G';
+
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(16),
+                        onTap: () => _signInWithSelectedAccount(accEmail, accName),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: isDark ? const Color(0x33FFFFFF) : const Color(0xFFE2E8F0),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 38,
+                                height: 38,
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    colors: [Color(0xFF4285F4), Color(0xFF34A853)],
+                                  ),
+                                  shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xFF4285F4).withOpacity(0.25),
+                                      blurRadius: 6,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    initial,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      accName,
+                                      style: TextStyle(
+                                        fontSize: 13.5,
+                                        fontWeight: FontWeight.w800,
+                                        color: primaryTextColor,
+                                      ),
+                                    ),
+                                    Text(
+                                      accEmail,
+                                      style: TextStyle(
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w500,
+                                        color: secondaryTextColor,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const Icon(CupertinoIcons.chevron_right, size: 16, color: Color(0xFF4285F4)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+
+                  const SizedBox(height: 4),
+
+                  // Use Another Google Account (Google Sign In SDK)
+                  InkWell(
+                    borderRadius: BorderRadius.circular(14),
+                    onTap: _triggerGoogleSignInSdk,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF4285F4).withOpacity(0.12),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(CupertinoIcons.person_badge_plus_fill, size: 16, color: Color(0xFF4285F4)),
+                          ),
+                          const SizedBox(width: 10),
+                          const Expanded(
+                            child: Text(
+                              'Add or pick another Google Account...',
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF4285F4),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () => setState(() => _showManualEmail = true),
+                      child: const Text('Enter email manually', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                    ),
+                  ),
+                ] else ...[
+                  if (!_needsPassword && _deviceGoogleAccounts.isEmpty) ...[
+                    // Primary Native Account Picker Button
+                    SizedBox(
+                      height: 48,
+                      child: ElevatedButton.icon(
+                        onPressed: _triggerGoogleSignInSdk,
+                        icon: _buildGoogleGLogo(size: 20),
+                        label: const Text(
+                          'Choose Google Account on Phone',
+                          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF4285F4),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(child: Divider(color: isDark ? Colors.white12 : Colors.grey.shade200)),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          child: Text('OR', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: secondaryTextColor)),
+                        ),
+                        Expanded(child: Divider(color: isDark ? Colors.white12 : Colors.grey.shade200)),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+
+                  // Email field
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Google Email Address', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: secondaryTextColor)),
+                      if (_deviceGoogleAccounts.isNotEmpty && _showManualEmail)
+                        GestureDetector(
+                          onTap: () => setState(() => _showManualEmail = false),
+                          child: const Text('Show phone accounts', style: TextStyle(fontSize: 11, color: Color(0xFF4285F4), fontWeight: FontWeight.bold)),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
                   TextField(
-                    controller: _customEmailController,
+                    controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
-                    autofocus: true,
                     style: TextStyle(color: primaryTextColor, fontSize: 13.5),
                     decoration: InputDecoration(
                       prefixIcon: const Icon(CupertinoIcons.mail, size: 18),
-                      hintText: 'Enter your Google email',
+                      hintText: 'name@gmail.com',
                       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                       filled: true,
                       fillColor: isDark ? const Color(0xFF1F2937) : const Color(0xFFF9FAFB),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
                     ),
                   ),
-                  const SizedBox(height: 10),
+
+                  if (_needsPassword) ...[
+                    const SizedBox(height: 12),
+                    Text('Account Password', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: secondaryTextColor)),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: _passwordController,
+                      obscureText: _obscurePassword,
+                      autofocus: true,
+                      style: TextStyle(color: primaryTextColor, fontSize: 13.5),
+                      decoration: InputDecoration(
+                        prefixIcon: const Icon(CupertinoIcons.lock, size: 18),
+                        suffixIcon: IconButton(
+                          icon: Icon(_obscurePassword ? CupertinoIcons.eye : CupertinoIcons.eye_slash, size: 18),
+                          onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                        ),
+                        hintText: 'Enter your password',
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        filled: true,
+                        fillColor: isDark ? const Color(0xFF1F2937) : const Color(0xFFF9FAFB),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                      ),
+                    ),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: _handleForgotPassword,
+                        child: const Text('Forgot password?', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF4285F4))),
+                      ),
+                    ),
+                  ],
+
+                  const SizedBox(height: 14),
+
+                  // Continue / Sign In Button
                   SizedBox(
-                    width: double.infinity,
-                    height: 44,
+                    height: 46,
                     child: ElevatedButton(
-                      onPressed: () {
-                        final email = _customEmailController.text.trim();
-                        if (email.isNotEmpty && email.contains('@')) {
-                          _handleSelectAccount(email, email.split('@').first);
-                        }
-                      },
+                      onPressed: _handleSignIn,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF4285F4),
                         foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                       ),
-                      child: const Text('Continue with this account', style: TextStyle(fontWeight: FontWeight.w700)),
+                      child: Text(
+                        _needsPassword ? 'Connect Cloud Workspace' : 'Continue with Google',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                      ),
                     ),
                   ),
                 ],
 
-                const SizedBox(height: 16),
-                Divider(height: 1, color: isDark ? Colors.white12 : Colors.grey.shade200),
                 const SizedBox(height: 12),
 
-                // Authentic Google OAuth Consent Text
                 Text(
-                  'To continue, Google will share your name, email address, language preference, and profile picture with Task Bandhu. Before using this app, you can review Task Bandhu\'s Privacy Policy and Terms of Service.',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: secondaryTextColor,
-                    height: 1.4,
-                  ),
+                  'To continue, Google will share your name and email with Task Bandhu to synchronize your tasks across devices.',
+                  style: TextStyle(fontSize: 10.5, color: secondaryTextColor, height: 1.4),
+                  textAlign: TextAlign.center,
                 ),
               ],
             ],

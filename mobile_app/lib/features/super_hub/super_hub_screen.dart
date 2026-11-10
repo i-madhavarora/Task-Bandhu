@@ -195,7 +195,7 @@ class SuperHubScreen extends StatelessWidget {
 
                     const SizedBox(height: 12),
 
-                    // Player Controls & Focus Sheet Launcher
+                    // 1. Focus Tools Row (Settings, Deep Focus Mode & Volume)
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -257,44 +257,6 @@ class SuperHubScreen extends StatelessWidget {
                             ),
                           ],
                         ),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              icon: const Icon(CupertinoIcons.backward_fill, size: 22),
-                              onPressed: () => audio.previousTrack(),
-                            ),
-                            const SizedBox(width: 10),
-                            GestureDetector(
-                              onTap: () => audio.togglePlay(),
-                              child: Container(
-                                width: 50,
-                                height: 50,
-                                decoration: BoxDecoration(
-                                  gradient: AppColors.primaryGradient,
-                                  shape: BoxShape.circle,
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: AppColors.primaryIndigo.withOpacity(0.35),
-                                      blurRadius: 12,
-                                      offset: const Offset(0, 4),
-                                    ),
-                                  ],
-                                ),
-                                child: Icon(
-                                  audio.isPlaying ? CupertinoIcons.pause_fill : CupertinoIcons.play_fill,
-                                  color: Colors.white,
-                                  size: 24,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            IconButton(
-                              icon: const Icon(CupertinoIcons.forward_fill, size: 22),
-                              onPressed: () => audio.nextTrack(),
-                            ),
-                          ],
-                        ),
                         // Volume toggle / quick icon
                         IconButton(
                           icon: Icon(
@@ -312,6 +274,49 @@ class SuperHubScreen extends StatelessWidget {
                               audio.setVolume(0.85);
                             }
                           },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+
+                    // 2. Playback Controls Row (Centered, Overflow-Proof)
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        IconButton(
+                          icon: const Icon(CupertinoIcons.backward_fill, size: 22),
+                          onPressed: () => audio.previousTrack(),
+                          tooltip: 'Previous Track',
+                        ),
+                        const SizedBox(width: 16),
+                        GestureDetector(
+                          onTap: () => audio.togglePlay(),
+                          child: Container(
+                            width: 50,
+                            height: 50,
+                            decoration: BoxDecoration(
+                              gradient: AppColors.primaryGradient,
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: AppColors.primaryIndigo.withOpacity(0.35),
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: Icon(
+                              audio.isPlaying ? CupertinoIcons.pause_fill : CupertinoIcons.play_fill,
+                              color: Colors.white,
+                              size: 24,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        IconButton(
+                          icon: const Icon(CupertinoIcons.forward_fill, size: 22),
+                          onPressed: () => audio.nextTrack(),
+                          tooltip: 'Next Track',
                         ),
                       ],
                     ),
@@ -756,13 +761,15 @@ class SuperHubScreen extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Row(
+                            Wrap(
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              spacing: 6,
+                              runSpacing: 4,
                               children: [
                                 const Text(
                                   'Apex Prestige Suite',
                                   style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900),
                                 ),
-                                const SizedBox(width: 6),
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
                                   decoration: BoxDecoration(

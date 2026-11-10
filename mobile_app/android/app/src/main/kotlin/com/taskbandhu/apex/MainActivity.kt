@@ -1,5 +1,10 @@
 package com.taskbandhu.apex
 
+import android.accounts.Account
+import android.accounts.AccountManager
+import android.app.Activity
+import android.content.Intent
+import android.content.res.AssetFileDescriptor
 import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.MediaPlayer
@@ -13,6 +18,7 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Log
 import android.view.SoundEffectConstants
+import android.view.WindowManager
 import androidx.annotation.NonNull
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -22,12 +28,65 @@ class MainActivity : FlutterActivity() {
     private val TAG = "TaskBandhuAudio"
     private val CHANNEL = "com.taskbandhu.apex/audio"
     private var mediaPlayer: MediaPlayer? = null
+    private var currentAfd: AssetFileDescriptor? = null
     private var currentUrl: String? = null
     private var toneGenerator: ToneGenerator? = null
     private var currentRingtone: Ringtone? = null
     private var vibrator: Vibrator? = null
     private var outgoingRingtoneGenerator: ToneGenerator? = null
     private var outgoingRingTimer: java.util.Timer? = null
+    private val RC_CHOOSE_ACCOUNT = 10091
+    private var pendingAuthResult: MethodChannel.Result? = null
+
+    private fun releaseMediaPlayer() {
+        try {
+            if (mediaPlayer?.isPlaying == true) {
+                mediaPlayer?.stop()
+            }
+            mediaPlayer?.reset()
+            mediaPlayer?.release()
+        } catch (e: Exception) {
+            Log.w(TAG, "mediaPlayer release error: ${e.message}")
+        }
+        mediaPlayer = null
+        try {
+            currentAfd?.close()
+        } catch (e: Exception) {
+            Log.w(TAG, "currentAfd close error: ${e.message}")
+        }
+        currentAfd = null
+        currentUrl = null
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == RC_CHOOSE_ACCOUNT) {
+            if (resultCode == Activity.RESULT_OK && data != null) {
+                val accountName = data.getStringExtra(AccountManager.KEY_ACCOUNT_NAME)
+                if (!accountName.isNullOrBlank()) {
+                    val rawName = accountName.substringBefore("@").replace(".", " ")
+                    val displayName = rawName.split(" ").filter { it.isNotBlank() }
+                        .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
+                    pendingAuthResult?.success(mapOf(
+                        "success" to true,
+                        "email" to accountName,
+                        "name" to displayName
+                    ))
+                } else {
+                    pendingAuthResult?.success(mapOf(
+                        "success" to false,
+                        "cancelled" to true
+                    ))
+                }
+            } else {
+                pendingAuthResult?.success(mapOf(
+                    "success" to false,
+                    "cancelled" to true
+                ))
+            }
+            pendingAuthResult = null
+        }
+    }
 
     private fun getToneGen(): ToneGenerator {
         if (toneGenerator == null) {
@@ -83,7 +142,7 @@ class MainActivity : FlutterActivity() {
                                     Log.w(TAG, "Failed to resume existing player, reinitializing: ${e.message}")
                                 }
                             }
-                            mediaPlayer?.release()
+                            releaseMediaPlayer()
                             mediaPlayer = MediaPlayer().apply {
                                 setAudioAttributes(
                                     AudioAttributes.Builder()
@@ -94,16 +153,13 @@ class MainActivity : FlutterActivity() {
                                 setWakeMode(applicationContext, PowerManager.PARTIAL_WAKE_LOCK)
                                 if (url.startsWith("asset:///")) {
                                     val assetPath = url.removePrefix("asset:///")
-                                    try {
-                                        val afd = applicationContext.assets.openFd("flutter_assets/$assetPath")
-                                        setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
-                                        afd.close()
+                                    currentAfd = try {
+                                        applicationContext.assets.openFd("flutter_assets/$assetPath")
                                     } catch (e: Exception) {
-                                        Log.w(TAG, "Asset fallback attempt: ${e.message}")
-                                        val afd = applicationContext.assets.openFd(assetPath)
-                                        setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
-                                        afd.close()
+                                        applicationContext.assets.openFd(assetPath)
                                     }
+                                    val afd = currentAfd!!
+                                    setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
                                 } else {
                                     setDataSource(applicationContext, Uri.parse(url))
                                 }
@@ -111,11 +167,12 @@ class MainActivity : FlutterActivity() {
                                 setVolume(0.85f, 0.85f)
                                 setOnErrorListener { mp, what, extra ->
                                     Log.e(TAG, "MediaPlayer error: what=$what extra=$extra")
-                                    mp.reset()
+                                    releaseMediaPlayer()
                                     true
                                 }
                                 setOnPreparedListener { mp ->
-                                    Log.i(TAG, "MediaPlayer prepared, starting playback for: $url")
+                                    Log.i(TAG, "MediaPlayer prepared, starting continuous looping playback for: $url")
+                                    mp.isLooping = true
                                     mp.start()
                                 }
                                 prepareAsync()
@@ -124,6 +181,7 @@ class MainActivity : FlutterActivity() {
                             result.success(true)
                         } catch (e: Exception) {
                             Log.e(TAG, "Play error: ${e.message}", e)
+                            releaseMediaPlayer()
                             result.error("AUDIO_ERROR", e.message, null)
                         }
                     } else {
@@ -149,15 +207,8 @@ class MainActivity : FlutterActivity() {
                     }
                 }
                 "stop" -> {
-                    try {
-                        mediaPlayer?.stop()
-                        mediaPlayer?.release()
-                        mediaPlayer = null
-                        currentUrl = null
-                        result.success(true)
-                    } catch (e: Exception) {
-                        result.error("STOP_ERROR", e.message, null)
-                    }
+                    releaseMediaPlayer()
+                    result.success(true)
                 }
                 "setVolume" -> {
                     val vol = call.argument<Double>("volume")?.toFloat() ?: 0.85f
@@ -283,7 +334,7 @@ class MainActivity : FlutterActivity() {
                     val iconName = call.argument<String>("icon") ?: "default"
                     val pkg = packageName
                     val aliases = mapOf(
-                        "default" to "$pkg.MainActivity",
+                        "default" to "$pkg.MainActivityDefault",
                         "dark" to "$pkg.MainActivityDark",
                         "light" to "$pkg.MainActivityLight",
                         "gold" to "$pkg.MainActivityGold",
@@ -292,6 +343,12 @@ class MainActivity : FlutterActivity() {
                         "flame" to "$pkg.MainActivityFlame",
                         "cosmic" to "$pkg.MainActivityCosmic",
                         "mercury" to "$pkg.MainActivityMercury",
+                        "premium_1" to "$pkg.MainActivityGold",
+                        "premium_2" to "$pkg.MainActivityCyber",
+                        "premium_3" to "$pkg.MainActivityRetro",
+                        "premium_4" to "$pkg.MainActivityFlame",
+                        "premium_5" to "$pkg.MainActivityCosmic",
+                        "premium_6" to "$pkg.MainActivityMercury",
                         "neon_tube" to "$pkg.MainActivityNeonTube",
                         "tg_sunset" to "$pkg.MainActivityTgSunset",
                         "tg_cyan" to "$pkg.MainActivityTgCyan",
@@ -304,7 +361,7 @@ class MainActivity : FlutterActivity() {
                     )
 
                     try {
-                        val targetComponent = aliases[iconName] ?: "$pkg.MainActivity"
+                        val targetComponent = aliases[iconName] ?: "$pkg.MainActivityDefault"
                         for ((name, comp) in aliases) {
                             val state = if (comp == targetComponent) {
                                 android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED
@@ -343,7 +400,7 @@ class MainActivity : FlutterActivity() {
                         "gold" to "$pkg.MainActivityGold",
                         "light" to "$pkg.MainActivityLight",
                         "dark" to "$pkg.MainActivityDark",
-                        "default" to "$pkg.MainActivity"
+                        "default" to "$pkg.MainActivityDefault"
                     )
                     var active = "default"
                     for ((name, comp) in aliases) {
@@ -355,6 +412,56 @@ class MainActivity : FlutterActivity() {
                     }
                     result.success(active)
                 }
+                "pickGoogleAccount" -> {
+                    pendingAuthResult = result
+                    try {
+                        val intent = AccountManager.newChooseAccountIntent(
+                            null,
+                            null,
+                            arrayOf("com.google"),
+                            null,
+                            null,
+                            null,
+                            null
+                        )
+                        startActivityForResult(intent, RC_CHOOSE_ACCOUNT)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "newChooseAccountIntent error: ${e.message}")
+                        result.success(mapOf("success" to false, "error" to (e.message ?: "Account picker unavailable")))
+                        pendingAuthResult = null
+                    }
+                }
+                "getDeviceGoogleAccounts" -> {
+                    try {
+                        val manager = AccountManager.get(this)
+                        val accounts = manager.getAccountsByType("com.google")
+                        val accountList = accounts.map {
+                            val email = it.name
+                            val rawName = email.substringBefore("@").replace(".", " ")
+                            val displayName = rawName.split(" ").filter { s -> s.isNotBlank() }
+                                .joinToString(" ") { s -> s.replaceFirstChar { c -> c.uppercase() } }
+                            mapOf(
+                                "email" to email,
+                                "name" to displayName
+                            )
+                        }
+                        result.success(accountList)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "getDeviceGoogleAccounts error: ${e.message}")
+                        result.success(emptyList<Map<String, String>>())
+                    }
+                }
+                "keepScreenOn" -> {
+                    val enable = call.argument<Boolean>("enable") ?: true
+                    runOnUiThread {
+                        if (enable) {
+                            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        } else {
+                            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        }
+                    }
+                    result.success(true)
+                }
                 else -> result.notImplemented()
             }
         }
@@ -362,8 +469,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onDestroy() {
         stopRingingInternal()
-        mediaPlayer?.release()
-        mediaPlayer = null
+        releaseMediaPlayer()
         toneGenerator?.release()
         toneGenerator = null
         super.onDestroy()

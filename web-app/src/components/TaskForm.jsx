@@ -74,6 +74,7 @@ export default function TaskForm({
   isApex: isApexProp = false,
   onOpenApexModal,
   onNotifyTeammate,
+  onNotifyTaskEdit,
   currentWorkspace = 'personal',
   connections = []
 }) {
@@ -652,6 +653,13 @@ export default function TaskForm({
           }
         } else {
           await updateDoc(doc(db, 'users', currentUid, 'tasks', taskToEdit.id), payloadToSave);
+        }
+        if (isTeam) {
+          try {
+            onNotifyTaskEdit?.(taskToEdit, payloadToSave);
+          } catch (notifErr) {
+            console.warn("Edit notification dispatch error:", notifErr);
+          }
         }
         showToast("Task updated.", "success");
       } else {

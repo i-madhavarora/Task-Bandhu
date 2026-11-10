@@ -83,942 +83,489 @@ class _DashboardScreenState extends State<DashboardScreen> {
           return AnimatedContainer(
             duration: const Duration(milliseconds: 250),
             curve: Curves.easeInOut,
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(ctx).size.height * 0.85,
+            ),
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
             decoration: BoxDecoration(
               color: sheetBg,
               borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
               border: Border.all(color: borderColor),
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: handleColor,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 18),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'More Options & Controls',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w900,
-                        color: primaryTextColor,
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: handleColor,
+                        borderRadius: BorderRadius.circular(10),
                       ),
                     ),
-                    IconButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      icon: Icon(CupertinoIcons.xmark_circle_fill, color: secondaryTextColor, size: 24),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'More Options & Controls',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                          color: primaryTextColor,
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        icon: Icon(CupertinoIcons.xmark_circle_fill, color: secondaryTextColor, size: 24),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
 
-                // 1. Appearance Theme Toggle
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: (isDarkActive ? const Color(0xFFFBBF24) : AppColors.primaryIndigo).withOpacity(0.15),
-                      shape: BoxShape.circle,
+                  // 1. Appearance Theme Toggle
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: (isDarkActive ? const Color(0xFFFBBF24) : AppColors.primaryIndigo).withOpacity(0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        isDarkActive ? CupertinoIcons.sun_max_fill : CupertinoIcons.moon_stars_fill,
+                        color: isDarkActive ? const Color(0xFFFBBF24) : AppColors.primaryIndigo,
+                        size: 20,
+                      ),
                     ),
-                    child: Icon(
-                      isDarkActive ? CupertinoIcons.sun_max_fill : CupertinoIcons.moon_stars_fill,
-                      color: isDarkActive ? const Color(0xFFFBBF24) : AppColors.primaryIndigo,
-                      size: 20,
+                    title: Text('Appearance Theme', style: TextStyle(fontWeight: FontWeight.w800, color: primaryTextColor, fontSize: 14)),
+                    subtitle: Text(isDarkActive ? 'Dark Mode (Night)' : 'Light Mode (Day)', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
+                    trailing: Switch.adaptive(
+                      value: isDarkActive,
+                      activeColor: AppColors.primaryIndigo,
+                      onChanged: (_) {
+                        SoundService.playClick();
+                        themeProvider.toggleTheme(ctx);
+                      },
                     ),
                   ),
-                  title: Text('Appearance Theme', style: TextStyle(fontWeight: FontWeight.w800, color: primaryTextColor, fontSize: 14)),
-                  subtitle: Text(isDarkActive ? 'Dark Mode (Night)' : 'Light Mode (Day)', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
-                  trailing: Switch.adaptive(
-                    value: isDarkActive,
-                    activeColor: AppColors.primaryIndigo,
-                    onChanged: (_) {
-                      SoundService.playClick();
-                      themeProvider.toggleTheme(ctx);
+                  Divider(height: 16, color: dividerColor),
+
+                  // 2. Sound Effects & Chimes
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppColors.accentEmerald.withOpacity(0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(CupertinoIcons.speaker_2_fill, color: AppColors.accentEmerald, size: 20),
+                    ),
+                    title: Text('Sound Effects & Chimes', style: TextStyle(fontWeight: FontWeight.w800, color: primaryTextColor, fontSize: 14)),
+                    subtitle: Text(SoundService.soundEnabled ? 'Enabled (Focus bell & task chimes)' : 'Muted', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
+                    trailing: Switch.adaptive(
+                      value: SoundService.soundEnabled,
+                      activeColor: AppColors.accentEmerald,
+                      onChanged: (val) async {
+                        await SoundService.setSoundEnabled(val);
+                        if (val) SoundService.playTaskDone();
+                        (ctx as Element).markNeedsBuild();
+                      },
+                    ),
+                  ),
+                  Divider(height: 16, color: dividerColor),
+
+                  // 3. Apex Prestige Suite
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF6366F1), Color(0xFFA855F7), Color(0xFFF59E0B)],
+                        ),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(CupertinoIcons.sparkles, color: Colors.white, size: 20),
+                    ),
+                    title: Row(
+                      children: [
+                        Text('Apex Prestige Suite', style: TextStyle(fontWeight: FontWeight.w800, color: primaryTextColor, fontSize: 14)),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF6366F1), Color(0xFFF59E0B)],
+                            ),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            FirebaseSyncService.isApex ? '✦ ACTIVE' : '✦ DETAILS',
+                            style: const TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w900,
+                              color: Colors.white,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    subtitle: Text('Review 300 projects, Table layout, AI Assist, Vault & executive perks', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
+                    trailing: Icon(CupertinoIcons.chevron_right, size: 16, color: secondaryTextColor),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      showModalBottomSheet(
+                        context: context,
+                        isScrollControlled: true,
+                        backgroundColor: Colors.transparent,
+                        builder: (_) => const ApexBenefitsSheet(),
+                      );
                     },
                   ),
-                ),
-                Divider(height: 16, color: dividerColor),
+                  Divider(height: 16, color: dividerColor),
 
-                // 7B. Apex Prestige Suite
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF6366F1), Color(0xFFA855F7), Color(0xFFF59E0B)],
-                      ),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(CupertinoIcons.sparkles, color: Colors.white, size: 20),
-                  ),
-                  title: Row(
-                    children: [
-                      Text('Apex Prestige Suite', style: TextStyle(fontWeight: FontWeight.w800, color: primaryTextColor, fontSize: 14)),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF6366F1), Color(0xFFF59E0B)],
-                          ),
-                          borderRadius: BorderRadius.circular(6),
+                  // 4. Designer App Icons Showcase (Apex Only)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Color(0xFFF59E0B), Color(0xFF8B5CF6)],
                         ),
-                        child: Text(
-                          FirebaseSyncService.isApex ? '✦ ACTIVE' : '✦ DETAILS',
-                          style: const TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                            letterSpacing: 0.5,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(CupertinoIcons.app_badge_fill, color: Colors.white, size: 20),
+                    ),
+                    title: Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            'Designer App Icons',
+                            style: TextStyle(fontWeight: FontWeight.w800, color: primaryTextColor, fontSize: 14),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                  subtitle: Text('Review 300 projects, Table layout, AI Assist, Vault & executive perks', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
-                  trailing: Icon(CupertinoIcons.chevron_right, size: 16, color: secondaryTextColor),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    showModalBottomSheet(
-                      context: context,
-                      isScrollControlled: true,
-                      backgroundColor: Colors.transparent,
-                      builder: (_) => const ApexBenefitsSheet(),
-                    );
-                  },
-                ),
-                Divider(height: 16, color: dividerColor),
-
-                // 2. Sound Effects & Chimes
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: AppColors.accentEmerald.withOpacity(0.15),
-                      shape: BoxShape.circle,
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFFF59E0B), Color(0xFF8B5CF6)],
+                            ),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Text(
+                            '✦ APEX',
+                            style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w900,
+                              color: Colors.white,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                    child: const Icon(CupertinoIcons.speaker_2_fill, color: AppColors.accentEmerald, size: 20),
-                  ),
-                  title: Text('Sound Effects & Chimes', style: TextStyle(fontWeight: FontWeight.w800, color: primaryTextColor, fontSize: 14)),
-                  subtitle: Text(SoundService.soundEnabled ? 'Enabled (Focus bell & task chimes)' : 'Muted', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
-                  trailing: Switch.adaptive(
-                    value: SoundService.soundEnabled,
-                    activeColor: AppColors.accentEmerald,
-                    onChanged: (val) async {
-                      await SoundService.setSoundEnabled(val);
-                      if (val) SoundService.playTaskDone();
-                      (ctx as Element).markNeedsBuild();
+                    subtitle: Text('Change launcher icon: Obsidian, Solaris 24K, Cyber...', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
+                    trailing: Icon(CupertinoIcons.chevron_right, size: 16, color: secondaryTextColor),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      showModalBottomSheet(
+                        context: context,
+                        isScrollControlled: true,
+                        backgroundColor: Colors.transparent,
+                        builder: (_) => const AppIconPickerSheet(),
+                      );
                     },
                   ),
-                ),
-                Divider(height: 16, color: dividerColor),
+                  Divider(height: 16, color: dividerColor),
 
-                // 7B. Apex Prestige Suite
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF6366F1), Color(0xFFA855F7), Color(0xFFF59E0B)],
+                  // 5. Designer Loading Animations Showcase (Apex Only)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Color(0xFF8B5CF6), Color(0xFF38BDF8)],
+                        ),
+                        shape: BoxShape.circle,
                       ),
-                      shape: BoxShape.circle,
+                      child: const Icon(CupertinoIcons.wand_stars, color: Colors.white, size: 20),
                     ),
-                    child: const Icon(CupertinoIcons.sparkles, color: Colors.white, size: 20),
-                  ),
-                  title: Row(
-                    children: [
-                      Text('Apex Prestige Suite', style: TextStyle(fontWeight: FontWeight.w800, color: primaryTextColor, fontSize: 14)),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF6366F1), Color(0xFFF59E0B)],
-                          ),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          FirebaseSyncService.isApex ? '✦ ACTIVE' : '✦ DETAILS',
-                          style: const TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                            letterSpacing: 0.5,
+                    title: Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            'Designer Loading Animations',
+                            style: TextStyle(fontWeight: FontWeight.w800, color: primaryTextColor, fontSize: 14),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                      ),
-                    ],
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFFF59E0B), Color(0xFF8B5CF6)],
+                            ),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Text(
+                            '✦ APEX',
+                            style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w900,
+                              color: Colors.white,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    subtitle: Text('9 studio styles: Gojo Vortex, Cursive Flow, Explorer...', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
+                    trailing: Icon(CupertinoIcons.chevron_right, size: 16, color: secondaryTextColor),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      showModalBottomSheet(
+                        context: context,
+                        isScrollControlled: true,
+                        backgroundColor: Colors.transparent,
+                        builder: (_) => const LoadingShowcaseSheet(),
+                      );
+                    },
                   ),
-                  subtitle: Text('Review 300 projects, Table layout, AI Assist, Vault & executive perks', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
-                  trailing: Icon(CupertinoIcons.chevron_right, size: 16, color: secondaryTextColor),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    showModalBottomSheet(
-                      context: context,
-                      isScrollControlled: true,
-                      backgroundColor: Colors.transparent,
-                      builder: (_) => const ApexBenefitsSheet(),
-                    );
-                  },
-                ),
-                Divider(height: 16, color: dividerColor),
+                  Divider(height: 16, color: dividerColor),
 
-                // 3. Designer Loading Animations Showcase (Apex Only)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [Color(0xFF8B5CF6), Color(0xFF38BDF8)],
+                  // 6. Biometric Stealth Vault (Apex Feature)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF59E0B).withOpacity(0.15),
+                        shape: BoxShape.circle,
                       ),
-                      shape: BoxShape.circle,
+                      child: const Icon(CupertinoIcons.lock_shield_fill, color: Color(0xFFF59E0B), size: 20),
                     ),
-                    child: const Icon(CupertinoIcons.wand_stars, color: Colors.white, size: 20),
-                  ),
-                  title: Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          'Designer Loading Animations',
-                          style: TextStyle(fontWeight: FontWeight.w800, color: primaryTextColor, fontSize: 14),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFFF59E0B), Color(0xFF8B5CF6)],
-                          ),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: const Text(
-                          '✦ APEX',
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                            letterSpacing: 0.5,
+                    title: Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            'Biometric Stealth Vault',
+                            style: TextStyle(fontWeight: FontWeight.w800, color: primaryTextColor, fontSize: 14),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                      ),
-                    ],
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFFF59E0B), Color(0xFF8B5CF6)],
+                            ),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Text(
+                            '✦ APEX',
+                            style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w900,
+                              color: Colors.white,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    subtitle: Text('Isolated encrypted vault for confidential tasks and sensitive memos', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
+                    trailing: Icon(CupertinoIcons.chevron_right, size: 16, color: secondaryTextColor),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      showModalBottomSheet(
+                        context: context,
+                        isScrollControlled: true,
+                        backgroundColor: Colors.transparent,
+                        builder: (_) => const StealthVaultSheet(),
+                      );
+                    },
                   ),
-                  subtitle: Text('9 studio styles: Gojo Vortex, Cursive Flow, Explorer...', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
-                  trailing: Icon(CupertinoIcons.chevron_right, size: 16, color: secondaryTextColor),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    showModalBottomSheet(
-                      context: context,
-                      isScrollControlled: true,
-                      backgroundColor: Colors.transparent,
-                      builder: (_) => const LoadingShowcaseSheet(),
-                    );
-                  },
-                ),
-                Divider(height: 16, color: dividerColor),
+                  Divider(height: 16, color: dividerColor),
 
-                // 7B. Apex Prestige Suite
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF6366F1), Color(0xFFA855F7), Color(0xFFF59E0B)],
+                  // 7. ChronoSync AI Schedule Optimizer (Apex Feature)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
+                        ),
+                        shape: BoxShape.circle,
                       ),
-                      shape: BoxShape.circle,
+                      child: const Icon(CupertinoIcons.sparkles, color: Colors.white, size: 20),
                     ),
-                    child: const Icon(CupertinoIcons.sparkles, color: Colors.white, size: 20),
-                  ),
-                  title: Row(
-                    children: [
-                      Text('Apex Prestige Suite', style: TextStyle(fontWeight: FontWeight.w800, color: primaryTextColor, fontSize: 14)),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF6366F1), Color(0xFFF59E0B)],
-                          ),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          FirebaseSyncService.isApex ? '✦ ACTIVE' : '✦ DETAILS',
-                          style: const TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                            letterSpacing: 0.5,
+                    title: Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            'ChronoSync AI™ Optimizer',
+                            style: TextStyle(fontWeight: FontWeight.w800, color: primaryTextColor, fontSize: 14),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                      ),
-                    ],
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFFF59E0B), Color(0xFF8B5CF6)],
+                            ),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Text(
+                            '✦ APEX',
+                            style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w900,
+                              color: Colors.white,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    subtitle: Text('Intelligent energy-curve schedule planner & buffer calculation', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
+                    trailing: Icon(CupertinoIcons.chevron_right, size: 16, color: secondaryTextColor),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      showModalBottomSheet(
+                        context: context,
+                        isScrollControlled: true,
+                        backgroundColor: Colors.transparent,
+                        builder: (_) => AiScheduleOptimizerSheet(selectedDate: DateTime.now()),
+                      );
+                    },
                   ),
-                  subtitle: Text('Review 300 projects, Table layout, AI Assist, Vault & executive perks', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
-                  trailing: Icon(CupertinoIcons.chevron_right, size: 16, color: secondaryTextColor),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    showModalBottomSheet(
-                      context: context,
-                      isScrollControlled: true,
-                      backgroundColor: Colors.transparent,
-                      builder: (_) => const ApexBenefitsSheet(),
-                    );
-                  },
-                ),
-                Divider(height: 16, color: dividerColor),
+                  Divider(height: 16, color: dividerColor),
 
-                // 4. Designer App Icons Showcase (Apex Only)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [Color(0xFFF59E0B), Color(0xFF8B5CF6)],
+                  // 8. Teammates Network & Connections
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF6366F1).withOpacity(0.15),
+                        shape: BoxShape.circle,
                       ),
-                      shape: BoxShape.circle,
+                      child: const Icon(CupertinoIcons.person_2_fill, color: Color(0xFF6366F1), size: 20),
                     ),
-                    child: const Icon(CupertinoIcons.app_badge_fill, color: Colors.white, size: 20),
+                    title: Text('Teammates & Connections', style: TextStyle(fontWeight: FontWeight.w800, color: primaryTextColor, fontSize: 14)),
+                    subtitle: Text('${FirebaseSyncService.connections.length} connected teammates & pending invites', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
+                    trailing: Icon(CupertinoIcons.chevron_right, size: 16, color: secondaryTextColor),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      Navigator.push(
+                        context,
+                        CupertinoPageRoute(
+                          builder: (_) => const ConnectionsScreen(),
+                        ),
+                      );
+                    },
                   ),
-                  title: Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          'Designer App Icons',
-                          style: TextStyle(fontWeight: FontWeight.w800, color: primaryTextColor, fontSize: 14),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFFF59E0B), Color(0xFF8B5CF6)],
-                          ),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: const Text(
-                          '✦ APEX',
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  subtitle: Text('Change launcher icon: Obsidian, Solaris 24K, Cyber...', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
-                  trailing: Icon(CupertinoIcons.chevron_right, size: 16, color: secondaryTextColor),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    showModalBottomSheet(
-                      context: context,
-                      isScrollControlled: true,
-                      backgroundColor: Colors.transparent,
-                      builder: (_) => const AppIconPickerSheet(),
-                    );
-                  },
-                ),
-                Divider(height: 16, color: dividerColor),
+                  Divider(height: 16, color: dividerColor),
 
-                // 7B. Apex Prestige Suite
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF6366F1), Color(0xFFA855F7), Color(0xFFF59E0B)],
+                  // 9. Start Team Huddle
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppColors.accentCyan.withOpacity(0.15),
+                        shape: BoxShape.circle,
                       ),
-                      shape: BoxShape.circle,
+                      child: const Icon(CupertinoIcons.videocam_fill, color: AppColors.accentCyan, size: 20),
                     ),
-                    child: const Icon(CupertinoIcons.sparkles, color: Colors.white, size: 20),
-                  ),
-                  title: Row(
-                    children: [
-                      Text('Apex Prestige Suite', style: TextStyle(fontWeight: FontWeight.w800, color: primaryTextColor, fontSize: 14)),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF6366F1), Color(0xFFF59E0B)],
-                          ),
-                          borderRadius: BorderRadius.circular(6),
+                    title: Text('Start Team Huddle', style: TextStyle(fontWeight: FontWeight.w800, color: primaryTextColor, fontSize: 14)),
+                    subtitle: Text('Instant live video room & collaboration', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
+                    trailing: Icon(CupertinoIcons.chevron_right, size: 16, color: secondaryTextColor),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      Navigator.push(
+                        context,
+                        CupertinoPageRoute(
+                          builder: (_) => const VideoCallScreen(roomName: 'Team Huddle'),
                         ),
-                        child: Text(
-                          FirebaseSyncService.isApex ? '✦ ACTIVE' : '✦ DETAILS',
-                          style: const TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ),
-                    ],
+                      );
+                    },
                   ),
-                  subtitle: Text('Review 300 projects, Table layout, AI Assist, Vault & executive perks', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
-                  trailing: Icon(CupertinoIcons.chevron_right, size: 16, color: secondaryTextColor),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    showModalBottomSheet(
-                      context: context,
-                      isScrollControlled: true,
-                      backgroundColor: Colors.transparent,
-                      builder: (_) => const ApexBenefitsSheet(),
-                    );
-                  },
-                ),
-                Divider(height: 16, color: dividerColor),
+                  Divider(height: 16, color: dividerColor),
 
-                // 4B. Biometric Stealth Vault (Apex Feature)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF59E0B).withOpacity(0.15),
-                      shape: BoxShape.circle,
+                  // 10. Gamification & Analytics
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppColors.accentPurple.withOpacity(0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(CupertinoIcons.chart_bar_alt_fill, color: AppColors.accentPurple, size: 20),
                     ),
-                    child: const Icon(CupertinoIcons.lock_shield_fill, color: Color(0xFFF59E0B), size: 20),
+                    title: Text('Gamification & Analytics', style: TextStyle(fontWeight: FontWeight.w800, color: primaryTextColor, fontSize: 14)),
+                    subtitle: Text('XP, Level badges, streaks & productivity matrix', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
+                    trailing: Icon(CupertinoIcons.chevron_right, size: 16, color: secondaryTextColor),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      showModalBottomSheet(
+                        context: context,
+                        isScrollControlled: true,
+                        backgroundColor: Colors.transparent,
+                        builder: (_) => const AnalyticsSheet(),
+                      );
+                    },
                   ),
-                  title: Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          'Biometric Stealth Vault',
-                          style: TextStyle(fontWeight: FontWeight.w800, color: primaryTextColor, fontSize: 14),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFFF59E0B), Color(0xFF8B5CF6)],
-                          ),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: const Text(
-                          '✦ APEX',
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  subtitle: Text('Isolated encrypted vault for confidential tasks and sensitive memos', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
-                  trailing: Icon(CupertinoIcons.chevron_right, size: 16, color: secondaryTextColor),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    showModalBottomSheet(
-                      context: context,
-                      isScrollControlled: true,
-                      backgroundColor: Colors.transparent,
-                      builder: (_) => const StealthVaultSheet(),
-                    );
-                  },
-                ),
-                Divider(height: 16, color: dividerColor),
+                  Divider(height: 16, color: dividerColor),
 
-                // 7B. Apex Prestige Suite
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF6366F1), Color(0xFFA855F7), Color(0xFFF59E0B)],
+                  // 11. User Account & Sync
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppColors.primaryIndigo.withOpacity(0.15),
+                        shape: BoxShape.circle,
                       ),
-                      shape: BoxShape.circle,
+                      child: const Icon(CupertinoIcons.person_crop_circle, color: AppColors.primaryIndigo, size: 20),
                     ),
-                    child: const Icon(CupertinoIcons.sparkles, color: Colors.white, size: 20),
+                    title: Text(FirebaseSyncService.isRealCloudUser ? FirebaseSyncService.displayName : 'Guest User', style: TextStyle(fontWeight: FontWeight.w800, color: primaryTextColor, fontSize: 14)),
+                    subtitle: Text(FirebaseSyncService.isRealCloudUser ? FirebaseSyncService.userEmail : 'Tap to sign in or sync with Google', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
+                    trailing: Icon(CupertinoIcons.chevron_right, size: 16, color: secondaryTextColor),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      showModalBottomSheet(
+                        context: context,
+                        isScrollControlled: true,
+                        backgroundColor: Colors.transparent,
+                        builder: (_) => const AuthModalSheet(),
+                      );
+                    },
                   ),
-                  title: Row(
-                    children: [
-                      Text('Apex Prestige Suite', style: TextStyle(fontWeight: FontWeight.w800, color: primaryTextColor, fontSize: 14)),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF6366F1), Color(0xFFF59E0B)],
-                          ),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          FirebaseSyncService.isApex ? '✦ ACTIVE' : '✦ DETAILS',
-                          style: const TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  subtitle: Text('Review 300 projects, Table layout, AI Assist, Vault & executive perks', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
-                  trailing: Icon(CupertinoIcons.chevron_right, size: 16, color: secondaryTextColor),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    showModalBottomSheet(
-                      context: context,
-                      isScrollControlled: true,
-                      backgroundColor: Colors.transparent,
-                      builder: (_) => const ApexBenefitsSheet(),
-                    );
-                  },
-                ),
-                Divider(height: 16, color: dividerColor),
-
-                // 4C. ChronoSync AI Schedule Optimizer (Apex Feature)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
-                      ),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(CupertinoIcons.sparkles, color: Colors.white, size: 20),
-                  ),
-                  title: Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          'ChronoSync AI™ Optimizer',
-                          style: TextStyle(fontWeight: FontWeight.w800, color: primaryTextColor, fontSize: 14),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFFF59E0B), Color(0xFF8B5CF6)],
-                          ),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: const Text(
-                          '✦ APEX',
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  subtitle: Text('Intelligent energy-curve schedule planner & buffer calculation', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
-                  trailing: Icon(CupertinoIcons.chevron_right, size: 16, color: secondaryTextColor),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    showModalBottomSheet(
-                      context: context,
-                      isScrollControlled: true,
-                      backgroundColor: Colors.transparent,
-                      builder: (_) => AiScheduleOptimizerSheet(selectedDate: DateTime.now()),
-                    );
-                  },
-                ),
-                Divider(height: 16, color: dividerColor),
-
-                // 7B. Apex Prestige Suite
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF6366F1), Color(0xFFA855F7), Color(0xFFF59E0B)],
-                      ),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(CupertinoIcons.sparkles, color: Colors.white, size: 20),
-                  ),
-                  title: Row(
-                    children: [
-                      Text('Apex Prestige Suite', style: TextStyle(fontWeight: FontWeight.w800, color: primaryTextColor, fontSize: 14)),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF6366F1), Color(0xFFF59E0B)],
-                          ),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          FirebaseSyncService.isApex ? '✦ ACTIVE' : '✦ DETAILS',
-                          style: const TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  subtitle: Text('Review 300 projects, Table layout, AI Assist, Vault & executive perks', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
-                  trailing: Icon(CupertinoIcons.chevron_right, size: 16, color: secondaryTextColor),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    showModalBottomSheet(
-                      context: context,
-                      isScrollControlled: true,
-                      backgroundColor: Colors.transparent,
-                      builder: (_) => const ApexBenefitsSheet(),
-                    );
-                  },
-                ),
-                Divider(height: 16, color: dividerColor),
-
-                // 5. Teammates Network & Connections
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF6366F1).withOpacity(0.15),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(CupertinoIcons.person_2_fill, color: Color(0xFF6366F1), size: 20),
-                  ),
-                  title: Text('Teammates & Connections', style: TextStyle(fontWeight: FontWeight.w800, color: primaryTextColor, fontSize: 14)),
-                  subtitle: Text('${FirebaseSyncService.connections.length} connected teammates & pending invites', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
-                  trailing: Icon(CupertinoIcons.chevron_right, size: 16, color: secondaryTextColor),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    Navigator.push(
-                      context,
-                      CupertinoPageRoute(
-                        builder: (_) => const ConnectionsScreen(),
-                      ),
-                    );
-                  },
-                ),
-                Divider(height: 16, color: dividerColor),
-
-                // 7B. Apex Prestige Suite
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF6366F1), Color(0xFFA855F7), Color(0xFFF59E0B)],
-                      ),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(CupertinoIcons.sparkles, color: Colors.white, size: 20),
-                  ),
-                  title: Row(
-                    children: [
-                      Text('Apex Prestige Suite', style: TextStyle(fontWeight: FontWeight.w800, color: primaryTextColor, fontSize: 14)),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF6366F1), Color(0xFFF59E0B)],
-                          ),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          FirebaseSyncService.isApex ? '✦ ACTIVE' : '✦ DETAILS',
-                          style: const TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  subtitle: Text('Review 300 projects, Table layout, AI Assist, Vault & executive perks', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
-                  trailing: Icon(CupertinoIcons.chevron_right, size: 16, color: secondaryTextColor),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    showModalBottomSheet(
-                      context: context,
-                      isScrollControlled: true,
-                      backgroundColor: Colors.transparent,
-                      builder: (_) => const ApexBenefitsSheet(),
-                    );
-                  },
-                ),
-                Divider(height: 16, color: dividerColor),
-
-                // 6. Start Team Huddle
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: AppColors.accentCyan.withOpacity(0.15),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(CupertinoIcons.videocam_fill, color: AppColors.accentCyan, size: 20),
-                  ),
-                  title: Text('Start Team Huddle', style: TextStyle(fontWeight: FontWeight.w800, color: primaryTextColor, fontSize: 14)),
-                  subtitle: Text('Instant live video room & collaboration', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
-                  trailing: Icon(CupertinoIcons.chevron_right, size: 16, color: secondaryTextColor),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    Navigator.push(
-                      context,
-                      CupertinoPageRoute(
-                        builder: (_) => const VideoCallScreen(roomName: 'Team Huddle'),
-                      ),
-                    );
-                  },
-                ),
-                Divider(height: 16, color: dividerColor),
-
-                // 7B. Apex Prestige Suite
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF6366F1), Color(0xFFA855F7), Color(0xFFF59E0B)],
-                      ),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(CupertinoIcons.sparkles, color: Colors.white, size: 20),
-                  ),
-                  title: Row(
-                    children: [
-                      Text('Apex Prestige Suite', style: TextStyle(fontWeight: FontWeight.w800, color: primaryTextColor, fontSize: 14)),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF6366F1), Color(0xFFF59E0B)],
-                          ),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          FirebaseSyncService.isApex ? '✦ ACTIVE' : '✦ DETAILS',
-                          style: const TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  subtitle: Text('Review 300 projects, Table layout, AI Assist, Vault & executive perks', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
-                  trailing: Icon(CupertinoIcons.chevron_right, size: 16, color: secondaryTextColor),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    showModalBottomSheet(
-                      context: context,
-                      isScrollControlled: true,
-                      backgroundColor: Colors.transparent,
-                      builder: (_) => const ApexBenefitsSheet(),
-                    );
-                  },
-                ),
-                Divider(height: 16, color: dividerColor),
-
-                // 7. Gamification & Analytics
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: AppColors.accentPurple.withOpacity(0.15),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(CupertinoIcons.chart_bar_alt_fill, color: AppColors.accentPurple, size: 20),
-                  ),
-                  title: Text('Gamification & Analytics', style: TextStyle(fontWeight: FontWeight.w800, color: primaryTextColor, fontSize: 14)),
-                  subtitle: Text('XP, Level badges, streaks & productivity matrix', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
-                  trailing: Icon(CupertinoIcons.chevron_right, size: 16, color: secondaryTextColor),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    showModalBottomSheet(
-                      context: context,
-                      isScrollControlled: true,
-                      backgroundColor: Colors.transparent,
-                      builder: (_) => const AnalyticsSheet(),
-                    );
-                  },
-                ),
-                Divider(height: 16, color: dividerColor),
-
-                // 7B. Apex Prestige Suite
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [Color(0xFF6366F1), Color(0xFFA855F7), Color(0xFFF59E0B)],
-                      ),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(CupertinoIcons.sparkles, color: Colors.white, size: 20),
-                  ),
-                  title: Row(
-                    children: [
-                      Text('Apex Prestige Suite', style: TextStyle(fontWeight: FontWeight.w800, color: primaryTextColor, fontSize: 14)),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF6366F1), Color(0xFFF59E0B)],
-                          ),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          FirebaseSyncService.isApex ? '✦ ACTIVE' : '✦ DETAILS',
-                          style: const TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  subtitle: Text('Review 300 projects, Table layout, AI Assist, Vault & executive perks', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
-                  trailing: Icon(CupertinoIcons.chevron_right, size: 16, color: secondaryTextColor),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    showModalBottomSheet(
-                      context: context,
-                      isScrollControlled: true,
-                      backgroundColor: Colors.transparent,
-                      builder: (_) => const ApexBenefitsSheet(),
-                    );
-                  },
-                ),
-                Divider(height: 16, color: dividerColor),
-
-                // 7B. Apex Prestige Suite
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF6366F1), Color(0xFFA855F7), Color(0xFFF59E0B)],
-                      ),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(CupertinoIcons.sparkles, color: Colors.white, size: 20),
-                  ),
-                  title: Row(
-                    children: [
-                      Text('Apex Prestige Suite', style: TextStyle(fontWeight: FontWeight.w800, color: primaryTextColor, fontSize: 14)),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF6366F1), Color(0xFFF59E0B)],
-                          ),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          FirebaseSyncService.isApex ? '✦ ACTIVE' : '✦ DETAILS',
-                          style: const TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  subtitle: Text('Review 300 projects, Table layout, AI Assist, Vault & executive perks', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
-                  trailing: Icon(CupertinoIcons.chevron_right, size: 16, color: secondaryTextColor),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    showModalBottomSheet(
-                      context: context,
-                      isScrollControlled: true,
-                      backgroundColor: Colors.transparent,
-                      builder: (_) => const ApexBenefitsSheet(),
-                    );
-                  },
-                ),
-                Divider(height: 16, color: dividerColor),
-
-                // 8. User Account & Sync
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: AppColors.primaryIndigo.withOpacity(0.15),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(CupertinoIcons.person_crop_circle, color: AppColors.primaryIndigo, size: 20),
-                  ),
-                  title: Text(FirebaseSyncService.isRealCloudUser ? FirebaseSyncService.displayName : 'Guest User', style: TextStyle(fontWeight: FontWeight.w800, color: primaryTextColor, fontSize: 14)),
-                  subtitle: Text(FirebaseSyncService.isRealCloudUser ? FirebaseSyncService.userEmail : 'Tap to sign in or sync with Google', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
-                  trailing: Icon(CupertinoIcons.chevron_right, size: 16, color: secondaryTextColor),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    showModalBottomSheet(
-                      context: context,
-                      isScrollControlled: true,
-                      backgroundColor: Colors.transparent,
-                      builder: (_) => const AuthModalSheet(),
-                    );
-                  },
-                ),
-                const SizedBox(height: 12),
-              ],
+                  const SizedBox(height: 12),
+                ],
+              ),
             ),
           );
         },

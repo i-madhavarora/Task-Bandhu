@@ -69,8 +69,11 @@ class _DeepFocusScreenState extends State<DeepFocusScreen>
     _totalDurationSeconds = widget.initialMinutes * 60;
     _remainingSeconds = _totalDurationSeconds;
 
-    // Enforce Immersive Fullscreen Lockdown
+    // Enforce Immersive Fullscreen Lockdown & Keep Screen Awake
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    try {
+      const MethodChannel('com.taskbandhu.apex/audio').invokeMethod('keepScreenOn', {'enable': true});
+    } catch (_) {}
 
     // Ambient Animation Controllers
     _pulseController = AnimationController(
@@ -90,25 +93,28 @@ class _DeepFocusScreenState extends State<DeepFocusScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
-      // User minimized, switched apps, or accessed notifications
-      _appPausedTime = DateTime.now();
-    } else if (state == AppLifecycleState.resumed && _appPausedTime != null) {
-      final awayDuration = DateTime.now().difference(_appPausedTime!).inSeconds;
-      _appPausedTime = null;
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive || state == AppLifecycleState.hidden) {
+      // User minimized, switched apps, locked screen, or pulled notifications
+      _appPausedTime ??= DateTime.now();
+    } else if (state == AppLifecycleState.resumed) {
+      if (_appPausedTime != null) {
+        final awayDuration = DateTime.now().difference(_appPausedTime!).inSeconds;
+        _appPausedTime = null;
 
-      if (awayDuration >= 1) {
-        HapticFeedback.heavyImpact();
-        setState(() {
-          _distractionCount++;
-          _distractionSeconds += awayDuration;
-          _distractionAlert = '⚠️ Distraction recorded: You left the focus zone for ${awayDuration}s!';
-        });
+        if (awayDuration >= 1) {
+          HapticFeedback.heavyImpact();
+          SoundService.playClick();
+          setState(() {
+            _distractionCount++;
+            _distractionSeconds += awayDuration;
+            _distractionAlert = '⚠️ Distraction recorded: You left the focus zone for ${awayDuration}s!';
+          });
 
-        // Auto clear alert banner after 6s
-        Timer(const Duration(seconds: 6), () {
-          if (mounted) setState(() => _distractionAlert = '');
-        });
+          // Auto clear alert banner after 6s
+          Timer(const Duration(seconds: 6), () {
+            if (mounted) setState(() => _distractionAlert = '');
+          });
+        }
       }
     }
   }
@@ -293,6 +299,9 @@ class _DeepFocusScreenState extends State<DeepFocusScreen>
     _pulseController.dispose();
     _ambientGlowController.dispose();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    try {
+      const MethodChannel('com.taskbandhu.apex/audio').invokeMethod('keepScreenOn', {'enable': false});
+    } catch (_) {}
     super.dispose();
   }
 
@@ -369,66 +378,79 @@ class _DeepFocusScreenState extends State<DeepFocusScreen>
 
                   // Header Status: Distraction & Score Pill
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         // Lockdown Indicator Pill
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF1E293B),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: const Color(0xFF10B981).withOpacity(0.4)),
-                          ),
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(CupertinoIcons.lock_shield_fill, color: Color(0xFF10B981), size: 14),
-                              SizedBox(width: 6),
-                              Text(
-                                'STRICT LOCKDOWN',
-                                style: TextStyle(
-                                  color: Color(0xFF10B981),
-                                  fontWeight: FontWeight.w900,
-                                  fontSize: 10.5,
-                                  letterSpacing: 0.8,
-                                ),
+                        Flexible(
+                          flex: 5,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1E293B),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: const Color(0xFF10B981).withOpacity(0.4)),
+                            ),
+                            child: const FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(CupertinoIcons.lock_shield_fill, color: Color(0xFF10B981), size: 13),
+                                  SizedBox(width: 5),
+                                  Text(
+                                    'STRICT LOCKDOWN',
+                                    style: TextStyle(
+                                      color: Color(0xFF10B981),
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 10,
+                                      letterSpacing: 0.6,
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
-                        ),
-
-                        // Score & Distraction Counter Pill
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF1E293B),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                              color: _distractionCount == 0
-                                  ? const Color(0xFF38BDF8).withOpacity(0.4)
-                                  : const Color(0xFFF59E0B).withOpacity(0.5),
                             ),
                           ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                _distractionCount == 0 ? CupertinoIcons.bolt_fill : CupertinoIcons.exclamationmark_triangle_fill,
-                                color: _distractionCount == 0 ? const Color(0xFF38BDF8) : const Color(0xFFF59E0B),
-                                size: 13,
+                        ),
+                        const SizedBox(width: 8),
+
+                        // Score & Distraction Counter Pill
+                        Flexible(
+                          flex: 7,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1E293B),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: _distractionCount == 0
+                                    ? const Color(0xFF38BDF8).withOpacity(0.4)
+                                    : const Color(0xFFF59E0B).withOpacity(0.5),
                               ),
-                              const SizedBox(width: 6),
-                              Text(
-                                'Distractions: $_distractionCount  •  Score: $focusScore%',
-                                style: TextStyle(
-                                  color: _distractionCount == 0 ? Colors.white : const Color(0xFFF59E0B),
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 11,
-                                ),
+                            ),
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    _distractionCount == 0 ? CupertinoIcons.bolt_fill : CupertinoIcons.exclamationmark_triangle_fill,
+                                    color: _distractionCount == 0 ? const Color(0xFF38BDF8) : const Color(0xFFF59E0B),
+                                    size: 13,
+                                  ),
+                                  const SizedBox(width: 5),
+                                  Text(
+                                    '$_distractionCount dist  •  $focusScore%',
+                                    style: TextStyle(
+                                      color: _distractionCount == 0 ? Colors.white : const Color(0xFFF59E0B),
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 10.5,
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ],
+                            ),
                           ),
                         ),
                       ],

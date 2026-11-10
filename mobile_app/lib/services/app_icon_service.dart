@@ -109,7 +109,7 @@ class AppIconService extends ChangeNotifier {
         orElse: () => availableIcons.first,
       );
 
-  static bool isFestive(String id) => false;
+  static bool isFestive(String id) => ['diwali', 'holi', 'newyear', 'christmas'].contains(id);
   static bool isApexExclusive(String id) => id.startsWith('premium_');
 
   Future<void> init() async {

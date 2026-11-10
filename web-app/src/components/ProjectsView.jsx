@@ -1,7 +1,7 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   Folder, Plus, ChevronRight, X, Trash2, Check,
-  Users, Lock, UserCheck, LogOut
+  Users, Lock, UserCheck, LogOut, Layers
 } from 'lucide-react';
 import { PLAN_LIMITS } from '../utils/planLimits';
 
@@ -20,6 +20,8 @@ export default function ProjectsView({
   tasks = [],
   user,
   currentWorkspace = 'personal', // 'personal' | 'team'
+  initialTab = null, // 'all' | 'personal' | 'team'
+  onTabChange,
   connections = [],
   onCreateProject,
   onDeleteProject,
@@ -35,20 +37,31 @@ export default function ProjectsView({
   const [editingMembersProject, setEditingMembersProject] = useState(null);
   const [editMemberUids, setEditMemberUids] = useState(new Set());
   const [selectedConnectedUids, setSelectedConnectedUids] = useState(new Set());
+  const [projectTab, setProjectTab] = useState(() => initialTab || currentWorkspace || 'personal');
+
+  // Keep projectTab synced if parent updates initialTab
+  useEffect(() => {
+    if (initialTab) {
+      setProjectTab(initialTab);
+    }
+  }, [initialTab]);
+
   const [newProject, setNewProject] = useState({
     name: '',
     description: '',
     color: 'indigo',
-    type: currentWorkspace === 'team' ? 'team' : 'personal'
+    type: 'personal'
   });
 
-  // Filter projects by active workspace
-  const workspaceProjects = projects.filter(p => {
-    if (currentWorkspace === 'personal') {
-      return p.type === 'personal' || !p.type;
-    }
-    return p.type === 'team';
-  });
+  const personalProjects = useMemo(() => projects.filter(p => p.type === 'personal' || !p.type), [projects]);
+  const teamProjects = useMemo(() => projects.filter(p => p.type === 'team'), [projects]);
+
+  // Combined projects view with optional quick filter
+  const workspaceProjects = useMemo(() => {
+    if (projectTab === 'personal') return personalProjects;
+    if (projectTab === 'team') return teamProjects;
+    return projects; // 'all' shows combined results!
+  }, [projects, projectTab, personalProjects, teamProjects]);
 
   // Limit checks: Core max 5 projects, Apex max 300 projects
   // Limits strictly apply to projects created and owned by this user (being in shared teams does not consume your limit)
@@ -205,19 +218,63 @@ export default function ProjectsView({
       {/* Header Banner */}
       <div className="bg-white dark:bg-[#101726] p-6 sm:p-7 rounded-3xl border border-slate-200/80 dark:border-white/[0.08] shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 transition-all">
         <div>
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
             <span className="p-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/50">
-              {currentWorkspace === 'personal' ? <Lock size={18} /> : <Users size={18} />}
+              {projectTab === 'personal' ? <Lock size={18} /> : projectTab === 'team' ? <Users size={18} /> : <Folder size={18} />}
             </span>
             <h2 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-              {currentWorkspace === 'personal' ? 'Personal Projects' : 'Team Projects'}
+              {projectTab === 'personal'
+                ? 'Personal Projects'
+                : projectTab === 'team'
+                  ? 'Team Projects'
+                  : 'Projects & Hubs'}
             </h2>
+            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-white/[0.04] border border-slate-200/50 dark:border-white/[0.05] flex items-center gap-1.5">
+              <span className={`w-1.5 h-1.5 rounded-full ${projectTab === 'all' ? 'bg-emerald-500 animate-pulse' : 'bg-indigo-500'}`} />
+              <span>
+                {projectTab === 'personal'
+                  ? 'Personal Workspace'
+                  : projectTab === 'team'
+                    ? 'Team Workspace'
+                    : 'Combined (Personal + Team)'}
+              </span>
+            </span>
           </div>
           <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 font-medium">
-            {currentWorkspace === 'personal'
-              ? 'Private projects for your individual work and goals.'
-              : 'Collaborative projects with teams formed from your connected people.'}
+            {projectTab === 'personal'
+              ? 'Manage your private goal spaces and individual projects.'
+              : projectTab === 'team'
+                ? 'Manage shared collaborative team workspaces and team member access.'
+                : 'Manage your personal goal spaces and shared collaborative team projects together.'}
           </p>
+
+          {/* Workspace Filter Pills */}
+          <div className="flex items-center gap-1.5 mt-3 flex-wrap">
+            {[
+              { id: 'personal', label: `Personal (${personalProjects.length})`, icon: Lock },
+              { id: 'team', label: `Team (${teamProjects.length})`, icon: Users },
+              { id: 'all', label: `All Projects (${projects.length})`, icon: Layers }
+            ].map(tab => {
+              const TabIcon = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => {
+                    setProjectTab(tab.id);
+                    onTabChange?.(tab.id);
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${projectTab === tab.id
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+                    }`}
+                >
+                  <TabIcon size={12} className={projectTab === tab.id ? 'text-white' : 'text-slate-400'} />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <div className="flex items-center gap-2.5">
@@ -230,7 +287,7 @@ export default function ProjectsView({
             className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white px-4 py-2.5 rounded-2xl text-xs font-black shadow-md shadow-indigo-500/20 active:scale-95 transition-all"
           >
             <Plus size={15} />
-            <span>New {currentWorkspace === 'personal' ? 'Personal' : 'Team'} Project</span>
+            <span>New Project</span>
           </button>
         </div>
       </div>
@@ -242,19 +299,25 @@ export default function ProjectsView({
             <Folder size={26} />
           </div>
           <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
-            No {currentWorkspace === 'personal' ? 'Personal' : 'Team'} Projects Yet
+            {projectTab === 'personal'
+              ? 'No Personal Projects Yet'
+              : projectTab === 'team'
+                ? 'No Team Projects Yet'
+                : 'No Projects Yet'}
           </h3>
           <p className="text-xs text-slate-400 max-w-sm mx-auto mt-1 mb-5">
-            {currentWorkspace === 'personal'
-              ? 'Organize your goals, study, or habits by creating a personal project.'
-              : 'Create a team project and select connected teammates to collaborate.'}
+            {projectTab === 'personal'
+              ? 'Organize your personal goals, study, or habits by creating a private personal project.'
+              : projectTab === 'team'
+                ? 'Create a collaborative team project and invite teammates to work together.'
+                : 'Create your first personal or team project to start organizing.'}
           </p>
           <button
             type="button"
             onClick={handleOpenCreateModal}
             className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-xl text-xs font-black shadow-md transition-all active:scale-95"
           >
-            <Plus size={14} /> Create Project
+            <Plus size={14} /> Create {projectTab === 'personal' ? 'Personal' : projectTab === 'team' ? 'Team' : ''} Project
           </button>
         </div>
       ) : (
@@ -408,22 +471,20 @@ export default function ProjectsView({
                   <button
                     type="button"
                     onClick={() => setNewProject(p => ({ ...p, type: 'personal' }))}
-                    className={`py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 ${
-                      newProject.type === 'personal'
+                    className={`py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 ${newProject.type === 'personal'
                         ? 'bg-white dark:bg-[#151e32] text-slate-900 dark:text-white shadow-xs'
                         : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                    }`}
+                      }`}
                   >
                     <Lock size={13} /> Personal Project
                   </button>
                   <button
                     type="button"
                     onClick={() => setNewProject(p => ({ ...p, type: 'team' }))}
-                    className={`py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 ${
-                      newProject.type === 'team'
+                    className={`py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 ${newProject.type === 'team'
                         ? 'bg-white dark:bg-[#151e32] text-indigo-600 dark:text-indigo-400 shadow-xs'
                         : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                    }`}
+                      }`}
                   >
                     <Users size={13} /> Team Project
                   </button>
@@ -470,9 +531,8 @@ export default function ProjectsView({
                       key={colorKey}
                       type="button"
                       onClick={() => setNewProject(p => ({ ...p, color: colorKey }))}
-                      className={`w-7 h-7 rounded-full ${PROJECT_COLOR_CLASSES[colorKey].bg} flex items-center justify-center transition-all ${
-                        newProject.color === colorKey ? 'ring-2 ring-offset-2 ring-indigo-500 scale-110 shadow-md' : 'opacity-80 hover:opacity-100'
-                      }`}
+                      className={`w-7 h-7 rounded-full ${PROJECT_COLOR_CLASSES[colorKey].bg} flex items-center justify-center transition-all ${newProject.color === colorKey ? 'ring-2 ring-offset-2 ring-indigo-500 scale-110 shadow-md' : 'opacity-80 hover:opacity-100'
+                        }`}
                     >
                       {newProject.color === colorKey && <Check size={14} className="text-white stroke-[3]" />}
                     </button>
@@ -509,11 +569,10 @@ export default function ProjectsView({
                           <div
                             key={targetId}
                             onClick={() => toggleTeammateSelection(targetId)}
-                            className={`p-2.5 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
-                              isSelected
+                            className={`p-2.5 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${isSelected
                                 ? 'bg-indigo-50/80 dark:bg-indigo-950/40 border-indigo-300 dark:border-indigo-800'
                                 : 'bg-slate-50 dark:bg-white/[0.02] border-slate-200/60 dark:border-white/[0.04] hover:bg-slate-100 dark:hover:bg-white/[0.04]'
-                            }`}
+                              }`}
                           >
                             <div className="flex items-center gap-2.5 min-w-0">
                               <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white font-extrabold text-xs flex items-center justify-center shrink-0">
@@ -529,9 +588,8 @@ export default function ProjectsView({
                               </div>
                             </div>
 
-                            <div className={`w-5 h-5 rounded-lg border flex items-center justify-center transition-all ${
-                              isSelected ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-300 dark:border-slate-600'
-                            }`}>
+                            <div className={`w-5 h-5 rounded-lg border flex items-center justify-center transition-all ${isSelected ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-300 dark:border-slate-600'
+                              }`}>
                               {isSelected && <Check size={12} className="stroke-[3]" />}
                             </div>
                           </div>
@@ -634,11 +692,10 @@ export default function ProjectsView({
                       <div
                         key={uid}
                         onClick={() => toggleEditMemberUid(uid)}
-                        className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between ${
-                          isSelected
+                        className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between ${isSelected
                             ? 'bg-indigo-50/80 dark:bg-indigo-950/40 border-indigo-400 dark:border-indigo-600/60 shadow-xs'
                             : 'bg-white dark:bg-white/[0.02] border-slate-200/80 dark:border-white/[0.06] hover:border-slate-300'
-                        }`}
+                          }`}
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
                           <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-black text-xs shrink-0">
@@ -654,11 +711,10 @@ export default function ProjectsView({
                           </div>
                         </div>
 
-                        <div className={`w-5 h-5 rounded-lg border flex items-center justify-center transition-all ${
-                          isSelected
+                        <div className={`w-5 h-5 rounded-lg border flex items-center justify-center transition-all ${isSelected
                             ? 'bg-indigo-600 border-indigo-600 text-white'
                             : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900'
-                        }`}>
+                          }`}>
                           {isSelected && <Check size={12} strokeWidth={3} />}
                         </div>
                       </div>

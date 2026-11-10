@@ -226,57 +226,94 @@ export default function ProfileView({
         {/* Card 1: Subscription & Plan Overview */}
         <div className={`p-6 rounded-3xl border shadow-sm flex flex-col justify-between space-y-4 ${
           isApex
-            ? 'bg-gradient-to-br from-violet-950/40 via-slate-800 to-indigo-950/40 border-violet-500/40'
+            ? 'bg-gradient-to-br from-amber-50/90 via-violet-50/50 to-indigo-50/90 dark:from-violet-950/40 dark:via-slate-800 dark:to-indigo-950/40 border-amber-300/80 dark:border-violet-500/40'
             : 'bg-white dark:bg-slate-800 border-gray-100 dark:border-slate-700'
         }`}>
-          <div>
-            <div className="flex items-center justify-between mb-3">
+          <div className="space-y-3.5">
+            <div className="flex items-center justify-between">
               <span className="text-[11px] font-black uppercase tracking-wider text-gray-400 dark:text-slate-500">
                 Membership Tier
               </span>
-              <span className={`p-1.5 rounded-xl ${isApex ? 'bg-amber-400/20 text-amber-300' : 'bg-blue-50 dark:bg-slate-700 text-blue-600 dark:text-blue-400'}`}>
+              <span className={`p-1.5 rounded-xl ${isApex ? 'bg-amber-100 dark:bg-amber-400/20 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-400/30' : 'bg-blue-50 dark:bg-slate-700 text-blue-600 dark:text-blue-400'}`}>
                 {isApex ? <Sparkles size={18} /> : <ShieldCheck size={18} />}
               </span>
             </div>
-            <h3 className="text-xl font-black text-gray-900 dark:text-white mb-1 flex items-center gap-2">
-              Task Bandhu {isApex ? '✦ Apex' : 'Core'}
-            </h3>
-            <p className="text-xs text-gray-500 dark:text-slate-400 leading-relaxed">
-              {isApex
-                ? 'Apex Prestige edition with unlimited priority pins, unlimited custom projects, up to 50 team members, and full Gemini AI task breakdown.'
-                : 'Standard Core edition with individual task capture, up to 2 pinned priorities, 2 custom projects, and 2 team members.'}
-            </p>
+            <div>
+              <h3 className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
+                Task Bandhu {isApex ? '✦ Apex' : 'Core'}
+              </h3>
+              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed mt-1 font-medium">
+                {isApex
+                  ? 'Apex Prestige edition with unlimited priority pins, unlimited custom projects, up to 50 team members, and full Gemini AI task breakdown.'
+                  : 'Standard Core edition with individual task capture, up to 2 pinned priorities, 2 custom projects, and 2 team members.'}
+              </p>
+            </div>
 
-            <ul className="space-y-2 pt-4 text-xs font-semibold text-gray-700 dark:text-slate-300">
+            {/* Feature Breakdown */}
+            <ul className="space-y-2 pt-1 text-xs font-bold text-slate-800 dark:text-slate-200">
               <li className="flex items-center gap-2">
-                <CheckCircle2 size={15} className="text-emerald-500 shrink-0" />
+                <CheckCircle2 size={14} className={isApex ? 'text-amber-600 dark:text-amber-400 shrink-0' : 'text-emerald-500 shrink-0'} />
                 <span>{isApex ? 'Unlimited Pinned Priorities' : 'Max 2 Pinned Priorities'}</span>
               </li>
               <li className="flex items-center gap-2">
-                <CheckCircle2 size={15} className="text-emerald-500 shrink-0" />
+                <CheckCircle2 size={14} className={isApex ? 'text-amber-600 dark:text-amber-400 shrink-0' : 'text-emerald-500 shrink-0'} />
                 <span>{isApex ? 'Unlimited Custom Projects' : 'Up to 2 Custom Projects'}</span>
               </li>
               <li className="flex items-center gap-2">
-                <CheckCircle2 size={15} className="text-emerald-500 shrink-0" />
+                <CheckCircle2 size={14} className={isApex ? 'text-amber-600 dark:text-amber-400 shrink-0' : 'text-emerald-500 shrink-0'} />
                 <span>{isApex ? '50 Collaborative Teammates' : '2 Team Members (Owner + 1 Teammate)'}</span>
               </li>
               <li className="flex items-center gap-2">
-                <CheckCircle2 size={15} className="text-emerald-500 shrink-0" />
+                <CheckCircle2 size={14} className={isApex ? 'text-amber-600 dark:text-amber-400 shrink-0' : 'text-emerald-500 shrink-0'} />
                 <span>{isApex ? 'Unlimited Gemini AI Breakdown' : '3 Daily AI Breakdowns'}</span>
               </li>
             </ul>
+
+            {/* Quota & Perks Summary Box */}
+            {isApex ? (
+              <div className="p-3 rounded-2xl bg-gradient-to-r from-amber-500/10 via-purple-500/10 to-indigo-500/10 dark:from-amber-500/15 dark:via-purple-500/15 dark:to-indigo-500/15 border border-amber-300 dark:border-amber-500/30 text-xs space-y-1">
+                <div className="flex items-center justify-between text-amber-900 dark:text-amber-300 font-black">
+                  <span className="flex items-center gap-1.5"><Crown size={13} className="text-amber-600 dark:text-amber-400" /> Prestige Quota:</span>
+                  <span>All Limits Uncapped</span>
+                </div>
+                <p className="text-[11px] text-amber-800/90 dark:text-amber-200/80 leading-snug">
+                  Permanent cloud archive, 100MB file attachments, and luxury executive emblems active.
+                </p>
+              </div>
+            ) : (
+              <div className="p-3 rounded-2xl bg-gray-50 dark:bg-slate-900/60 border border-gray-100 dark:border-slate-800 text-xs space-y-1.5">
+                <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 font-semibold">
+                  <span>Daily AI Quota:</span>
+                  <span className="font-bold text-slate-700 dark:text-slate-200">3 Daily Breakdowns</span>
+                </div>
+                <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 font-semibold">
+                  <span>Cloud Database:</span>
+                  <span className="font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                    <ShieldCheck size={12} /> Firebase Live
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
 
-          <div className="pt-4 border-t border-gray-100 dark:border-slate-700 space-y-3">
+          <div className="pt-3 border-t border-gray-100 dark:border-slate-700 space-y-2.5">
             <div className="flex items-center justify-between text-xs font-bold text-gray-500">
               <span>Status:</span>
-              <span className={`font-extrabold flex items-center gap-1 ${isApex ? 'text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                <span className={`w-2 h-2 rounded-full ${isApex ? 'bg-amber-400' : 'bg-emerald-500'} animate-pulse`}></span>
+              <span className={`font-extrabold flex items-center gap-1.5 ${isApex ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                <span className={`w-2 h-2 rounded-full ${isApex ? 'bg-amber-500 dark:bg-amber-400 shadow-[0_0_8px_#f59e0b]' : 'bg-emerald-500'} animate-pulse`}></span>
                 {isApex ? '✦ Apex Prestige Active' : 'Core Active'}
               </span>
             </div>
 
-            {!isApex && (
+            {isApex ? (
+              <button
+                type="button"
+                onClick={onOpenApexModal}
+                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-amber-500/15 via-purple-500/15 to-indigo-500/15 hover:from-amber-500/25 hover:to-indigo-500/25 dark:from-amber-500/20 dark:via-purple-500/20 dark:to-indigo-500/20 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-500/40 text-xs font-black shadow-sm flex items-center justify-center gap-1.5 active:scale-95 transition-all"
+              >
+                <Sparkles size={13} className="text-amber-600 dark:text-amber-400" /> Review Apex Prestige Perks
+              </button>
+            ) : (
               <button
                 type="button"
                 onClick={onOpenApexModal}
@@ -290,8 +327,8 @@ export default function ProfileView({
 
         {/* Card 2: Productivity Achievements & Rank */}
         <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm flex flex-col justify-between space-y-4">
-          <div>
-            <div className="flex items-center justify-between mb-3">
+          <div className="space-y-3.5">
+            <div className="flex items-center justify-between">
               <span className="text-[11px] font-black uppercase tracking-wider text-gray-400 dark:text-slate-500">
                 Achievements & Level
               </span>
@@ -299,14 +336,16 @@ export default function ProfileView({
                 <Zap size={18} />
               </span>
             </div>
-            <h3 className="text-xl font-black text-gray-900 dark:text-white mb-0.5">
-              Level {currentLevel}
-            </h3>
-            <p className="text-xs font-extrabold text-indigo-600 dark:text-indigo-400">
-              {getRankTitle(currentLevel)}
-            </p>
+            <div>
+              <h3 className="text-xl font-black text-gray-900 dark:text-white mb-0.5">
+                Level {currentLevel}
+              </h3>
+              <p className="text-xs font-extrabold text-indigo-600 dark:text-indigo-400">
+                {getRankTitle(currentLevel)}
+              </p>
+            </div>
 
-            <div className="space-y-1.5 pt-4">
+            <div className="space-y-1.5 pt-2">
               <div className="flex justify-between text-xs font-bold text-gray-500">
                 <span>XP Progress</span>
                 <span className="text-indigo-600 font-extrabold">{currentXP} / 100 XP</span>
@@ -322,7 +361,7 @@ export default function ProfileView({
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 pt-4">
+            <div className="grid grid-cols-2 gap-2 pt-2">
               <div className="p-3 rounded-2xl bg-orange-50 dark:bg-orange-950/30 border border-orange-100 dark:border-orange-900/40 text-center">
                 <p className="text-[10px] font-bold text-orange-600 uppercase flex items-center justify-center gap-1">
                   <Flame size={12} /> Focus Streak
@@ -343,15 +382,15 @@ export default function ProfileView({
             </div>
           </div>
 
-          <div className="pt-2 border-t border-gray-100 dark:border-slate-700 text-center">
-            <span className="text-[11px] font-bold text-gray-400">Streak multipliers apply to daily XP</span>
+          <div className="pt-3 border-t border-gray-100 dark:border-slate-700 text-center">
+            <span className="text-[11px] font-bold text-gray-400">Streak multipliers apply to daily XP gain</span>
           </div>
         </div>
 
         {/* Card 3: Team Workspace & Cloud Security */}
         <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm flex flex-col justify-between space-y-4">
-          <div>
-            <div className="flex items-center justify-between mb-3">
+          <div className="space-y-3.5">
+            <div className="flex items-center justify-between">
               <span className="text-[11px] font-black uppercase tracking-wider text-gray-400 dark:text-slate-500">
                 Workspace & Team
               </span>
@@ -359,14 +398,16 @@ export default function ProfileView({
                 <Globe size={18} />
               </span>
             </div>
-            <h3 className="text-xl font-black text-gray-900 dark:text-white mb-1 truncate">
-              {workspaceName}
-            </h3>
-            <p className="text-xs text-gray-500 dark:text-slate-400">
-              {teamMembers.length} active teammate(s) connected
-            </p>
+            <div>
+              <h3 className="text-xl font-black text-gray-900 dark:text-white mb-1 truncate">
+                {workspaceName}
+              </h3>
+              <p className="text-xs text-gray-500 dark:text-slate-400">
+                {teamMembers.length} active teammate(s) connected
+              </p>
+            </div>
 
-            <div className="p-3 rounded-2xl bg-gray-50 dark:bg-slate-900/60 border border-gray-100 dark:border-slate-700 mt-4 space-y-2">
+            <div className="p-3 rounded-2xl bg-gray-50 dark:bg-slate-900/60 border border-gray-100 dark:border-slate-700 space-y-2">
               <div className="flex items-center justify-between text-xs font-bold">
                 <span className="text-gray-400">Team Code:</span>
                 <span className="font-mono text-blue-600 dark:text-blue-400 font-black">{inviteCode || 'No Team Code Yet'}</span>
@@ -383,7 +424,7 @@ export default function ProfileView({
               </div>
             </div>
 
-            <div className="pt-4 space-y-2">
+            <div className="space-y-1.5 pt-1">
               <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Cloud User UID</p>
               <div className="flex items-center gap-2 bg-gray-50 dark:bg-slate-900 px-3 py-2 rounded-xl text-xs font-mono text-gray-600 dark:text-slate-400 border border-gray-100 dark:border-slate-800">
                 <span className="truncate flex-1">{user?.uid || 'guest_local_user'}</span>
@@ -402,51 +443,7 @@ export default function ProfileView({
             </div>
           </div>
 
-          {/* Brand Aesthetics & Personalized Loading Screen */}
-          <div className="bg-white dark:bg-[#0c121e] border border-gray-200/80 dark:border-white/[0.08] rounded-3xl p-6 shadow-sm space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-black uppercase tracking-wider text-gray-400 dark:text-slate-500">
-                Aesthetics & Splash Screen
-              </span>
-              <span className="p-1.5 rounded-xl bg-purple-50 dark:bg-purple-900/30 text-purple-600">
-                <Sparkles size={18} />
-              </span>
-            </div>
-
-            <div className="flex items-center gap-3.5 p-3 rounded-2xl bg-gray-50 dark:bg-slate-900/60 border border-gray-100 dark:border-slate-800">
-              <div className="w-12 h-12 rounded-xl p-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 flex items-center justify-center shrink-0 overflow-hidden shadow-xs">
-                <img src={resolvedAppLogo.src} alt="Active App Icon" className="w-full h-full object-contain rounded-lg" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-bold text-slate-900 dark:text-white truncate">{resolvedAppLogo.name}</span>
-                  {resolvedAppLogo.isFestive && (
-                    <span className="text-[10px] font-black text-amber-500 bg-amber-500/10 px-1 rounded">🪔 Festive</span>
-                  )}
-                </div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">{resolvedAppLogo.subtitle}</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={onOpenAppIconPicker}
-                className="py-2.5 px-3 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 active:scale-95"
-              >
-                <Sparkles size={13} /> App Icons
-              </button>
-              <button
-                type="button"
-                onClick={onPreviewSplash}
-                className="py-2.5 px-3 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 active:scale-95"
-              >
-                <Eye size={13} /> Splash Screen
-              </button>
-            </div>
-          </div>
-
-          <div className="pt-4 border-t border-gray-100 dark:border-slate-700 flex items-center gap-2">
+          <div className="pt-3 border-t border-gray-100 dark:border-slate-700 flex items-center gap-2">
             <button
               type="button"
               onClick={onExportBackup}
@@ -461,6 +458,72 @@ export default function ProfileView({
             >
               <LogOut size={14} /> Sign Out
             </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Brand Aesthetics & Personalization Hub */}
+      <div className="bg-white dark:bg-slate-800 p-6 md:p-7 rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-[11px] font-black uppercase tracking-wider text-gray-400 dark:text-slate-500">
+                Aesthetics & Splash Screen
+              </span>
+              <span className="p-1 rounded-lg bg-purple-50 dark:bg-purple-900/30 text-purple-600">
+                <Sparkles size={14} />
+              </span>
+            </div>
+            <h3 className="text-lg font-black text-gray-900 dark:text-white">
+              Brand Identity & Dynamic Themes
+            </h3>
+            <p className="text-xs text-gray-500 dark:text-slate-400">
+              Personalize your workspace logo, luxury executive emblems, and festive splash screen celebrations.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2.5 w-full sm:w-auto">
+            <button
+              type="button"
+              onClick={onOpenAppIconPicker}
+              className="flex-1 sm:flex-initial py-2.5 px-4 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 active:scale-95 shadow-xs"
+            >
+              <Sparkles size={14} /> Designer App Icons
+            </button>
+            <button
+              type="button"
+              onClick={onPreviewSplash}
+              className="flex-1 sm:flex-initial py-2.5 px-4 bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 active:scale-95 shadow-xs"
+            >
+              <Eye size={14} /> Preview Splash
+            </button>
+          </div>
+        </div>
+
+        {/* Active Icon Showcase Banner */}
+        <div className="flex items-center gap-4 p-4 rounded-2xl bg-gray-50 dark:bg-slate-900/60 border border-gray-100 dark:border-slate-800">
+          <div className="w-14 h-14 rounded-2xl p-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 flex items-center justify-center shrink-0 overflow-hidden shadow-xs">
+            <img src={resolvedAppLogo.src} alt="Active App Icon" className="w-full h-full object-contain rounded-xl" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
+              <span className="text-sm font-black text-slate-900 dark:text-white">
+                {resolvedAppLogo.name}
+              </span>
+              {resolvedAppLogo.isFestive && (
+                <span className="text-[9px] font-black uppercase tracking-wider text-pink-500 dark:text-pink-400 bg-pink-500/15 border border-pink-500/30 px-2 py-0.5 rounded-md whitespace-nowrap shrink-0 flex items-center gap-1">
+                  🪔 Festive Edition
+                </span>
+              )}
+              {resolvedAppLogo.isApex && (
+                <span className="text-[9px] font-black uppercase text-amber-500 bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded-md whitespace-nowrap shrink-0">
+                  ✦ Apex Prestige
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 leading-snug">
+              {resolvedAppLogo.subtitle}
+            </p>
           </div>
         </div>
       </div>

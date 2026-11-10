@@ -21,8 +21,18 @@ class AuthProvider extends ChangeNotifier {
     return result;
   }
 
-  Future<Map<String, dynamic>> signInWithGoogle(String email, {String? name}) async {
-    final result = await FirebaseSyncService.signInWithGoogle(email, name: name);
+  Future<Map<String, dynamic>> signInWithGoogle(
+    String email, {
+    String? name,
+    String? idToken,
+    String? accessToken,
+  }) async {
+    final result = await FirebaseSyncService.signInWithGoogle(
+      email,
+      name: name,
+      idTokenParam: idToken,
+      accessTokenParam: accessToken,
+    );
     notifyListeners();
     return result;
   }

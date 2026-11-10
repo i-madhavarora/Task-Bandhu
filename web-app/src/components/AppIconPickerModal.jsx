@@ -66,7 +66,7 @@ export default function AppIconPickerModal({
 
   return (
     <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-fadeIn">
-      <div className="relative w-full max-w-2xl bg-white dark:bg-[#0f1523] border border-slate-200 dark:border-white/10 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-spring-in">
+      <div className="relative w-full max-w-3xl bg-white dark:bg-[#0f1523] border border-slate-200 dark:border-white/10 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-spring-in">
 
         {/* Modal Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-slate-200/60 dark:border-white/[0.08]">
@@ -127,20 +127,20 @@ export default function AppIconPickerModal({
                 ? (isDarkMode ? activeFestival.darkAsset : activeFestival.lightAsset)
                 : (isDarkMode ? (icon.darkAsset || icon.lightAsset) : (icon.lightAsset || icon.darkAsset));
               const displaySubtitle = isAuto && activeFestival
-                ? `${activeFestival.greeting} • Auto active`
+                ? `Active: ${activeFestival.name} • ${activeFestival.greeting}`
                 : icon.subtitle;
 
               return (
                 <div
                   key={icon.id}
                   onClick={() => handleSelect(icon)}
-                  className={`relative p-3.5 rounded-2xl border transition-all cursor-pointer flex items-center gap-3 interactive-card ${isSelected
-                      ? 'bg-indigo-50/70 dark:bg-indigo-950/40 border-indigo-500 ring-2 ring-indigo-500/30'
+                  className={`relative p-3.5 sm:p-4 rounded-2xl border transition-all cursor-pointer flex items-center gap-3.5 interactive-card ${isSelected
+                      ? 'bg-indigo-50/70 dark:bg-indigo-950/40 border-indigo-500 ring-2 ring-indigo-500/30 shadow-sm'
                       : 'bg-white dark:bg-slate-900/60 border-slate-200/80 dark:border-white/[0.06] hover:border-slate-300 dark:hover:border-white/[0.15]'
                     }`}
                 >
                   {/* Icon Thumbnail */}
-                  <div className="relative w-12 h-12 rounded-2xl p-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-white/10 flex items-center justify-center shrink-0 overflow-hidden">
+                  <div className="relative w-12 h-12 rounded-2xl p-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-white/10 flex items-center justify-center shrink-0 overflow-hidden shadow-xs">
                     {previewSrc ? (
                       <img src={previewSrc} alt={icon.name} className="w-full h-full object-contain rounded-xl" />
                     ) : (
@@ -154,9 +154,9 @@ export default function AppIconPickerModal({
                   </div>
 
                   {/* Info */}
-                  <div className="flex-1 min-w-0">
+                  <div className="flex-1 min-w-0 pr-1">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-white shrink-0">
+                      <span className="text-xs sm:text-sm font-black text-slate-900 dark:text-white shrink-0">
                         {icon.name}
                       </span>
                       {icon.isApex && (
@@ -165,19 +165,24 @@ export default function AppIconPickerModal({
                         </span>
                       )}
                       {isAuto && activeFestival && (
-                        <span className="text-[9px] font-black uppercase text-amber-500 bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 rounded-md whitespace-nowrap shrink-0 flex items-center gap-1">
+                        <span className="text-[9px] font-black uppercase tracking-wider text-pink-500 dark:text-pink-400 bg-pink-500/15 border border-pink-500/30 px-2 py-0.5 rounded-md whitespace-nowrap shrink-0 flex items-center gap-1">
                           🪔 Festive
                         </span>
                       )}
+                      {!icon.isApex && !isAuto && (
+                        <span className="text-[9px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 rounded-md whitespace-nowrap shrink-0">
+                          Free
+                        </span>
+                      )}
                     </div>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5" title={displaySubtitle}>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-snug line-clamp-2" title={displaySubtitle}>
                       {displaySubtitle}
                     </p>
                   </div>
 
                   {/* Selected check */}
                   {isSelected && (
-                    <div className="w-6 h-6 rounded-full bg-indigo-600 text-white flex items-center justify-center shrink-0 animate-checkmark-pop">
+                    <div className="w-6 h-6 rounded-full bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-sm animate-checkmark-pop">
                       <Check size={14} className="stroke-[3]" />
                     </div>
                   )}
