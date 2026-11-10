@@ -404,7 +404,7 @@ export default function Sidebar({
           {/* Apex Tier Badge or Upgrade CTA */}
           {!user?.isGuest && (
             isApex ? (
-              <div className="px-3 py-2 rounded-xl bg-gradient-to-r from-amber-100 via-amber-50 to-amber-100 dark:from-amber-500/10 dark:to-amber-500/15 border border-amber-300 dark:border-amber-400/30 flex items-center justify-between shadow-xs">
+              <div className="px-3 py-2 rounded-xl bg-amber-200 dark:bg-amber-500/10 border border-amber-300 dark:border-amber-400/30 flex items-center justify-between shadow-xs">
                 <div className="flex items-center gap-1.5 text-[11px] font-black text-amber-950 dark:text-amber-300">
                   <Sparkles size={13} className="text-amber-800 dark:text-amber-400" />
                   <span>Apex Prestige</span>
