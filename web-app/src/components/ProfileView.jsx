@@ -2,7 +2,7 @@ import { useState } from 'react';
 import {
   User, Mail, ShieldCheck, Zap, Flame, Crown, CheckCircle2,
   Copy, Edit3, Save, Sparkles,
-  Globe, LogOut, DownloadCloud, Eye
+  Globe, LogOut, DownloadCloud, Eye, TrendingUp, Activity
 } from 'lucide-react';
 import { isApexPlan } from '../utils/planLimits';
 import { getResolvedAppLogo } from '../utils/appIcons';
@@ -11,9 +11,8 @@ export default function ProfileView({
   user,
   profileData = {},
   onUpdateProfile,
-  lifetimeCompleted = 0,
-  currentLevel = 1,
-  currentXP = 0,
+  productivityHealth = 100,
+  momentumState = null,
   realStreak = 0,
   stats = {},
   workspaceName = 'Team Workspace',
@@ -58,16 +57,6 @@ export default function ProfileView({
     } finally {
       setIsSaving(false);
     }
-  };
-
-  const getRankTitle = (lvl) => {
-    if (lvl >= 10) return 'Legendary Grandmaster 👑';
-    if (lvl >= 8) return 'Elite Master ⚡';
-    if (lvl >= 6) return 'Productivity Pro 🚀';
-    if (lvl >= 4) return 'Senior Achiever 🎯';
-    if (lvl >= 3) return 'Skilled Organizer 📋';
-    if (lvl >= 2) return 'Focus Apprentice 🌟';
-    return 'Task Novice 🌱';
   };
 
   return (
@@ -163,26 +152,34 @@ export default function ProfileView({
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-bold text-gray-600 dark:text-slate-300 mb-1.5">
-                Full Display Name
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-bold text-gray-600 dark:text-slate-300">
+                  Full Display Name
+                </label>
+                <span className="text-[10px] font-mono text-slate-400">{displayName.length}/50</span>
+              </div>
               <input
                 type="text"
                 value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
+                maxLength={50}
+                onChange={(e) => setDisplayName(e.target.value.slice(0, 50))}
                 className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm font-semibold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="e.g. Madhav Arora"
                 required
               />
             </div>
             <div>
-              <label className="block text-xs font-bold text-gray-600 dark:text-slate-300 mb-1.5">
-                Role / Job Title
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-bold text-gray-600 dark:text-slate-300">
+                  Role / Job Title
+                </label>
+                <span className="text-[10px] font-mono text-slate-400">{jobTitle.length}/60</span>
+              </div>
               <input
                 type="text"
                 value={jobTitle}
-                onChange={(e) => setJobTitle(e.target.value)}
+                maxLength={60}
+                onChange={(e) => setJobTitle(e.target.value.slice(0, 60))}
                 className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm font-semibold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="e.g. Product Lead / Software Engineer"
               />
@@ -190,13 +187,17 @@ export default function ProfileView({
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-gray-600 dark:text-slate-300 mb-1.5">
-              Bio / Mission Statement
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-bold text-gray-600 dark:text-slate-300">
+                Bio / Mission Statement
+              </label>
+              <span className="text-[10px] font-mono text-slate-400">{bio.length}/250</span>
+            </div>
             <input
               type="text"
               value={bio}
-              onChange={(e) => setBio(e.target.value)}
+              maxLength={250}
+              onChange={(e) => setBio(e.target.value.slice(0, 250))}
               className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-sm font-semibold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="Brief personal headline"
             />
@@ -287,9 +288,9 @@ export default function ProfileView({
                   <span className="font-bold text-slate-700 dark:text-slate-200">3 Daily Breakdowns</span>
                 </div>
                 <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 font-semibold">
-                  <span>Cloud Database:</span>
+                  <span>Cloud Sync:</span>
                   <span className="font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                    <ShieldCheck size={12} /> Firebase Live
+                    <ShieldCheck size={12} /> Live & Encrypted
                   </span>
                 </div>
               </div>
@@ -325,40 +326,42 @@ export default function ProfileView({
           </div>
         </div>
 
-        {/* Card 2: Productivity Achievements & Rank */}
+        {/* Card 2: Productivity Health & Flow Momentum (100% Safe, Tamper-Proof & Reactive) */}
         <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl border border-gray-100 dark:border-slate-700 shadow-sm flex flex-col justify-between space-y-4">
           <div className="space-y-3.5">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-black uppercase tracking-wider text-gray-400 dark:text-slate-500">
-                Achievements & Level
+                Productivity Health & Momentum
               </span>
-              <span className="p-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600">
-                <Zap size={18} />
+              <span className="p-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400">
+                <TrendingUp size={18} />
               </span>
             </div>
             <div>
-              <h3 className="text-xl font-black text-gray-900 dark:text-white mb-0.5">
-                Level {currentLevel}
-              </h3>
-              <p className="text-xs font-extrabold text-indigo-600 dark:text-indigo-400">
-                {getRankTitle(currentLevel)}
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-xl font-black text-gray-900 dark:text-white">
+                  {productivityHealth}% Health Index
+                </h3>
+                <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border shadow-2xs ${momentumState?.bg || 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200/80'}`}>
+                  {momentumState?.badge || '⚡ Peak Flow'}
+                </span>
+              </div>
+              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                {momentumState?.desc || 'Live health index dynamically calculated from active tasks and backlog hygiene.'}
               </p>
             </div>
 
-            <div className="space-y-1.5 pt-2">
-              <div className="flex justify-between text-xs font-bold text-gray-500">
-                <span>XP Progress</span>
-                <span className="text-indigo-600 font-extrabold">{currentXP} / 100 XP</span>
+            <div className="space-y-1.5 pt-1">
+              <div className="flex justify-between text-xs font-bold text-gray-500 dark:text-slate-400">
+                <span>Daily Execution Score</span>
+                <span className="text-indigo-600 dark:text-indigo-400 font-extrabold">{productivityHealth} / 100</span>
               </div>
-              <div className="w-full bg-gray-100 dark:bg-slate-700 h-2.5 rounded-full overflow-hidden">
+              <div className="w-full bg-gray-100 dark:bg-slate-700 h-2.5 rounded-full overflow-hidden p-0.5">
                 <div
-                  className="h-full bg-gradient-to-r from-indigo-500 to-purple-600 rounded-full transition-all duration-500"
-                  style={{ width: `${currentXP}%` }}
+                  className={`h-full bg-gradient-to-r ${momentumState?.gradient || 'from-indigo-500 to-purple-600'} rounded-full transition-all duration-500`}
+                  style={{ width: `${productivityHealth}%` }}
                 />
               </div>
-              <p className="text-[10px] text-gray-400 pt-1">
-                Completed {lifetimeCompleted} lifetime tasks. Complete {5 - (lifetimeCompleted % 5)} more tasks to reach Level {currentLevel + 1}!
-              </p>
             </div>
 
             <div className="grid grid-cols-2 gap-2 pt-2">
@@ -373,7 +376,7 @@ export default function ProfileView({
 
               <div className="p-3 rounded-2xl bg-blue-50 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900/40 text-center">
                 <p className="text-[10px] font-bold text-blue-600 uppercase flex items-center justify-center gap-1">
-                  <CheckCircle2 size={12} /> Total Done
+                  <CheckCircle2 size={12} /> Tasks Done
                 </p>
                 <p className="text-lg font-black text-blue-900 dark:text-blue-200 mt-0.5">
                   {stats.completed || 0}
@@ -383,7 +386,9 @@ export default function ProfileView({
           </div>
 
           <div className="pt-3 border-t border-gray-100 dark:border-slate-700 text-center">
-            <span className="text-[11px] font-bold text-gray-400">Streak multipliers apply to daily XP gain</span>
+            <span className="text-[11px] font-medium text-gray-400 dark:text-slate-500">
+              100% Live State • Recalculates dynamically with zero artificial points
+            </span>
           </div>
         </div>
 

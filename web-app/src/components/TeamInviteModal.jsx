@@ -294,10 +294,11 @@ export default function TeamInviteModal({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <input
                     type="text"
+                    maxLength={50}
                     placeholder="Full Name (optional)"
                     className="bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-gray-800 dark:text-white outline-none focus:ring-2 ring-blue-500/30"
                     value={inviteName}
-                    onChange={(e) => setInviteName(e.target.value)}
+                    onChange={(e) => setInviteName(e.target.value.slice(0, 50))}
                   />
                   <select
                     value={inviteRole}
@@ -313,10 +314,11 @@ export default function TeamInviteModal({
                   <input
                     type="email"
                     required
+                    maxLength={80}
                     placeholder="colleague@company.com"
                     className="flex-1 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-gray-800 dark:text-white outline-none focus:ring-2 ring-blue-500/30"
                     value={inviteEmail}
-                    onChange={(e) => setInviteEmail(e.target.value)}
+                    onChange={(e) => setInviteEmail(e.target.value.slice(0, 80))}
                   />
                   <button
                     type="submit"
@@ -354,9 +356,10 @@ export default function TeamInviteModal({
                   <input
                     type="text"
                     required
+                    maxLength={100}
                     placeholder="TB-XXXX-XXXX or PRJ-XXXX-XXXX or invite link..."
                     value={joinCodeInput}
-                    onChange={(e) => setJoinCodeInput(e.target.value)}
+                    onChange={(e) => setJoinCodeInput(e.target.value.slice(0, 100))}
                     className="w-full px-4 py-3 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-2xl text-xs sm:text-sm font-mono outline-none focus:ring-2 focus:ring-blue-500/40 text-gray-900 dark:text-white transition-all uppercase"
                   />
                 </div>

@@ -414,9 +414,10 @@ export default function AuthModal({ onGuestLogin, showToast, isDarkMode: isDarkM
                     <input
                       type="text"
                       required
+                      maxLength={50}
                       placeholder="Your Name"
                       value={name}
-                      onChange={(e) => setName(e.target.value)}
+                      onChange={(e) => setName(e.target.value.slice(0, 50))}
                       className="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500/40 dark:text-white transition-all"
                     />
                   </div>
@@ -432,9 +433,10 @@ export default function AuthModal({ onGuestLogin, showToast, isDarkMode: isDarkM
                   <input
                     type="email"
                     required
+                    maxLength={80}
                     placeholder="you@company.com"
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    onChange={(e) => setEmail(e.target.value.slice(0, 80))}
                     className="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500/40 dark:text-white transition-all"
                   />
                 </div>
@@ -449,9 +451,10 @@ export default function AuthModal({ onGuestLogin, showToast, isDarkMode: isDarkM
                   <input
                     type={showPassword ? 'text' : 'password'}
                     required
+                    maxLength={64}
                     placeholder="At least 6 characters"
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={(e) => setPassword(e.target.value.slice(0, 64))}
                     className="w-full pl-10 pr-10 py-2.5 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500/40 dark:text-white transition-all"
                   />
                   <button

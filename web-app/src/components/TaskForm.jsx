@@ -840,13 +840,22 @@ export default function TaskForm({
                 </div>
               )}
 
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Task Title *
+                </label>
+                <span className={`text-[10px] font-mono font-bold ${(task.title || '').length >= 110 ? 'text-amber-500' : 'text-slate-400'}`}>
+                  {(task.title || '').length}/120
+                </span>
+              </div>
               <input
                 type="text"
                 required
+                maxLength={120}
                 className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-800 dark:text-white outline-none font-medium focus:ring-2 focus:ring-blue-500/40"
                 placeholder="What needs to be done?"
                 value={task.title}
-                onChange={(e) => setTask({ ...task, title: e.target.value })}
+                onChange={(e) => setTask({ ...task, title: e.target.value.slice(0, 120) })}
               />
             </div>
 
@@ -956,7 +965,8 @@ export default function TaskForm({
                   <input
                     type="text"
                     value={newStepText}
-                    onChange={(e) => setNewStepText(e.target.value)}
+                    maxLength={150}
+                    onChange={(e) => setNewStepText(e.target.value.slice(0, 150))}
                     onKeyDown={handleAddStep}
                     placeholder={!isApex ? `Next step... (${maxSteps - currentStepsCount} remaining on Core)` : "Next step... (press Enter ↵)"}
                     className="flex-1 bg-transparent text-xs font-medium outline-none text-slate-800 dark:text-white placeholder:text-slate-400"
@@ -974,14 +984,20 @@ export default function TaskForm({
             </div>
 
             <div>
-              <label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5">
-                <AlignLeft size={16} /> Description & Notes
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 dark:text-slate-300">
+                  <AlignLeft size={16} /> Description & Notes
+                </label>
+                <span className={`text-[10px] font-mono font-bold ${(task.description || '').length >= 1900 ? 'text-amber-500' : 'text-slate-400'}`}>
+                  {(task.description || '').length}/2000
+                </span>
+              </div>
               <textarea
                 className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-800 dark:text-white outline-none min-h-[90px] text-sm focus:ring-2 focus:ring-blue-500/40"
                 placeholder="Add more details, links, or context for this task..."
                 value={task.description}
-                onChange={(e) => setTask({ ...task, description: e.target.value })}
+                maxLength={2000}
+                onChange={(e) => setTask({ ...task, description: e.target.value.slice(0, 2000) })}
               />
             </div>
 
@@ -1013,10 +1029,11 @@ export default function TaskForm({
                 </label>
                 <input
                   type="text"
+                  maxLength={60}
                   className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40"
                   placeholder="Work, Urgent"
                   value={task.category}
-                  onChange={(e) => setTask({ ...task, category: e.target.value })}
+                  onChange={(e) => setTask({ ...task, category: e.target.value.slice(0, 60) })}
                 />
               </div>
               <div>
@@ -1195,7 +1212,8 @@ export default function TaskForm({
                         type="text"
                         placeholder="Enter address, building, or place name..."
                         value={task.locationAddress || ''}
-                        onChange={(e) => setTask(prev => ({ ...prev, locationAddress: e.target.value }))}
+                        maxLength={120}
+                        onChange={(e) => setTask(prev => ({ ...prev, locationAddress: e.target.value.slice(0, 120) }))}
                         className="flex-1 bg-white dark:bg-slate-900 border border-purple-200 dark:border-purple-800/40 rounded-lg px-2.5 py-1.5 text-xs text-gray-800 dark:text-white outline-none"
                       />
                       <button
@@ -1261,10 +1279,11 @@ export default function TaskForm({
               </label>
               <input
                 type="url"
+                maxLength={500}
                 className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-4 py-3 text-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40"
                 placeholder="https://..."
                 value={task.attachmentLink || ''}
-                onChange={(e) => setTask({ ...task, attachmentLink: e.target.value })}
+                onChange={(e) => setTask({ ...task, attachmentLink: e.target.value.slice(0, 500) })}
               />
             </div>
           </form>
@@ -1340,10 +1359,11 @@ export default function TaskForm({
               <div className="flex gap-2">
                 <input
                   type="text"
+                  maxLength={500}
                   placeholder={currentWorkspace === 'personal' ? 'Add personal note...' : 'Post update or tag team...'}
                   className="flex-1 bg-white dark:bg-[#131b2e] border border-slate-200 dark:border-white/[0.08] rounded-2xl px-3.5 py-2.5 text-xs outline-none text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500/30"
                   value={newComment}
-                  onChange={(e) => setNewComment(e.target.value)}
+                  onChange={(e) => setNewComment(e.target.value.slice(0, 500))}
                   onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddComment())}
                 />
                 <button

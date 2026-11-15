@@ -3,8 +3,8 @@ import { CheckCircle2, Flame, Clock, AlertTriangle, Users, Award, TrendingUp, Sp
 export default function AnalyticsView({
   tasks = [],
   realStreak = 0,
-  currentLevel = 1,
-  currentXP = 0,
+  productivityHealth = 100,
+  momentumState = null,
   teamMembers = [],
   currentUser = null
 }) {
@@ -74,7 +74,7 @@ export default function AnalyticsView({
         </div>
 
         <div className="flex items-center gap-2.5 bg-gradient-to-r from-indigo-600 via-blue-600 to-cyan-600 text-white px-4 py-2.5 rounded-2xl shadow-lg shadow-indigo-500/20 text-xs font-bold shrink-0">
-          <Award size={16} /> Level {currentLevel} Master ({currentXP}% to Lv. {currentLevel + 1})
+          <TrendingUp size={16} /> {momentumState?.badge || '⚡ Peak Flow'} • {productivityHealth}% Health Score
         </div>
       </div>
 

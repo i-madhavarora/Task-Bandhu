@@ -493,29 +493,37 @@ export default function ProjectsView({
 
               {/* Project Name */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-                  Project Title *
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                    Project Title *
+                  </label>
+                  <span className="text-[10px] font-mono text-slate-400">{(newProject.name || '').length}/50</span>
+                </div>
                 <input
                   type="text"
                   required
+                  maxLength={50}
                   placeholder="e.g. Website Launch, Finals Prep, Marketing Sprint"
                   value={newProject.name}
-                  onChange={(e) => setNewProject(p => ({ ...p, name: e.target.value }))}
+                  onChange={(e) => setNewProject(p => ({ ...p, name: e.target.value.slice(0, 50) }))}
                   className="w-full px-4 py-2.5 text-sm bg-slate-50 dark:bg-[#101726] border border-slate-200 dark:border-white/[0.08] rounded-2xl text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
                 />
               </div>
 
               {/* Description */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-                  Description
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                    Description
+                  </label>
+                  <span className="text-[10px] font-mono text-slate-400">{(newProject.description || '').length}/300</span>
+                </div>
                 <textarea
                   rows={2}
+                  maxLength={300}
                   placeholder="Brief objective or team notes..."
                   value={newProject.description}
-                  onChange={(e) => setNewProject(p => ({ ...p, description: e.target.value }))}
+                  onChange={(e) => setNewProject(p => ({ ...p, description: e.target.value.slice(0, 300) }))}
                   className="w-full px-4 py-2.5 text-sm bg-slate-50 dark:bg-[#101726] border border-slate-200 dark:border-white/[0.08] rounded-2xl text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 resize-none"
                 />
               </div>

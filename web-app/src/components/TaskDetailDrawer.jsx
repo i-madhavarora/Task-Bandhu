@@ -236,7 +236,16 @@ export default function TaskDetailDrawer({
 
   const handleToggleStep = (stepId) => {
     const nextSteps = steps.map(s => s.id === stepId ? { ...s, completed: !s.completed } : s);
-    onUpdateTaskField(task.id, { steps: nextSteps });
+    const allCompleted = nextSteps.length > 0 && nextSteps.every(s => s.completed);
+    const anyIncomplete = nextSteps.some(s => !s.completed);
+
+    if (allCompleted && task.status !== 'Completed') {
+      onUpdateStatus?.(task.id, 'Completed', { ...task, steps: nextSteps });
+    } else if (anyIncomplete && task.status === 'Completed') {
+      onUpdateStatus?.(task.id, 'To Do', { ...task, steps: nextSteps });
+    } else {
+      onUpdateTaskField(task.id, { steps: nextSteps });
+    }
   };
 
   const handleAddStep = (e) => {
@@ -255,7 +264,12 @@ export default function TaskDetailDrawer({
 
   const handleDeleteStep = (stepId) => {
     const nextSteps = steps.filter(s => s.id !== stepId);
-    onUpdateTaskField(task.id, { steps: nextSteps });
+    const allCompleted = nextSteps.length > 0 && nextSteps.every(s => s.completed);
+    if (allCompleted && task.status !== 'Completed') {
+      onUpdateStatus?.(task.id, 'Completed', { ...task, steps: nextSteps });
+    } else {
+      onUpdateTaskField(task.id, { steps: nextSteps });
+    }
   };
 
   const handleAIBreakdown = () => {
@@ -520,7 +534,8 @@ export default function TaskDetailDrawer({
                 <input
                   type="text"
                   value={title}
-                  onChange={(e) => setTitle(e.target.value)}
+                  maxLength={120}
+                  onChange={(e) => setTitle(e.target.value.slice(0, 120))}
                   onBlur={handleTitleBlur}
                   placeholder="Task title..."
                   className={`w-full bg-transparent font-extrabold text-base md:text-lg outline-none text-slate-900 dark:text-white placeholder:text-slate-400 ${
@@ -634,7 +649,8 @@ export default function TaskDetailDrawer({
                 type="text"
                 placeholder="Next step... (press Enter ↵)"
                 value={newStepText}
-                onChange={(e) => setNewStepText(e.target.value)}
+                maxLength={150}
+                onChange={(e) => setNewStepText(e.target.value.slice(0, 150))}
                 onKeyDown={handleAddStep}
                 className="w-full text-xs bg-transparent outline-none text-slate-800 dark:text-slate-200 placeholder:text-slate-400 font-medium py-1"
               />
@@ -893,7 +909,8 @@ export default function TaskDetailDrawer({
                       type="text"
                       placeholder="Enter address, building, or place name..."
                       value={task.locationAddress || ''}
-                      onChange={(e) => onUpdateTaskField(task.id, { locationAddress: e.target.value })}
+                      maxLength={120}
+                      onChange={(e) => onUpdateTaskField(task.id, { locationAddress: e.target.value.slice(0, 120) })}
                       className="flex-1 bg-white dark:bg-slate-900 border border-purple-200 dark:border-purple-800/40 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 dark:text-white outline-none"
                     />
                     <button
@@ -975,7 +992,8 @@ export default function TaskDetailDrawer({
                 type="url"
                 placeholder="https://..."
                 value={task.attachmentLink || ''}
-                onChange={(e) => onUpdateTaskField(task.id, { attachmentLink: e.target.value })}
+                maxLength={500}
+                onChange={(e) => onUpdateTaskField(task.id, { attachmentLink: e.target.value.slice(0, 500) })}
                 className="w-full text-xs font-medium bg-slate-100 dark:bg-white/[0.05] text-slate-800 dark:text-slate-200 px-3 py-2 rounded-xl outline-none border border-slate-200 dark:border-white/[0.06]"
               />
             </div>
@@ -983,14 +1001,20 @@ export default function TaskDetailDrawer({
 
           {/* Notes / Description Section */}
           <div className="bg-white dark:bg-[#121929] p-4 rounded-2xl border border-slate-200/70 dark:border-white/[0.06] space-y-2">
-            <span className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
-              <FileText size={14} className="text-indigo-500" /> Notes
-            </span>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                <FileText size={14} className="text-indigo-500" /> Notes
+              </span>
+              <span className={`text-[10px] font-mono font-bold ${description.length >= 1900 ? 'text-amber-500' : 'text-slate-400'}`}>
+                {description.length}/2000
+              </span>
+            </div>
             <textarea
               rows={4}
               placeholder="Add details, notes, links or context..."
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              maxLength={2000}
+              onChange={(e) => setDescription(e.target.value.slice(0, 2000))}
               onBlur={handleDescriptionBlur}
               className="w-full text-xs bg-slate-50 dark:bg-white/[0.02] border border-slate-200/60 dark:border-white/[0.04] p-3 rounded-xl outline-none text-slate-800 dark:text-slate-200 placeholder:text-slate-400 font-medium resize-none leading-relaxed"
             />
@@ -1067,7 +1091,8 @@ export default function TaskDetailDrawer({
                 type="text"
                 placeholder={isTeamTask ? "Post update or message team..." : "Add a personal note or thought..."}
                 value={newComment}
-                onChange={(e) => setNewComment(e.target.value)}
+                maxLength={500}
+                onChange={(e) => setNewComment(e.target.value.slice(0, 500))}
                 className="flex-1 text-xs bg-slate-50 dark:bg-white/[0.03] border border-slate-200/80 dark:border-white/[0.06] px-3 py-2 rounded-xl outline-none text-slate-800 dark:text-slate-200 placeholder:text-slate-400 font-medium"
               />
               <button

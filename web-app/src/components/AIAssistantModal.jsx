@@ -198,18 +198,18 @@ export default function AIAssistantModal({
           <div className="space-y-5 overflow-y-auto pr-1 flex-1 hide-scrollbar">
             {!isApex ? (
               /* Non-Apex Lock & Upgrade Banner */
-              <div className="p-6 rounded-3xl bg-gradient-to-br from-amber-950/20 via-slate-900/40 to-violet-950/20 border border-amber-500/30 text-center space-y-4">
-                <div className="w-16 h-16 rounded-3xl bg-amber-500/10 text-amber-400 border border-amber-500/30 flex items-center justify-center mx-auto shadow-inner">
+              <div className="p-6 rounded-3xl bg-slate-50/90 dark:bg-slate-900/60 border-2 border-amber-500/20 dark:border-amber-500/30 text-center space-y-4 shadow-sm">
+                <div className="w-16 h-16 rounded-3xl bg-amber-100 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-300 dark:border-amber-500/30 flex items-center justify-center mx-auto shadow-inner">
                   <Sparkles size={30} />
                 </div>
                 <div className="max-w-md mx-auto space-y-2">
-                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-amber-400/20 to-purple-500/20 text-amber-400 border border-amber-400/30 shadow-xs">
-                    <Sparkles size={11} className="text-amber-400" /> Apex Prestige Exclusive
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-amber-500 to-amber-600 text-white shadow-xs">
+                    <Sparkles size={11} className="text-white" /> Apex Prestige Exclusive
                   </div>
-                  <h3 className="text-xl font-black text-gray-900 dark:text-white">
+                  <h3 className="text-xl font-black text-slate-900 dark:text-white">
                     Autonomous Natural Language Planner
                   </h3>
-                  <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-300 leading-relaxed">
+                  <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-200 leading-relaxed font-semibold">
                     Type or dictate full multi-step projects in natural English. Task Bandhu AI decomposes your prompts into structured tasks, subtask checklists, deadlines, and smart priorities automatically.
                   </p>
                 </div>
@@ -218,7 +218,7 @@ export default function AIAssistantModal({
                   <button
                     type="button"
                     onClick={onOpenApexModal}
-                    className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-violet-600 hover:from-amber-400 hover:to-violet-500 text-white font-black text-xs shadow-md transition-all active:scale-95"
+                    className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 via-violet-600 to-indigo-600 hover:brightness-105 text-white font-black text-xs shadow-md shadow-indigo-500/20 transition-all active:scale-95"
                   >
                     <Sparkles size={14} />
                     <span>View Apex Capabilities</span>
@@ -226,19 +226,19 @@ export default function AIAssistantModal({
                 </div>
 
                 {/* Interactive Capability Preview Box */}
-                <div className="p-4 bg-white/5 dark:bg-slate-900/60 rounded-2xl border border-slate-200/50 dark:border-white/10 text-left max-w-lg mx-auto space-y-2 mt-4">
-                  <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-200">
+                <div className="p-4 bg-white dark:bg-slate-900/90 rounded-2xl border-2 border-indigo-100 dark:border-white/10 text-left max-w-lg mx-auto space-y-2.5 mt-4 shadow-md">
+                  <div className="flex items-center justify-between text-xs font-black text-slate-900 dark:text-slate-100">
                     <span className="flex items-center gap-1.5">
-                      <Wand2 size={13} className="text-purple-400" /> Example AI Prompt Synthesis
+                      <Wand2 size={14} className="text-purple-600 dark:text-purple-400" /> Example AI Prompt Synthesis
                     </span>
-                    <span className="text-[10px] text-amber-400 font-bold">Interactive Preview</span>
+                    <span className="text-[10px] text-amber-700 dark:text-amber-400 font-black uppercase tracking-wide">Interactive Preview</span>
                   </div>
-                  <p className="text-[11px] text-slate-400 italic bg-black/20 p-2 rounded-lg">
+                  <p className="text-xs text-slate-900 dark:text-slate-100 bg-indigo-50/80 dark:bg-black/50 border border-indigo-200/80 dark:border-white/15 p-3 rounded-xl font-extrabold leading-snug shadow-xs">
                     "Launch marketing campaign with landing page copy, ad banners, and email announcement"
                   </p>
-                  <ul className="text-xs text-slate-400 space-y-1 pl-4 list-disc">
-                    <li>Auto-generates task with <strong>4 structured checklist steps</strong></li>
-                    <li>Assigns priority: <strong>High</strong> • Duration: <strong>90m</strong></li>
+                  <ul className="text-xs text-slate-800 dark:text-slate-200 space-y-1.5 pl-4 list-disc font-semibold">
+                    <li>Auto-generates task with <strong className="text-slate-900 dark:text-white font-extrabold">4 structured checklist steps</strong></li>
+                    <li>Assigns priority: <strong className="text-indigo-700 dark:text-indigo-400 font-black">High</strong> • Duration: <strong className="text-indigo-700 dark:text-indigo-400 font-black">90m</strong></li>
                     <li>Saves to your cloud workspace seamlessly</li>
                   </ul>
                 </div>
@@ -257,8 +257,9 @@ export default function AIAssistantModal({
                   </div>
                   <textarea
                     rows={3}
+                    maxLength={1000}
                     value={promptInput}
-                    onChange={(e) => setPromptInput(e.target.value)}
+                    onChange={(e) => setPromptInput(e.target.value.slice(0, 1000))}
                     placeholder="Type or dictate anything (e.g. 'Prepare executive investor deck with 10 slides, financial model, and competitor recap for Friday')..."
                     className="w-full p-3 rounded-xl bg-white dark:bg-slate-900 border border-purple-200 dark:border-purple-900/50 text-xs text-gray-900 dark:text-white placeholder:text-gray-400 outline-none focus:ring-2 focus:ring-purple-500/40 resize-none transition-all"
                   />
@@ -405,24 +406,24 @@ export default function AIAssistantModal({
               </h4>
               <div className="space-y-2">
                 <div className="p-3 rounded-xl bg-gray-50 dark:bg-slate-900/60 border border-gray-100 dark:border-slate-800 flex items-center gap-3">
-                  <span className="text-xs font-extrabold text-purple-600 dark:text-purple-400 w-28 shrink-0">Immediate Focus</span>
+                  <span className="text-xs font-black text-purple-600 dark:text-purple-400 w-28 shrink-0">Immediate Focus</span>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-bold text-gray-800 dark:text-white">High Focus Block (Deep Work)</p>
-                    <p className="text-[10px] text-gray-400">Tackle your highest priority tasks with zero distractions.</p>
+                    <p className="text-xs font-extrabold text-gray-900 dark:text-white">High Focus Block (Deep Work)</p>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-400 font-medium">Tackle your highest priority tasks with zero distractions.</p>
                   </div>
                 </div>
                 <div className="p-3 rounded-xl bg-gray-50 dark:bg-slate-900/60 border border-gray-100 dark:border-slate-800 flex items-center gap-3">
-                  <span className="text-xs font-extrabold text-blue-600 dark:text-blue-400 w-28 shrink-0">Next Window</span>
+                  <span className="text-xs font-black text-blue-600 dark:text-blue-400 w-28 shrink-0">Next Window</span>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-bold text-gray-800 dark:text-white">Team Collaboration & Reviews</p>
-                    <p className="text-[10px] text-gray-400">Resolve team activity comments and check-ins.</p>
+                    <p className="text-xs font-extrabold text-gray-900 dark:text-white">Team Collaboration & Reviews</p>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-400 font-medium">Resolve team activity comments and check-ins.</p>
                   </div>
                 </div>
                 <div className="p-3 rounded-xl bg-gray-50 dark:bg-slate-900/60 border border-gray-100 dark:border-slate-800 flex items-center gap-3">
-                  <span className="text-xs font-extrabold text-emerald-600 dark:text-emerald-400 w-28 shrink-0">Daily Wrap-up</span>
+                  <span className="text-xs font-black text-emerald-600 dark:text-emerald-400 w-28 shrink-0">Daily Wrap-up</span>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-bold text-gray-800 dark:text-white">Execution & Checklist Wrap-up</p>
-                    <p className="text-[10px] text-gray-400">Complete subtasks and review daily mission milestones.</p>
+                    <p className="text-xs font-extrabold text-gray-900 dark:text-white">Execution & Checklist Wrap-up</p>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-400 font-medium">Complete subtasks and review daily mission milestones.</p>
                   </div>
                 </div>
               </div>

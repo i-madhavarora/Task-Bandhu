@@ -289,16 +289,18 @@ export default function StealthVaultModal({
                 </h4>
                 <input
                   type="text"
+                  maxLength={120}
                   placeholder="Task or initiative title..."
                   value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
+                  onChange={(e) => setNewTitle(e.target.value.slice(0, 120))}
                   className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none focus:ring-1 focus:ring-amber-400"
                 />
                 <textarea
                   placeholder="Confidential notes, budget, key deliverables..."
                   value={newMemo}
+                  maxLength={1500}
                   rows={2}
-                  onChange={(e) => setNewMemo(e.target.value)}
+                  onChange={(e) => setNewMemo(e.target.value.slice(0, 1500))}
                   className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none focus:ring-1 focus:ring-amber-400"
                 />
                 <div className="text-right">

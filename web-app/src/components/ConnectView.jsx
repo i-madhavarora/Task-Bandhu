@@ -115,7 +115,8 @@ export default function ConnectView({
             <input
               type="email"
               value={emailInput}
-              onChange={(e) => setEmailInput(e.target.value)}
+              maxLength={80}
+              onChange={(e) => setEmailInput(e.target.value.slice(0, 80))}
               placeholder="colleague@company.com"
               required
               className="w-full pl-10 pr-4 py-2.5 text-xs font-semibold bg-white dark:bg-[#121929] border border-slate-200 dark:border-white/[0.1] rounded-2xl text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"

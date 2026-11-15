@@ -33,15 +33,6 @@ export class ErrorBoundary extends Component {
                 : "Task Bandhu ran into a minor rendering issue while organizing your workspace. A quick refresh should fix it."}
             </p>
 
-            {this.state.error?.message && !isOffline && (
-              <details className="mb-6 text-left p-3 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs text-rose-500 font-mono overflow-auto max-h-28">
-                <summary className="cursor-pointer font-bold text-slate-600 dark:text-slate-400 mb-1">
-                  Technical Details
-                </summary>
-                {this.state.error.message}
-              </details>
-            )}
-
             <div className="flex gap-2.5">
               <button
                 type="button"

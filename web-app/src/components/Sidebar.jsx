@@ -3,10 +3,12 @@ import {
   CheckCircle2, Inbox, Folder, Users,
   Sparkles, Timer, BarChart3, Zap, Star, LayoutGrid, X,
   Calendar, UserCheck, Plus, ShieldCheck, UserPlus, Lock,
-  FileSpreadsheet, Clock, Layers
+  FileSpreadsheet, Clock, Layers, PenTool
 } from 'lucide-react';
 import logoDark from '../assets/logo_d.png';
 import logoLight from '../assets/logo_l.png';
+import flowspaceDarkLogo from '../assets/flowspace_dark.png';
+import flowspaceLightLogo from '../assets/flowspace_light.png';
 import { getActiveFestival } from '../utils/festive';
 import { getResolvedAppLogo } from '../utils/appIcons';
 
@@ -60,6 +62,7 @@ export default function Sidebar({
   ];
 
   const productivityItems = [
+    { id: 'whiteboard', label: 'FlowSpace', icon: PenTool, color: 'text-indigo-400', isHot: true, guestHidden: true },
     { id: 'focus', label: 'Deep Focus', icon: Timer, color: 'text-blue-500' },
     { id: 'table', label: 'Spreadsheet Table', icon: FileSpreadsheet, color: 'text-emerald-500', isApex: true },
     { id: 'chronosync', label: 'ChronoSync AI', icon: Clock, color: 'text-indigo-400', isApex: true },
@@ -151,7 +154,15 @@ export default function Sidebar({
                       }`}
                   >
                     <div className="flex items-center gap-2.5">
-                      <Icon size={16} className={`${isActive ? 'text-indigo-600 dark:text-indigo-400' : item.color} transition-colors`} />
+                      {item.id === 'whiteboard' ? (
+                        <img
+                          src={isDarkMode ? flowspaceDarkLogo : flowspaceLightLogo}
+                          alt="FlowSpace"
+                          className="w-4 h-4 object-contain rounded-sm shrink-0"
+                        />
+                      ) : (
+                        <Icon size={16} className={`${isActive ? 'text-indigo-600 dark:text-indigo-400' : item.color} transition-colors`} />
+                      )}
                       <span>{item.label}</span>
                     </div>
                     {typeof item.badge === 'number' && item.badge > 0 && (
@@ -316,7 +327,15 @@ export default function Sidebar({
                       }`}
                   >
                     <div className="flex items-center gap-2.5">
-                      <Icon size={16} className={`${isActive ? 'text-indigo-600 dark:text-indigo-400' : item.color} transition-colors`} />
+                      {item.id === 'whiteboard' ? (
+                        <img
+                          src={isDarkMode ? flowspaceDarkLogo : flowspaceLightLogo}
+                          alt="FlowSpace"
+                          className="w-4 h-4 object-contain rounded-sm shrink-0"
+                        />
+                      ) : (
+                        <Icon size={16} className={`${isActive ? 'text-indigo-600 dark:text-indigo-400' : item.color} transition-colors`} />
+                      )}
                       <span>{item.label}</span>
                     </div>
                     {item.isHot && (
@@ -393,12 +412,12 @@ export default function Sidebar({
           {/* Apex Tier Badge or Upgrade CTA */}
           {!user?.isGuest && (
             isApex ? (
-              <div className="px-3 py-2 rounded-xl bg-amber-200 dark:bg-amber-500/10 border border-amber-300 dark:border-amber-400/30 flex items-center justify-between shadow-xs">
-                <div className="flex items-center gap-1.5 text-[11px] font-black text-amber-950 dark:text-amber-300">
-                  <Sparkles size={13} className="text-amber-800 dark:text-amber-400" />
-                  <span>Apex Prestige</span>
+              <div className="px-3.5 py-2.5 rounded-2xl bg-amber-100/90 dark:bg-[#161205] border border-amber-300/80 dark:border-amber-600/50 flex items-center justify-between shadow-xs">
+                <div className="flex items-center gap-2 text-xs font-black text-amber-950 dark:text-amber-400">
+                  <Sparkles size={14} className="text-amber-700 dark:text-amber-400 drop-shadow-xs" />
+                  <span className="tracking-tight">Apex Prestige</span>
                 </div>
-                <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-300/70 dark:bg-amber-400/20 text-amber-950 dark:text-amber-300 border border-amber-400/80 dark:border-amber-400/30">
+                <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-amber-200/90 dark:bg-[#2c2007] text-amber-950 dark:text-amber-400 border border-amber-400/70 dark:border-amber-500/40 shadow-2xs">
                   Active
                 </span>
               </div>

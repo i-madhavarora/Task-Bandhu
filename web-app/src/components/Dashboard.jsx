@@ -7,7 +7,7 @@ import {
   Copy, Link as LinkIcon, Eraser, Folder, Users, MessageSquare, Menu,
   Sparkles, Settings2, Bell, CheckCircle, ShieldAlert, ShieldCheck,
   Award, Star, Lightbulb, ChevronRight, Sun, X,
-  LogOut, Lock, FileSpreadsheet, Pencil, FileText, Save
+  LogOut, Lock, FileSpreadsheet, Pencil, FileText, Save, PenTool, TrendingUp
 } from 'lucide-react';
 import { collection, onSnapshot, query, doc, deleteDoc, updateDoc, addDoc, setDoc, getDoc, where, getDocs, writeBatch, orderBy, arrayUnion } from 'firebase/firestore';
 import { onAuthStateChanged, signOut, updateProfile } from 'firebase/auth';
@@ -18,6 +18,10 @@ import TaskDetailDrawer from './TaskDetailDrawer';
 import TaskTableView from './TaskTableView';
 import ChronoSyncModal from './ChronoSyncModal';
 import StealthVaultModal from './StealthVaultModal';
+import WhiteboardHubModal from './WhiteboardHubModal';
+import FlowSpaceStudio from '../features/flowspace/FlowSpaceStudio';
+import flowspaceDarkLogo from '../assets/flowspace_dark.png';
+import flowspaceLightLogo from '../assets/flowspace_light.png';
 import Sidebar from './Sidebar';
 import AuthModal from './AuthModal';
 import EisenhowerMatrix from './EisenhowerMatrix';
@@ -328,6 +332,24 @@ export default function Dashboard() {
       return [];
     }
   });
+
+  // FlowSpace URL Query Auto-Routing
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get('tab');
+      const boardParam = params.get('board');
+      const codeParam = params.get('code');
+      if (tabParam === 'flowspace' || tabParam === 'whiteboard' || boardParam || codeParam) {
+        setActiveNavTab('flowspace');
+        if (boardParam || codeParam) {
+          setActiveFlowSpaceBoard({ id: boardParam, code: codeParam });
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   const [incomingRequests, setIncomingRequests] = useState([]);
   const [outgoingRequests, setOutgoingRequests] = useState([]);
@@ -1773,16 +1795,6 @@ export default function Dashboard() {
     }
   });
 
-  const getRankTitle = (lvl) => {
-    if (lvl >= 10) return 'Legendary Grandmaster 👑';
-    if (lvl >= 8) return 'Elite Master ⚡';
-    if (lvl >= 6) return 'Productivity Pro 🚀';
-    if (lvl >= 4) return 'Senior Achiever 🎯';
-    if (lvl >= 3) return 'Skilled Organizer 📋';
-    if (lvl >= 2) return 'Focus Apprentice 🌟';
-    return 'Task Novice 🌱';
-  };
-
   const handleOpenNewTask = ({ date = '', project = '' } = {}) => {
     let resolvedProject = project;
     // Auto-inherit active project when inside a project view
@@ -1806,6 +1818,8 @@ export default function Dashboard() {
   const [viewMode, setViewMode] = useState('list');
   const [isChronoSyncOpen, setIsChronoSyncOpen] = useState(false);
   const [isStealthVaultOpen, setIsStealthVaultOpen] = useState(false);
+  const [isWhiteboardHubOpen, setIsWhiteboardHubOpen] = useState(false);
+  const [activeFlowSpaceBoard, setActiveFlowSpaceBoard] = useState(null);
 
   const handleApplyChronoSync = async (scheduledPlan) => {
     if (!scheduledPlan || scheduledPlan.length === 0) return;
@@ -2808,23 +2822,12 @@ export default function Dashboard() {
       showToast(`Recurring task completed! Next occurrence rolled over to ${updatedDeadline}.`, "success");
     }
 
-    // Lifetime Gamification XP & Level Progression
+    // Daily Target Celebration (Tamper-proof milestone based on actual current tasks)
     if (newStatus === 'Completed' && currentTask?.status !== 'Completed') {
-      const nextCount = Math.max(lifetimeCompleted + 1, tasks.filter(t => t.status === 'Completed').length + 1);
-      setLifetimeCompleted(nextCount);
-      const uKey = effectiveUser?.isGuest ? 'guest' : (effectiveUser?.uid || 'guest');
-      localStorage.setItem(`tb_lifetime_completed_${uKey}`, String(nextCount));
-      if (effectiveUser && !effectiveUser.isGuest) {
-        setDoc(doc(db, 'users', effectiveUser.uid), {
-          lifetimeCompleted: nextCount,
-          updatedAt: new Date().toISOString()
-        }, { merge: true }).catch(() => { });
-      }
-      const oldLvl = Math.floor(lifetimeCompleted / 5) + 1;
-      const newLvl = Math.floor(nextCount / 5) + 1;
-      if (newLvl > oldLvl) {
+      const remainingToday = tasks.filter(t => t.id !== taskId && isTaskDueToday(t) && t.status !== 'Completed');
+      if (isTaskDueToday(currentTask || taskObj) && remainingToday.length === 0) {
         playSound('success');
-        showToast(`🎉 Level Up! You achieved Level ${newLvl}: ${getRankTitle(newLvl)}`, "success");
+        showToast(`🎯 All tasks for today completed! You're in Peak Flow.`, "success");
       }
 
       const isSharedTask = !!(
@@ -2850,10 +2853,21 @@ export default function Dashboard() {
       }
     }
 
+    const taskObj = currentTask || tasks.find(t => t.id === taskId);
+
+    // Auto-sync subtask steps with parent task completion
+    let updatedSteps = undefined;
+    if (newStatus === 'Completed' && taskObj?.steps && Array.isArray(taskObj.steps) && taskObj.steps.length > 0) {
+      updatedSteps = taskObj.steps.map(s => ({ ...s, completed: true }));
+    } else if (newStatus !== 'Completed' && taskObj?.status === 'Completed' && taskObj?.steps && Array.isArray(taskObj.steps) && taskObj.steps.length > 0) {
+      updatedSteps = taskObj.steps.map(s => ({ ...s, completed: false }));
+    }
+
     const payload = {
       status: statusToSave,
       completedAt: completedAtToSave,
-      ...(updatedDeadline ? { deadline: updatedDeadline } : {})
+      ...(updatedDeadline ? { deadline: updatedDeadline } : {}),
+      ...(updatedSteps ? { steps: updatedSteps } : {})
     };
 
     if (effectiveUser?.isGuest) {
@@ -2893,12 +2907,37 @@ export default function Dashboard() {
 
   const handleUpdateTaskField = async (taskId, fields) => {
     const targetTask = tasks.find(t => t.id === taskId);
+    const updatedFields = { ...fields };
+
+    // 1. If status is being updated directly to Completed, auto-complete all steps
+    if (updatedFields.status === 'Completed' && targetTask?.steps && Array.isArray(targetTask.steps)) {
+      updatedFields.steps = targetTask.steps.map(s => ({ ...s, completed: true }));
+    } else if (updatedFields.status && updatedFields.status !== 'Completed' && targetTask?.status === 'Completed' && targetTask?.steps && Array.isArray(targetTask.steps)) {
+      updatedFields.steps = targetTask.steps.map(s => ({ ...s, completed: false }));
+    }
+
+    // 2. If steps are being updated, sync parent task status
+    if (updatedFields.steps && Array.isArray(updatedFields.steps) && updatedFields.steps.length > 0) {
+      const allCompleted = updatedFields.steps.every(s => s.completed);
+      const anyIncomplete = updatedFields.steps.some(s => !s.completed);
+
+      if (allCompleted && targetTask?.status !== 'Completed') {
+        updatedFields.status = 'Completed';
+        updatedFields.completedAt = new Date().toISOString();
+        playSound('success');
+      } else if (anyIncomplete && targetTask?.status === 'Completed') {
+        updatedFields.status = 'To Do';
+        updatedFields.completedAt = null;
+        playSound('pop');
+      }
+    }
+
     if (effectiveUser?.isGuest) {
-      const updated = tasks.map(t => t.id === taskId ? { ...t, ...fields } : t);
+      const updated = tasks.map(t => t.id === taskId ? { ...t, ...updatedFields } : t);
       setTasks(updated);
       localStorage.setItem('tb_guest_tasks', JSON.stringify(updated));
     } else if (effectiveUser?.uid) {
-      await updateDoc(getTaskDocRef(targetTask, taskId), fields);
+      await updateDoc(getTaskDocRef(targetTask, taskId), updatedFields);
     }
   };
 
@@ -3400,9 +3439,75 @@ export default function Dashboard() {
   const todayCompleted = todayTasks.filter(t => t.status === 'Completed').length;
   const dailyCompletionRate = todayTasks.length > 0 ? Math.round((todayCompleted / todayTasks.length) * 100) : 0;
   const realStreak = calculateRealStreak();
-  const totalCompletedCount = Math.max(tasks.filter(t => t.status === 'Completed').length, lifetimeCompleted);
-  const currentLevel = Math.floor(totalCompletedCount / 5) + 1;
-  const currentXP = (totalCompletedCount % 5) * 20;
+  // 100% Safe, Tamper-Proof Productivity Health & Flow Velocity Engine
+  const productivityHealth = useMemo(() => {
+    if (tasks.length === 0) return 100;
+
+    // 1. Task Resolution Rate for Scheduled / Today Tasks (up to 50 pts)
+    const myDayOrToday = tasks.filter(t => isTaskDueToday(t) || t.inMyDay || t.myDayDate === todayStr);
+    let taskScore = 50;
+    if (myDayOrToday.length > 0) {
+      const doneToday = myDayOrToday.filter(t => t.status === 'Completed').length;
+      taskScore = Math.round((doneToday / myDayOrToday.length) * 50);
+    } else {
+      const allDone = tasks.filter(t => t.status === 'Completed').length;
+      taskScore = Math.round((allDone / tasks.length) * 50);
+    }
+
+    // 2. Backlog Hygiene / Overdue Cleanliness (up to 30 pts)
+    const overdueCount = tasks.filter(t => t.status !== 'Completed' && isTaskOverdue(t)).length;
+    const hygieneScore = Math.max(0, 30 - (overdueCount * 10));
+
+    // 3. Consistency / Active Streak (up to 20 pts)
+    const streakBonus = Math.min(20, (realStreak || 0) * 5);
+
+    return Math.max(10, Math.min(100, taskScore + hygieneScore + streakBonus));
+  }, [tasks, realStreak, todayStr]);
+
+  const momentumState = useMemo(() => {
+    if (productivityHealth >= 85) {
+      return {
+        label: 'Peak Flow',
+        status: 'Optimal Velocity',
+        badge: '⚡ Peak Flow',
+        color: 'text-emerald-500',
+        bg: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400',
+        gradient: 'from-emerald-500 to-teal-400',
+        desc: 'All targets aligned, pristine backlog hygiene, and peak execution momentum.'
+      };
+    }
+    if (productivityHealth >= 65) {
+      return {
+        label: 'High Velocity',
+        status: 'Strong Progress',
+        badge: '🚀 High Velocity',
+        color: 'text-indigo-500',
+        bg: 'bg-indigo-500/10 border-indigo-500/20 text-indigo-600 dark:text-indigo-400',
+        gradient: 'from-indigo-500 to-purple-500',
+        desc: 'Consistent task resolution and steady daily productivity.'
+      };
+    }
+    if (productivityHealth >= 40) {
+      return {
+        label: 'Building Rhythm',
+        status: 'Active Momentum',
+        badge: '🎯 Building Rhythm',
+        color: 'text-amber-500',
+        bg: 'bg-amber-500/10 border-amber-500/20 text-amber-600 dark:text-amber-400',
+        gradient: 'from-amber-500 to-orange-400',
+        desc: 'Active task execution underway. Clear pending items to elevate flow.'
+      };
+    }
+    return {
+      label: 'Planning Mode',
+      status: 'Ready to Launch',
+      badge: '🌱 Planning Mode',
+      color: 'text-blue-500',
+      bg: 'bg-blue-500/10 border-blue-500/20 text-blue-600 dark:text-blue-400',
+      gradient: 'from-blue-500 to-indigo-500',
+      desc: 'Set daily priorities, clear overdue items, and initiate focus sessions.'
+    };
+  }, [productivityHealth]);
 
   const drawerTask = useMemo(() => {
     if (!drawerTaskId) return null;
@@ -3818,7 +3923,8 @@ export default function Dashboard() {
               <input
                 type="text"
                 value={inlineStepText}
-                onChange={(e) => setInlineStepText(e.target.value)}
+                maxLength={150}
+                onChange={(e) => setInlineStepText(e.target.value.slice(0, 150))}
                 placeholder="Next step... (press Enter ↵)"
                 className="flex-1 bg-transparent text-xs font-medium outline-none text-slate-800 dark:text-white placeholder:text-slate-400"
               />
@@ -4012,6 +4118,11 @@ export default function Dashboard() {
       setIsStealthVaultOpen(true);
       return;
     }
+    if (tabId === 'whiteboard' || tabId === 'flowspace') {
+      setActiveFlowSpaceBoard(null);
+      setActiveNavTab('flowspace');
+      return;
+    }
     setActiveNavTab(tabId);
   };
 
@@ -4083,6 +4194,29 @@ export default function Dashboard() {
         onGuestLogin={handleGuestLogin}
         showToast={showToast}
       />
+    );
+  }
+
+  // FlowSpace Full-Screen Immersive Studio View
+  if (activeNavTab === 'flowspace' || activeNavTab === 'whiteboard') {
+    return (
+      <div className="fixed inset-0 z-[9999] bg-[#0b0f19] flex flex-col">
+        <FlowSpaceStudio
+          user={{
+            ...effectiveUser,
+            displayName: userProfile?.displayName || effectiveUser?.displayName || effectiveUser?.email?.split('@')[0],
+            plan: userProfile?.plan || (isApex ? 'Apex' : 'Core'),
+            isApex: Boolean(isApex)
+          }}
+          isDarkMode={isDarkMode}
+          onExit={() => {
+            setActiveNavTab('my-day');
+            setActiveFlowSpaceBoard(null);
+          }}
+          initialBoardId={activeFlowSpaceBoard?.id}
+          initialRoomCode={activeFlowSpaceBoard?.code}
+        />
+      </div>
     );
   }
 
@@ -4250,10 +4384,11 @@ export default function Dashboard() {
 
         {/* View Routing Area */}
         <div className="p-4 md:p-6 lg:p-8 max-w-7xl w-full mx-auto space-y-6">
-          {/* Top Bar with Title, AI Assistant quick launch & New Task button */}
-          <div className="hidden lg:flex justify-between items-center py-2 relative z-[200]">
-            <div>
-              <div className="flex items-center gap-3">
+          {/* Top Bar with Title, Context & Modern Grouped Actions */}
+          <div className="hidden lg:flex justify-between items-center py-2 relative z-[200] gap-4">
+            {/* Left Section: Title, Date, Workspace Switcher & Greeting */}
+            <div className="space-y-1.5 min-w-0">
+              <div className="flex items-center gap-3 flex-wrap">
                 <h1 className="text-2xl font-black text-slate-900 dark:text-white capitalize tracking-tight">
                   {activeNavTab === 'project'
                     ? (activeProject || 'Project')
@@ -4269,11 +4404,15 @@ export default function Dashboard() {
                               ? 'Assigned to Me'
                               : activeNavTab.replace('-', ' ')}
                 </h1>
-                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 px-3 py-1 rounded-full bg-slate-100 dark:bg-white/[0.05] border border-slate-200/60 dark:border-white/[0.06]">
+
+                {/* Calendar Date Badge */}
+                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 px-3 py-1 rounded-full bg-slate-100 dark:bg-white/[0.05] border border-slate-200/60 dark:border-white/[0.06] shrink-0">
                   {new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                 </span>
+
+                {/* Workspace Context Switcher (Personal / Team) */}
                 {activeNavTab === 'projects' ? (
-                  <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 px-2.5 py-1 rounded-full bg-slate-100 dark:bg-white/[0.04] border border-slate-200/50 dark:border-white/[0.05] flex items-center gap-1.5 ml-1">
+                  <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 px-2.5 py-1 rounded-full bg-slate-100 dark:bg-white/[0.04] border border-slate-200/50 dark:border-white/[0.05] flex items-center gap-1.5">
                     <span className={`w-1.5 h-1.5 rounded-full ${projectsViewTab === 'all' ? 'bg-emerald-500 animate-pulse' : 'bg-indigo-500'}`} />
                     <span>
                       {projectsViewTab === 'personal'
@@ -4284,7 +4423,7 @@ export default function Dashboard() {
                     </span>
                   </span>
                 ) : !effectiveUser?.isGuest && (
-                  <div className="p-0.5 bg-slate-100 dark:bg-white/[0.04] rounded-2xl border border-slate-200/60 dark:border-white/[0.06] flex items-center gap-1 shadow-xs ml-1">
+                  <div className="p-0.5 bg-slate-100 dark:bg-white/[0.04] rounded-2xl border border-slate-200/60 dark:border-white/[0.06] flex items-center gap-1 shadow-xs">
                     <button
                       type="button"
                       onClick={() => handleSwitchWorkspace('personal')}
@@ -4311,62 +4450,103 @@ export default function Dashboard() {
                     </button>
                   </div>
                 )}
-                {activeNavTab === 'my-day' && (
-                  <button
-                    type="button"
-                    onClick={() => setIsSuggestionsOpen(prev => !prev)}
-                    className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all border ${isSuggestionsOpen
-                      ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border-amber-300 dark:border-amber-800/60'
-                      : 'bg-slate-100 dark:bg-white/[0.05] text-slate-700 dark:text-slate-300 border-slate-200/80 dark:border-white/[0.08] hover:bg-slate-200 dark:hover:bg-white/[0.08]'
-                      }`}
-                  >
-                    <Lightbulb size={13} className="text-amber-500" />
-                    <span>Suggestions</span>
-                  </button>
-                )}
+
+                {/* Status Tier Badge */}
                 {effectiveUser?.isGuest ? (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/40 px-2.5 py-0.5 rounded-full">
-                    <ShieldAlert size={11} /> Guest Mode • On this device
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/40 px-2.5 py-0.5 rounded-full shrink-0">
+                    <ShieldAlert size={11} /> Guest Mode
                   </span>
                 ) : isApex ? (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-amber-200 via-amber-300 to-amber-200 dark:from-amber-400/20 dark:via-amber-500/20 dark:to-amber-400/20 text-amber-950 dark:text-amber-300 border border-amber-400/80 dark:border-amber-400/40 shadow-xs">
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-amber-200 via-amber-300 to-amber-200 dark:from-amber-400/20 dark:via-amber-500/20 dark:to-amber-400/20 text-amber-950 dark:text-amber-300 border border-amber-400/80 dark:border-amber-400/40 shadow-xs shrink-0">
                     <Sparkles size={11} className="text-amber-800 dark:text-amber-400" /> Apex Prestige
                   </span>
                 ) : null}
               </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-1">
-                {effectiveUser.isGuest ? 'Sign in to sync seamlessly with teammates across devices' : `Welcome back, ${(effectiveUser.displayName || 'friend').split(' ')[0]} • Have a focused and productive day`}
-              </p>
+
+              {/* Subtitle Greeting & My Day Suggestions Link */}
+              <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400 font-medium">
+                <span>
+                  {effectiveUser.isGuest ? 'Sign in to sync seamlessly across devices' : `Welcome back, ${(effectiveUser.displayName || 'friend').split(' ')[0]} • Have a focused and productive day`}
+                </span>
+                {activeNavTab === 'my-day' && (
+                  <button
+                    type="button"
+                    onClick={() => setIsSuggestionsOpen(prev => !prev)}
+                    className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold transition-all border ${isSuggestionsOpen
+                      ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border-amber-300 dark:border-amber-800/60'
+                      : 'bg-slate-100 dark:bg-white/[0.05] text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-white/[0.08] hover:bg-slate-200 dark:hover:bg-white/[0.08]'
+                      }`}
+                  >
+                    <Lightbulb size={12} className="text-amber-500" />
+                    <span>Suggestions</span>
+                  </button>
+                )}
+              </div>
             </div>
 
-            <div className="flex items-center gap-2.5">
-              <NotificationCenter
-                notifications={allNotifications}
-                onMarkAsRead={handleMarkNotificationRead}
-                onMarkAllAsRead={handleMarkAllNotificationsRead}
-                onClearAll={handleClearNotifications}
-                onSelectTask={handleSelectTaskFromNotification}
-                showToast={showToast}
-              />
+            {/* Right Section: Grouped Quick Tools + Notification Bell + Primary CTA */}
+            <div className="flex items-center gap-2.5 shrink-0">
+              {/* Quick Tools Cluster */}
               {!effectiveUser.isGuest && (
-                <button
-                  onClick={() => setIsAIModalOpen(true)}
-                  className="flex items-center gap-2 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-300 border border-purple-200/80 dark:border-purple-800/40 px-4 py-2.5 rounded-2xl text-xs font-extrabold shadow-xs transition-all active:scale-95"
-                >
-                  <Sparkles size={15} className="text-purple-500 animate-pulse" /> AI Assistant
-                </button>
+                <div className="flex items-center gap-1.5 p-1 bg-slate-100/70 dark:bg-white/[0.04] border border-slate-200/70 dark:border-white/[0.06] rounded-2xl">
+                  {/* AI Assistant */}
+                  <button
+                    onClick={() => setIsAIModalOpen(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-extrabold text-purple-700 dark:text-purple-300 hover:bg-white dark:hover:bg-purple-950/60 hover:shadow-xs transition-all active:scale-95"
+                    title="Open Task Bandhu AI Copilot"
+                  >
+                    <Sparkles size={14} className="text-purple-500 animate-pulse" />
+                    <span>AI Assistant</span>
+                  </button>
+
+                  {/* FlowSpace Studio with new logo */}
+                  <button
+                    onClick={() => {
+                      setActiveFlowSpaceBoard(null);
+                      setActiveNavTab('flowspace');
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-extrabold text-indigo-700 dark:text-indigo-300 hover:bg-white dark:hover:bg-indigo-950/60 hover:shadow-xs transition-all active:scale-95"
+                    title="Open FlowSpace Infinite Studio"
+                  >
+                    <img
+                      src={isDarkMode ? flowspaceDarkLogo : flowspaceLightLogo}
+                      alt="FlowSpace"
+                      className="w-3.5 h-3.5 object-contain rounded-sm"
+                    />
+                    <span>FlowSpace</span>
+                  </button>
+
+                  {/* Deep Focus */}
+                  <button
+                    onClick={() => { playSound('start'); setIsFocusModeActive(true); }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-extrabold text-blue-700 dark:text-blue-300 hover:bg-white dark:hover:bg-blue-950/60 hover:shadow-xs transition-all active:scale-95"
+                    title="Start Deep Focus Mode"
+                  >
+                    <Timer size={14} className="text-blue-500" />
+                    <span>Deep Focus</span>
+                  </button>
+                </div>
               )}
-              <button
-                onClick={() => { playSound('start'); setIsFocusModeActive(true); }}
-                className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 dark:bg-white/[0.05] dark:hover:bg-white/[0.08] text-slate-700 dark:text-slate-200 border border-slate-200/80 dark:border-white/[0.08] px-4 py-2.5 rounded-2xl text-xs font-extrabold shadow-xs transition-all active:scale-95"
-              >
-                <Timer size={15} className="text-indigo-500" /> Deep Focus
-              </button>
+
+              {/* Notification Center */}
+              <div className="flex items-center">
+                <NotificationCenter
+                  notifications={allNotifications}
+                  onMarkAsRead={handleMarkNotificationRead}
+                  onMarkAllAsRead={handleMarkAllNotificationsRead}
+                  onClearAll={handleClearNotifications}
+                  onSelectTask={handleSelectTaskFromNotification}
+                  showToast={showToast}
+                />
+              </div>
+
+              {/* Primary Action Button: New Task */}
               <button
                 onClick={() => handleOpenNewTask()}
-                className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 via-blue-600 to-indigo-600 hover:from-indigo-500 hover:to-blue-500 text-white px-5 py-2.5 rounded-2xl text-xs font-black shadow-lg shadow-indigo-500/25 active:scale-95 transition-all"
+                className="flex items-center gap-2 bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-600 hover:brightness-110 text-white px-4 sm:px-5 py-2.5 rounded-2xl text-xs font-black shadow-lg shadow-indigo-500/25 active:scale-95 transition-all"
               >
-                <Plus size={16} /> New Task
+                <Plus size={16} />
+                <span>New Task</span>
               </button>
             </div>
           </div>
@@ -4475,8 +4655,8 @@ export default function Dashboard() {
             <AnalyticsView
               tasks={tasks}
               realStreak={realStreak}
-              currentLevel={currentLevel}
-              currentXP={currentXP}
+              productivityHealth={productivityHealth}
+              momentumState={momentumState}
               teamMembers={teamMembers}
               currentUser={effectiveUser}
             />
@@ -4489,7 +4669,7 @@ export default function Dashboard() {
                     <Zap size={26} /> Automation & Workflow Rules
                   </h2>
                   <p className="text-amber-100 text-sm max-w-xl">
-                    Eliminate repetitive work. Task Bandhu automatically reschedules delays, tracks checklist completion, and awards productivity XP.
+                    Eliminate repetitive work. Task Bandhu automatically reschedules delays, tracks checklist completion, and calculates real-time productivity momentum.
                   </p>
                 </div>
                 <button
@@ -4511,8 +4691,8 @@ export default function Dashboard() {
                   },
                   {
                     key: 'rewardStreakXP',
-                    title: 'Daily Progress & Streak Engine',
-                    desc: 'Award 20 XP on every task completed, elevate rank badges, and track unbroken daily streaks.',
+                    title: 'Daily Flow & Momentum Tracking',
+                    desc: 'Calculate live productivity health scores, monitor focus velocity, and track unbroken daily streaks.',
                     icon: Flame,
                     color: 'text-orange-500'
                   },
@@ -4575,9 +4755,8 @@ export default function Dashboard() {
               user={effectiveUser}
               profileData={userProfile}
               onUpdateProfile={handleUpdateProfile}
-              lifetimeCompleted={lifetimeCompleted}
-              currentLevel={currentLevel}
-              currentXP={currentXP}
+              productivityHealth={productivityHealth}
+              momentumState={momentumState}
               realStreak={realStreak}
               stats={stats}
               workspaceName="Team Workspace"
@@ -4861,7 +5040,8 @@ export default function Dashboard() {
                           type="text"
                           placeholder={`Message #${currentActiveProjectObj.name}... (Press Enter ↵)`}
                           value={projectChatMessageText}
-                          onChange={(e) => setProjectChatMessageText(e.target.value)}
+                          maxLength={500}
+                          onChange={(e) => setProjectChatMessageText(e.target.value.slice(0, 500))}
                           className="flex-1 bg-white dark:bg-[#151e32] border border-slate-200/80 dark:border-white/[0.08] rounded-2xl px-4 py-3 text-xs sm:text-sm outline-none text-slate-900 dark:text-white placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500/30 transition-all font-medium"
                         />
                         <button
@@ -4990,12 +5170,13 @@ export default function Dashboard() {
                       <div className="flex-1 p-4 sm:p-6 flex flex-col">
                         <textarea
                           value={projectNotes}
-                          onChange={(e) => setProjectNotes(e.target.value)}
+                          maxLength={10000}
+                          onChange={(e) => setProjectNotes(e.target.value.slice(0, 10000))}
                           placeholder={`Write your personal notes, brainstorms, code snippets, learnings, or checklists for #${currentActiveProjectObj.name} here...\n\nExample:\n- [ ] Master two-pointer technique\n- [ ] Practice 3 sliding window problems\n- Key formula: left & right pointers with while (r < n)...`}
                           className="w-full flex-1 min-h-[380px] p-4 rounded-2xl bg-slate-50/50 dark:bg-[#121929]/50 border border-slate-200/60 dark:border-white/[0.06] text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-600 text-sm leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500/30 transition-all font-mono"
                         />
                         <div className="flex items-center justify-between mt-3 text-[11px] text-slate-400 dark:text-slate-500 font-medium px-1">
-                          <span>{projectNotes.length} characters • {projectNotes.trim() ? projectNotes.trim().split(/\s+/).length : 0} words</span>
+                          <span>{projectNotes.length}/10,000 characters • {projectNotes.trim() ? projectNotes.trim().split(/\s+/).length : 0} words</span>
                           <span>Markdown formatted • Auto-saved to project</span>
                         </div>
                       </div>
@@ -5131,8 +5312,8 @@ export default function Dashboard() {
                         <div>
                           <h2 className="text-sm font-extrabold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
                             Daily Mission
-                            <span className="text-[10px] bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60 px-2 py-0.5 rounded-md font-extrabold">
-                              XP: {currentXP}/100
+                            <span className={`text-[10px] px-2 py-0.5 rounded-md font-extrabold border ${momentumState.bg}`}>
+                              {momentumState.badge}
                             </span>
                           </h2>
                           <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
@@ -5149,13 +5330,13 @@ export default function Dashboard() {
 
                   <div className="flex items-center gap-2.5 shrink-0 self-start md:self-auto">
                     <div className="bg-slate-50 dark:bg-[#151e32] border border-slate-200/70 dark:border-white/[0.06] px-3.5 py-2 rounded-2xl flex items-center gap-2.5">
-                      <div className="bg-indigo-600 text-white p-1.5 rounded-xl shadow-xs">
-                        <Award size={14} />
+                      <div className="bg-gradient-to-tr from-indigo-500 to-purple-600 text-white p-1.5 rounded-xl shadow-xs">
+                        <TrendingUp size={14} />
                       </div>
                       <div>
-                        <p className="text-[9px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Level</p>
+                        <p className="text-[9px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Health Index</p>
                         <p className="text-xs font-extrabold text-slate-900 dark:text-white whitespace-nowrap">
-                          Lv. {currentLevel} • {getRankTitle(currentLevel)}
+                          {productivityHealth}% • {momentumState.status}
                         </p>
                       </div>
                     </div>
@@ -5186,10 +5367,11 @@ export default function Dashboard() {
                       <Plus size={18} className="text-indigo-500 hidden sm:block mx-2 shrink-0" />
                       <input
                         type="text"
+                        maxLength={120}
                         className="flex-1 w-full py-2 sm:py-2.5 px-2 sm:px-3 text-slate-900 dark:text-white bg-transparent outline-none font-medium text-sm min-w-0 placeholder:text-slate-400 dark:placeholder:text-slate-400"
-                        placeholder="Quick capture a task... Press Enter ↵"
+                        placeholder="Quick capture a task (max 120 chars)... Press Enter ↵"
                         value={quickTaskTitle}
-                        onChange={(e) => setQuickTaskTitle(e.target.value)}
+                        onChange={(e) => setQuickTaskTitle(e.target.value.slice(0, 120))}
                         onKeyDown={handleQuickAddKeyDown}
                       />
                     </div>
@@ -5363,7 +5545,8 @@ export default function Dashboard() {
                               type="text"
                               placeholder="Search tasks, team..."
                               value={searchQuery}
-                              onChange={(e) => setSearchQuery(e.target.value)}
+                              maxLength={100}
+                              onChange={(e) => setSearchQuery(e.target.value.slice(0, 100))}
                               className="h-9 pl-8 pr-3 bg-slate-50 dark:bg-[#151e32] border border-slate-200/80 dark:border-white/[0.08] rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/30 w-full transition-all text-slate-900 dark:text-white placeholder:text-slate-400"
                             />
                           </div>
@@ -5577,9 +5760,10 @@ export default function Dashboard() {
                           </button>
                           <input
                             type="text"
+                            maxLength={120}
                             placeholder={`Add task to ${activeNavTab === 'my-day' ? 'My Day' : activeNavTab === 'project' ? activeProject : 'Inbox'}... (press Enter ↵)`}
                             value={inlineTitle}
-                            onChange={(e) => setInlineTitle(e.target.value)}
+                            onChange={(e) => setInlineTitle(e.target.value.slice(0, 120))}
                             className="flex-1 text-xs sm:text-sm bg-transparent outline-none text-slate-900 dark:text-white placeholder:text-slate-400 font-medium"
                           />
                           <input
@@ -5756,15 +5940,19 @@ export default function Dashboard() {
 
             <form onSubmit={handleCreateProjectFromSidebar} className="space-y-4">
               <div>
-                <label className="text-xs font-bold text-slate-500 dark:text-slate-400 block mb-1">
-                  Project Name
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                    Project Name *
+                  </label>
+                  <span className="text-[10px] font-mono text-slate-400">{(newProjectInput.name || '').length}/50</span>
+                </div>
                 <input
                   type="text"
                   required
+                  maxLength={50}
                   placeholder="e.g. Marketing, Personal Growth"
                   value={newProjectInput.name}
-                  onChange={(e) => setNewProjectInput(prev => ({ ...prev, name: e.target.value }))}
+                  onChange={(e) => setNewProjectInput(prev => ({ ...prev, name: e.target.value.slice(0, 50) }))}
                   className="w-full text-xs md:text-sm bg-slate-50 dark:bg-white/[0.03] border border-slate-200/80 dark:border-white/[0.08] px-3.5 py-2.5 rounded-xl outline-none text-slate-900 dark:text-white font-medium"
                 />
               </div>
@@ -5792,14 +5980,18 @@ export default function Dashboard() {
               </div>
 
               <div>
-                <label className="text-xs font-bold text-slate-500 dark:text-slate-400 block mb-1">
-                  Description (Optional)
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                    Description (Optional)
+                  </label>
+                  <span className="text-[10px] font-mono text-slate-400">{(newProjectInput.description || '').length}/300</span>
+                </div>
                 <textarea
                   rows={2}
+                  maxLength={300}
                   placeholder="Brief goals or summary of this project..."
                   value={newProjectInput.description}
-                  onChange={(e) => setNewProjectInput(prev => ({ ...prev, description: e.target.value }))}
+                  onChange={(e) => setNewProjectInput(prev => ({ ...prev, description: e.target.value.slice(0, 300) }))}
                   className="w-full text-xs bg-slate-50 dark:bg-white/[0.03] border border-slate-200/80 dark:border-white/[0.08] p-3 rounded-xl outline-none text-slate-900 dark:text-white font-medium resize-none"
                 />
               </div>
@@ -5857,6 +6049,18 @@ export default function Dashboard() {
         onOpenApexModal={() => setIsApexUpgradeModalOpen(true)}
         showToast={showToast}
         user={effectiveUser}
+      />
+
+      {/* Virtual Whiteboards Hub Modal */}
+      <WhiteboardHubModal
+        isOpen={isWhiteboardHubOpen}
+        onClose={() => setIsWhiteboardHubOpen(false)}
+        user={effectiveUser || user}
+        userProfile={userProfile}
+        onOpenInApp={(boardId, code) => {
+          setActiveFlowSpaceBoard({ id: boardId, code });
+          setActiveNavTab('flowspace');
+        }}
       />
 
       {/* Designer App Icon & Splash Screen Preview Modal */}
