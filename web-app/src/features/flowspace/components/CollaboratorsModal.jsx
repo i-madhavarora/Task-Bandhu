@@ -27,6 +27,7 @@ export default function CollaboratorsModal({
   isOwner,
   onUpdateMemberRole,
   onKickMember,
+  onRevokeAllAccess,
   onApproveJoinRequest,
   onDeclineJoinRequest,
   onRegenerateCode,
@@ -37,6 +38,7 @@ export default function CollaboratorsModal({
   const [copiedCode, setCopiedCode] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [memberToRemove, setMemberToRemove] = useState(null);
+  const [showRevokeConfirm, setShowRevokeConfirm] = useState(false);
 
   if (!isOpen) return null;
 
@@ -45,26 +47,35 @@ export default function CollaboratorsModal({
   const maxAllowed = isApex ? WHITEBOARD_LIMITS.APEX.maxCollaborators : WHITEBOARD_LIMITS.CORE.maxCollaborators;
   const isHostOnline = isCurrentUserOwner || presenceList.some(p => p.uid === boardData?.ownerId) || Boolean(boardData?.ownerActive);
 
-  // Assemble distinct attendees list (excluding host to prevent host duplication)
+  // Pending knock requests: waiting for host review, NEVER counted or displayed in participants list
+  const pendingKnocks = Object.values(boardData?.joinRequests || {}).filter(r => r && r.status === 'pending');
+  const pendingKnockUids = new Set(pendingKnocks.map(k => k.uid));
+
+  // Assemble distinct attendees list (excluding host to prevent host duplication, excluding pending knocks)
   const attendeesMap = new Map();
 
-  // 1. If viewing user is an attendee, include themselves first with (You)
-  if (!isCurrentUserOwner && currentUser?.uid) {
-    const role = boardData?.members?.[currentUser.uid]?.role || 'editor';
-    attendeesMap.set(currentUser.uid, {
-      uid: currentUser.uid,
-      name: currentUser.displayName || currentUser.email?.split('@')[0] || 'You',
-      role,
-      isSelf: true,
-      isOnline: true,
-      color: '#6366f1'
-    });
+  // 1. If viewing user is an attendee and approved in members, include themselves first with (You)
+  if (!isCurrentUserOwner && currentUser?.uid && !pendingKnockUids.has(currentUser.uid)) {
+    const memberObj = boardData?.members?.[currentUser.uid];
+    if (memberObj) {
+      const role = memberObj.role || 'editor';
+      attendeesMap.set(currentUser.uid, {
+        uid: currentUser.uid,
+        name: currentUser.displayName || currentUser.email?.split('@')[0] || 'You',
+        role,
+        isSelf: true,
+        isOnline: true,
+        color: '#6366f1'
+      });
+    }
   }
 
-  // 2. Add other active presences (strictly excluding the host and self)
+  // 2. Add other active presences (strictly excluding the host, self, and pending knocks)
   presenceList.forEach((p) => {
-    if (p.uid === boardData?.ownerId || p.uid === currentUser?.uid) return;
-    const role = boardData?.members?.[p.uid]?.role || 'editor';
+    if (p.uid === boardData?.ownerId || p.uid === currentUser?.uid || pendingKnockUids.has(p.uid)) return;
+    // Collaborator MUST be an approved member in boardData.members
+    if (!boardData?.members?.[p.uid]) return;
+    const role = boardData.members[p.uid].role || 'editor';
     attendeesMap.set(p.uid, {
       uid: p.uid,
       name: p.name || 'Collaborator',
@@ -78,7 +89,7 @@ export default function CollaboratorsModal({
   // 3. Add registered members from boardData.members if offline
   if (boardData?.members) {
     Object.entries(boardData.members).forEach(([uid, m]) => {
-      if (uid === boardData?.ownerId) return; // Never put host in attendees list
+      if (uid === boardData?.ownerId || pendingKnockUids.has(uid)) return; // Never put host or knockers in attendees list
       if (!attendeesMap.has(uid)) {
         attendeesMap.set(uid, {
           uid,
@@ -95,7 +106,6 @@ export default function CollaboratorsModal({
   const attendeesList = Array.from(attendeesMap.values());
   const onlineCount = (isHostOnline ? 1 : 0) + attendeesList.filter(a => a.isOnline).length;
   const currentCount = Math.max(1, onlineCount);
-  const pendingKnocks = Object.values(boardData?.joinRequests || {}).filter(r => r.status === 'pending');
   const allowExport = boardData?.allowGuestExport !== undefined ? boardData.allowGuestExport : true;
 
   const handleCopyCode = () => {
@@ -251,6 +261,34 @@ export default function CollaboratorsModal({
                 title={allowExport ? 'Click to restrict export to host only' : 'Click to allow attendees to export'}
               >
                 {allowExport ? 'Allowed' : 'Restricted'}
+              </button>
+            </div>
+
+            {/* Control 3: Revoke All Collaborator Access */}
+            <div className={`p-4 flex items-center justify-between ${
+              isDark ? 'bg-rose-500/[0.04]' : 'bg-rose-50/40'
+            }`}>
+              <div className="flex items-center gap-2.5">
+                <div className={`p-2 rounded-xl ${
+                  isDark ? 'bg-rose-500/20 text-rose-300' : 'bg-rose-100 text-rose-600'
+                }`}>
+                  <UserX size={16} />
+                </div>
+                <div>
+                  <p className={`text-xs font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                    Revoke All Collaborator Access
+                  </p>
+                  <p className={`text-[11px] font-medium ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                    Disconnects all attendees & resets room code. No one can rejoin without your permission.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowRevokeConfirm(true)}
+                className="px-3 py-1.5 rounded-xl text-xs font-black bg-rose-600 hover:bg-rose-500 text-white transition-all shadow-xs"
+                title="Revoke access from all users and regenerate room code"
+              >
+                Revoke All
               </button>
             </div>
           </div>
@@ -534,6 +572,45 @@ export default function CollaboratorsModal({
                   } font-bold text-xs transition-all`}
                 >
                   Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* Revoke All Collaborators Confirmation Modal */}
+        {showRevokeConfirm && (
+          <div className="fixed inset-0 z-[130] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 animate-in fade-in">
+            <div className={`w-full max-w-sm ${isDark ? 'bg-slate-900 border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'} border rounded-3xl p-6 shadow-2xl text-center space-y-4`}>
+              <div className="w-12 h-12 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-500 flex items-center justify-center mx-auto shadow-inner">
+                <ShieldAlert size={26} />
+              </div>
+              <div>
+                <h3 className={`text-base font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  Revoke All Access?
+                </h3>
+                <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-600'} mt-1.5 leading-relaxed`}>
+                  This will immediately disconnect all joined collaborators from this FlowSpace, clear their permissions, and generate a new room code. No one can rejoin without your new approval.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowRevokeConfirm(false)}
+                  className={`flex-1 py-2.5 rounded-xl ${
+                    isDark ? 'bg-white/10 hover:bg-white/15 text-slate-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                  } font-bold text-xs transition-all`}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await onRevokeAllAccess?.();
+                    setShowRevokeConfirm(false);
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs transition-all shadow-md shadow-rose-600/30"
+                >
+                  Yes, Revoke All
                 </button>
               </div>
             </div>

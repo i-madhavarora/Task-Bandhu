@@ -13,6 +13,7 @@ import {
   hitTestHandle,
   resizeElement
 } from '../engine/geometryUtils';
+import { compressImageToDataUrl } from '../utils/imageUtils';
 import { Trash2, Copy, Sparkles, Check } from 'lucide-react';
 
 export default function Canvas({
@@ -115,26 +116,28 @@ export default function Canvas({
         if (item.type.startsWith('image/')) {
           const file = item.getAsFile();
           if (file) {
-            const reader = new FileReader();
-            reader.onload = (event) => {
-              const src = event.target.result;
+            compressImageToDataUrl(file).then(({ dataUrl, width, height }) => {
               const canvas = canvasRef.current;
               const rect = canvas ? canvas.getBoundingClientRect() : { width: window.innerWidth, height: window.innerHeight };
               const center = screenToWorld(rect.width / 2, rect.height / 2);
+              const displayWidth = Math.min(420, width);
+              const displayHeight = Math.round((height / width) * displayWidth);
               const imgElem = {
+                id: `img_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
                 type: 'image',
-                src,
-                x: center.x - 150,
-                y: center.y - 120,
-                width: 300,
-                height: 240,
+                src: dataUrl,
+                x: Math.round(center.x - displayWidth / 2),
+                y: Math.round(center.y - displayHeight / 2),
+                width: displayWidth,
+                height: displayHeight,
                 zIndex: Date.now()
               };
               onSaveElement(imgElem);
               onSelectElement(imgElem.id);
               if (setActiveTool) setActiveTool('select');
-            };
-            reader.readAsDataURL(file);
+            }).catch(err => {
+              console.error('Failed to compress pasted image:', err);
+            });
           }
         }
       }

@@ -26,6 +26,8 @@ import ApexSoundPlayer from './components/ApexSoundPlayer';
 import JoinRoomModal from './components/JoinRoomModal';
 import ShareInviteModal from './components/ShareInviteModal';
 import PersonalizedSplashScreen from './components/PersonalizedSplashScreen';
+import { compressImageToDataUrl } from './utils/imageUtils';
+import { saveJoinedBoardLocally } from './utils/joinedBoardsUtils';
 import { Sparkles, Users, Eye, Edit3, ShieldAlert, Lock, X, UserPlus, UserMinus, Bell } from 'lucide-react';
 
 // Subtle audio synthesizer for host activity notifications
@@ -180,8 +182,20 @@ export default function FlowSpaceStudio({
   // Non-owners with viewer role or during lock are strictly read-only: CANNOT scribble, paint, erase, or make changes
   const readOnly = (!isOwner && (isLocked || userMemberRole === 'viewer'));
 
-  // Presence Hook (pass !readOnly so viewers never broadcast cursor coordinates)
-  const { presenceList, userColor, updatePresence } = usePresence(currentBoardId, currentUser, isOwner, !readOnly);
+  // Presence Hook (only active for approved members, never for users waiting in knock lobby)
+  const { presenceList, userColor, updatePresence } = usePresence(
+    isApprovedMember ? currentBoardId : null,
+    currentUser,
+    isOwner,
+    !readOnly
+  );
+
+  // Record board in user's joined history when an approved attendee enters
+  useEffect(() => {
+    if (currentBoardId && boardData && currentUser && !isOwner && isApprovedMember) {
+      saveJoinedBoardLocally(currentUser.uid, { id: currentBoardId, ...boardData });
+    }
+  }, [currentBoardId, boardData, currentUser, isOwner, isApprovedMember]);
 
   // Live Owner Activity Detection (Session only active if host is present)
   const isOwnerActive = isOwner || Boolean(
@@ -400,10 +414,40 @@ export default function FlowSpaceStudio({
     };
     const updatedRequests = { ...(boardData?.joinRequests || {}) };
     delete updatedRequests[targetUid];
+    const updatedMemberUids = Array.from(new Set([...(boardData?.memberUids || []), targetUid]));
     await updateBoard({
       members: updatedMembers,
+      memberUids: updatedMemberUids,
       joinRequests: updatedRequests
     });
+  };
+
+  // Host Sovereign Authority: Revoke All Collaborator Access
+  const handleRevokeAllAccess = async () => {
+    if (!isOwner || !currentBoardId) return;
+    const newCode = generateRoomCode();
+    // Keep ONLY the owner in members
+    const ownerMemberOnly = {
+      [boardData.ownerId]: {
+        role: 'owner',
+        name: boardData.ownerName || currentUser?.displayName || 'Owner',
+        email: currentUser?.email || '',
+        joinedAt: Date.now()
+      }
+    };
+    await updateBoard({
+      members: ownerMemberOnly,
+      memberUids: [boardData.ownerId],
+      joinRequests: {},
+      roomCode: newCode,
+      revokedAt: Date.now()
+    });
+    addActivityToast({
+      type: 'leave',
+      name: 'All Collaborators',
+      message: 'All collaborator access was revoked and room code reset'
+    });
+    playActivityTone('leave');
   };
 
   // Host Authority: Decline Knock Request
@@ -573,6 +617,41 @@ export default function FlowSpaceStudio({
     window.addEventListener('keydown', handleHistoryShortcuts);
     return () => window.removeEventListener('keydown', handleHistoryShortcuts);
   }, [handleUndo, handleRedo]);
+
+  // Tool selection hotkeys (R: Rect, C: Circle, A: Arrow, L: Line, D: Diamond, S: Star, N: Sticky, P: Pen, M: Marker, E: Eraser, T: Text, V: Select, H: Hand)
+  useEffect(() => {
+    const handleToolShortcuts = (e) => {
+      const tag = document.activeElement?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.isContentEditable) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      const key = e.key.toLowerCase();
+      const toolMap = {
+        'r': 'rect',
+        'c': 'circle',
+        'a': 'arrow',
+        'l': 'line',
+        'd': 'diamond',
+        's': 'star',
+        'n': 'sticky',
+        'p': 'pen',
+        'm': 'highlighter',
+        'e': 'eraser',
+        't': 'text',
+        'v': 'select',
+        'h': 'pan',
+        'x': 'laser'
+      };
+
+      if (toolMap[key]) {
+        if (readOnly && toolMap[key] !== 'select' && toolMap[key] !== 'pan') return;
+        setActiveTool(toolMap[key]);
+      }
+    };
+
+    window.addEventListener('keydown', handleToolShortcuts);
+    return () => window.removeEventListener('keydown', handleToolShortcuts);
+  }, [readOnly]);
 
   const selectedElement = elements.find(e => e.id === selectedElementId);
 
@@ -825,25 +904,28 @@ export default function FlowSpaceStudio({
           onZoomIn={() => setZoom(z => Math.min(5, z * 1.2))}
           onZoomOut={() => setZoom(z => Math.max(0.1, z / 1.2))}
           onResetZoom={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}
-          onUploadImage={(e) => {
+          onUploadImage={async (e) => {
             const file = e.target.files?.[0];
             if (file) {
-              const reader = new FileReader();
-              reader.onload = (evt) => {
-                const src = evt.target?.result;
+              try {
+                const { dataUrl, width, height } = await compressImageToDataUrl(file);
                 const center = { x: -pan.x / zoom + window.innerWidth / (2 * zoom), y: -pan.y / zoom + window.innerHeight / (2 * zoom) };
+                const displayWidth = Math.min(420, width);
+                const displayHeight = Math.round((height / width) * displayWidth);
                 handleSaveElement({
                   id: `img_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
                   type: 'image',
-                  src,
-                  x: center.x - 150,
-                  y: center.y - 120,
-                  width: 300,
-                  height: 240,
+                  src: dataUrl,
+                  x: Math.round(center.x - displayWidth / 2),
+                  y: Math.round(center.y - displayHeight / 2),
+                  width: displayWidth,
+                  height: displayHeight,
                   zIndex: Date.now()
                 });
-              };
-              reader.readAsDataURL(file);
+              } catch (err) {
+                console.error('Failed to compress/upload image:', err);
+              }
+              e.target.value = '';
             }
           }}
           readOnly={readOnly}
@@ -896,6 +978,7 @@ export default function FlowSpaceStudio({
         isOwner={isOwner}
         onUpdateMemberRole={handleUpdateMemberRole}
         onKickMember={handleKickMember}
+        onRevokeAllAccess={handleRevokeAllAccess}
         onApproveJoinRequest={handleApproveKnock}
         onDeclineJoinRequest={handleDeclineKnock}
         onRegenerateCode={handleRegenerateCode}

@@ -13,6 +13,7 @@ import {
   hitTestHandle,
   resizeElement
 } from '../engine/geometryUtils';
+import { compressImageToDataUrl } from '../utils/imageUtils';
 import { Trash2, Copy, Sparkles, Check } from 'lucide-react';
 
 export default function Canvas({
@@ -115,26 +116,28 @@ export default function Canvas({
         if (item.type.startsWith('image/')) {
           const file = item.getAsFile();
           if (file) {
-            const reader = new FileReader();
-            reader.onload = (event) => {
-              const src = event.target.result;
+            compressImageToDataUrl(file).then(({ dataUrl, width, height }) => {
               const canvas = canvasRef.current;
               const rect = canvas ? canvas.getBoundingClientRect() : { width: window.innerWidth, height: window.innerHeight };
               const center = screenToWorld(rect.width / 2, rect.height / 2);
+              const displayWidth = Math.min(420, width);
+              const displayHeight = Math.round((height / width) * displayWidth);
               const imgElem = {
+                id: `img_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
                 type: 'image',
-                src,
-                x: center.x - 150,
-                y: center.y - 120,
-                width: 300,
-                height: 240,
+                src: dataUrl,
+                x: Math.round(center.x - displayWidth / 2),
+                y: Math.round(center.y - displayHeight / 2),
+                width: displayWidth,
+                height: displayHeight,
                 zIndex: Date.now()
               };
               onSaveElement(imgElem);
               onSelectElement(imgElem.id);
               if (setActiveTool) setActiveTool('select');
-            };
-            reader.readAsDataURL(file);
+            }).catch(err => {
+              console.error('Failed to compress pasted image:', err);
+            });
           }
         }
       }
@@ -614,9 +617,9 @@ export default function Canvas({
   // Floating Action Toolbar Position above selected element
   const floatingToolbarPos = selectedBounds
     ? {
-        x: Math.max(20, Math.min(window.innerWidth - 220, worldToScreen(selectedBounds.minX, selectedBounds.minY).x)),
-        y: Math.max(70, worldToScreen(selectedBounds.minX, selectedBounds.minY).y - 48)
-      }
+      x: Math.max(20, Math.min(window.innerWidth - 220, worldToScreen(selectedBounds.minX, selectedBounds.minY).x)),
+      y: Math.max(70, worldToScreen(selectedBounds.minX, selectedBounds.minY).y - 48)
+    }
     : null;
 
   return (
@@ -632,14 +635,14 @@ export default function Canvas({
           cursor: hoveredHandleCursor
             ? hoveredHandleCursor
             : isPanning || activeTool === 'pan' || isSpacePressed
-            ? 'grab'
-            : activeTool === 'laser'
-            ? 'crosshair'
-            : activeTool === 'eraser'
-            ? 'crosshair'
-            : activeTool === 'select'
-            ? 'default'
-            : 'crosshair'
+              ? 'grab'
+              : activeTool === 'laser'
+                ? 'crosshair'
+                : activeTool === 'eraser'
+                  ? 'crosshair'
+                  : activeTool === 'select'
+                    ? 'default'
+                    : 'crosshair'
         }}
         className="w-full h-full block touch-none"
       />
@@ -719,11 +722,10 @@ export default function Canvas({
             placeholder={editingTextElement.type === 'sticky' ? 'Type your note here...' : 'Type text...'}
             autoFocus
             rows={editingTextElement.type === 'sticky' ? 5 : 3}
-            className={`w-full bg-transparent p-2 rounded-xl outline-none resize-none font-medium leading-relaxed ${
-              editingTextElement.type === 'sticky'
+            className={`w-full bg-transparent p-2 rounded-xl outline-none resize-none font-medium leading-relaxed ${editingTextElement.type === 'sticky'
                 ? 'text-slate-900 placeholder:text-slate-600 text-base font-bold'
                 : isDark ? 'text-white placeholder:text-slate-500 text-sm' : 'text-slate-900 placeholder:text-slate-400 text-sm'
-            }`}
+              }`}
           />
           <div className="flex justify-between items-center pt-1.5 border-t border-black/10 dark:border-white/10">
             <span className="text-[10px] text-slate-500 font-medium">Ctrl+Enter to save</span>

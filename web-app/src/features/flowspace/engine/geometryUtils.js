@@ -128,6 +128,37 @@ export function resizeElement(elem, handleId, dx, dy) {
   const minSize = 24;
   let updated = { ...elem };
 
+  // For freehand pen, highlighter, and stroke paths with points
+  if (elem.points && elem.points.length > 0) {
+    const bounds = getElementBounds(elem);
+    const oldWidth = Math.max(1, bounds.width);
+    const oldHeight = Math.max(1, bounds.height);
+
+    let newMinX = bounds.minX;
+    let newMaxX = bounds.maxX;
+    let newMinY = bounds.minY;
+    let newMaxY = bounds.maxY;
+
+    if (handleId.includes('r')) newMaxX = Math.max(bounds.minX + minSize, bounds.maxX + dx);
+    if (handleId.includes('l')) newMinX = Math.min(bounds.maxX - minSize, bounds.minX + dx);
+    if (handleId.includes('b')) newMaxY = Math.max(bounds.minY + minSize, bounds.maxY + dy);
+    if (handleId.includes('t')) newMinY = Math.min(bounds.maxY - minSize, bounds.minY + dy);
+
+    const newWidth = Math.max(minSize, newMaxX - newMinX);
+    const newHeight = Math.max(minSize, newMaxY - newMinY);
+    const scaleX = newWidth / oldWidth;
+    const scaleY = newHeight / oldHeight;
+
+    const scaledPoints = elem.points.map(p => ({
+      ...p,
+      x: newMinX + (p.x - bounds.minX) * scaleX,
+      y: newMinY + (p.y - bounds.minY) * scaleY
+    }));
+
+    updated.points = scaledPoints;
+    return updated;
+  }
+
   // For shapes with startX / endX
   if (elem.startX !== undefined && elem.endX !== undefined) {
     const left = Math.min(elem.startX, elem.endX);

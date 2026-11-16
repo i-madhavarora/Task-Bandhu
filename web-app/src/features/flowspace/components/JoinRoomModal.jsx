@@ -25,6 +25,7 @@ import {
 import { collection, query, where, getDocs, limit, doc, getDoc, deleteDoc, updateDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../firebase';
 import { isApexPlan } from '../utils/planLimits';
+import { getLocalJoinedBoards, removeJoinedBoardLocally } from '../utils/joinedBoardsUtils';
 import flowspaceDarkLogo from '../../../assets/flowspace_dark.png';
 import flowspaceLightLogo from '../../../assets/flowspace_light.png';
 
@@ -67,11 +68,12 @@ export default function JoinRoomModal({
   isDark = true,
   onExit = null
 }) {
-  const [tab, setTab] = useState('create'); // 'create' | 'join' | 'recent'
+  const [tab, setTab] = useState('create'); // 'create' | 'join' | 'recent' | 'joined'
   const [newTitle, setNewTitle] = useState('');
   const [bgStyle, setBgStyle] = useState('dots');
   const [inputCode, setInputCode] = useState('');
   const [recentBoards, setRecentBoards] = useState([]);
+  const [joinedBoards, setJoinedBoards] = useState([]);
   const [loadingRecent, setLoadingRecent] = useState(false);
   const [joinError, setJoinError] = useState('');
   const [pasted, setPasted] = useState(false);
@@ -114,6 +116,7 @@ export default function JoinRoomModal({
     if (!currentUser) return;
     setLoadingRecent(true);
     try {
+      // 1. Fetch own created FlowSpaces
       const q = query(
         collection(db, 'whiteboards'),
         where('ownerId', '==', currentUser.uid),
@@ -124,6 +127,46 @@ export default function JoinRoomModal({
       snap.forEach(d => list.push({ id: d.id, ...d.data() }));
       list.sort((a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0));
       setRecentBoards(list);
+
+      // 2. Fetch boards user joined (hosted by others)
+      const localList = getLocalJoinedBoards(currentUser.uid);
+      const joinedMap = new Map();
+      localList.forEach(b => {
+        if (b && b.id && b.ownerId !== currentUser.uid) {
+          joinedMap.set(b.id, b);
+        }
+      });
+
+      // Query Firestore for boards where memberUids contains user
+      try {
+        const qJoined = query(
+          collection(db, 'whiteboards'),
+          where('memberUids', 'array-contains', currentUser.uid),
+          limit(20)
+        );
+        const joinedSnap = await getDocs(qJoined);
+        joinedSnap.forEach(d => {
+          const data = d.data();
+          if (data.ownerId !== currentUser.uid) {
+            joinedMap.set(d.id, {
+              id: d.id,
+              title: data.title || 'Untitled FlowSpace',
+              roomCode: data.roomCode || '',
+              ownerName: data.ownerName || 'Host',
+              ownerId: data.ownerId,
+              background: data.background || 'dots',
+              joinedAt: data.members?.[currentUser.uid]?.joinedAt || Date.now(),
+              ...joinedMap.get(d.id)
+            });
+          }
+        });
+      } catch (err) {
+        // Fallback to local tracking
+      }
+
+      const joinedArr = Array.from(joinedMap.values());
+      joinedArr.sort((a, b) => (b.joinedAt || 0) - (a.joinedAt || 0));
+      setJoinedBoards(joinedArr);
     } catch (e) {
       console.error('Error fetching recent boards:', e);
     }
@@ -191,16 +234,21 @@ export default function JoinRoomModal({
           return;
         }
 
-        // Add user as member to the board so they join directly as a live collaborator
-        const boardRef = doc(db, 'whiteboards', boardDoc.id);
-        await updateDoc(boardRef, {
-          [`members.${currentUser.uid}`]: {
-            role: data.isLocked ? 'viewer' : 'editor',
-            name: currentUser.displayName || currentUser.email?.split('@')[0] || 'Member',
-            email: currentUser.email || '',
-            joinedAt: Date.now()
-          }
-        });
+        // If user is already an approved member, they rejoin directly.
+        // If not already approved, set a pending knock request (never add directly to members!)
+        const isAlreadyMember = Boolean(data.members?.[currentUser.uid]);
+        if (!isAlreadyMember) {
+          const boardRef = doc(db, 'whiteboards', boardDoc.id);
+          await updateDoc(boardRef, {
+            [`joinRequests.${currentUser.uid}`]: {
+              uid: currentUser.uid,
+              name: currentUser.displayName || currentUser.email?.split('@')[0] || 'Guest User',
+              email: currentUser.email || '',
+              requestedAt: Date.now(),
+              status: 'pending'
+            }
+          });
+        }
       }
 
       onJoinCode(boardDoc.id, data.roomCode || prefixed);
@@ -264,6 +312,14 @@ export default function JoinRoomModal({
       setRecentBoards(prev => prev.filter(b => b.id !== boardId));
     } catch (err) {
       console.error('Failed to delete board:', err);
+    }
+  };
+
+  const handleRemoveJoinedBoard = (boardId, e) => {
+    e?.stopPropagation();
+    if (currentUser?.uid) {
+      removeJoinedBoardLocally(currentUser.uid, boardId);
+      setJoinedBoards(prev => prev.filter(b => b.id !== boardId));
     }
   };
 
@@ -359,10 +415,10 @@ export default function JoinRoomModal({
 
         {/* Dedicated Full-Width Segmented Tab Bar */}
         <div className="px-6 pt-4 pb-2">
-          <div className={`grid grid-cols-3 gap-1.5 p-1 ${isDark ? 'bg-slate-950/60 border-white/[0.06]' : 'bg-slate-100 border-slate-200'} rounded-2xl border`}>
+          <div className={`grid grid-cols-2 sm:grid-cols-4 gap-1.5 p-1 ${isDark ? 'bg-slate-950/60 border-white/[0.06]' : 'bg-slate-100 border-slate-200'} rounded-2xl border`}>
             <button
               onClick={() => { setTab('create'); setNewTitle(''); }}
-              className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-black transition-all ${tab === 'create'
+              className={`flex items-center justify-center gap-1.5 sm:gap-2 py-2.5 px-2 sm:px-3 rounded-xl text-xs font-black transition-all ${tab === 'create'
                 ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-md shadow-indigo-600/30'
                 : isDark ? 'text-slate-400 hover:text-white hover:bg-white/[0.04]' : 'text-slate-600 hover:text-slate-900 hover:bg-white'
                 }`}
@@ -372,7 +428,7 @@ export default function JoinRoomModal({
             </button>
             <button
               onClick={() => setTab('join')}
-              className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-black transition-all ${tab === 'join'
+              className={`flex items-center justify-center gap-1.5 sm:gap-2 py-2.5 px-2 sm:px-3 rounded-xl text-xs font-black transition-all ${tab === 'join'
                 ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-md shadow-indigo-600/30'
                 : isDark ? 'text-slate-400 hover:text-white hover:bg-white/[0.04]' : 'text-slate-600 hover:text-slate-900 hover:bg-white'
                 }`}
@@ -382,13 +438,23 @@ export default function JoinRoomModal({
             </button>
             <button
               onClick={() => setTab('recent')}
-              className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-black transition-all ${tab === 'recent'
+              className={`flex items-center justify-center gap-1.5 sm:gap-2 py-2.5 px-2 sm:px-3 rounded-xl text-xs font-black transition-all ${tab === 'recent'
                 ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-md shadow-indigo-600/30'
                 : isDark ? 'text-slate-400 hover:text-white hover:bg-white/[0.04]' : 'text-slate-600 hover:text-slate-900 hover:bg-white'
                 }`}
             >
               <Clock size={15} />
               <span>My FlowSpaces</span>
+            </button>
+            <button
+              onClick={() => setTab('joined')}
+              className={`flex items-center justify-center gap-1.5 sm:gap-2 py-2.5 px-2 sm:px-3 rounded-xl text-xs font-black transition-all ${tab === 'joined'
+                ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-md shadow-indigo-600/30'
+                : isDark ? 'text-slate-400 hover:text-white hover:bg-white/[0.04]' : 'text-slate-600 hover:text-slate-900 hover:bg-white'
+                }`}
+            >
+              <Users size={15} />
+              <span>Joined FlowSpaces</span>
             </button>
           </div>
         </div>
@@ -677,6 +743,130 @@ export default function JoinRoomModal({
                       </div>
                     );
                   })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Tab 4: Joined FlowSpaces (Boards hosted by others that user joined) */}
+        {tab === 'joined' && (
+          <div className="p-6 overflow-y-auto space-y-4 flex-1">
+            {/* Search and Action Bar */}
+            <div className="flex items-center justify-between gap-3">
+              <div className={`flex items-center gap-2 px-3 py-2 rounded-2xl border flex-1 max-w-md ${isDark ? 'bg-slate-950/70 border-white/[0.08]' : 'bg-slate-50 border-slate-200'}`}>
+                <Search size={15} className="text-slate-400 shrink-0" />
+                <input
+                  type="text"
+                  placeholder="Search joined FlowSpaces..."
+                  value={searchQuery}
+                  maxLength={50}
+                  onChange={(e) => setSearchQuery(e.target.value.slice(0, 50))}
+                  className={`bg-transparent text-xs font-bold w-full outline-none ${isDark ? 'text-white placeholder:text-slate-500' : 'text-slate-900 placeholder:text-slate-400'}`}
+                />
+                {searchQuery && (
+                  <button onClick={() => setSearchQuery('')} className="text-slate-400 hover:text-white">
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+
+              <button
+                onClick={() => setTab('join')}
+                className="hidden sm:inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black shadow-md shadow-indigo-600/20 active:scale-95 transition-all"
+              >
+                <LogIn size={14} />
+                <span>Join with Code</span>
+              </button>
+            </div>
+
+            {loadingRecent ? (
+              <div className="py-16 text-center text-slate-400 text-xs font-medium">
+                Loading joined FlowSpaces...
+              </div>
+            ) : joinedBoards.length === 0 ? (
+              <div className="py-16 text-center space-y-3">
+                <div className="w-14 h-14 rounded-3xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center mx-auto shadow-inner">
+                  <Users size={26} />
+                </div>
+                <div>
+                  <h4 className={`text-sm font-black ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>No Joined FlowSpaces</h4>
+                  <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'} max-w-sm mx-auto mt-1`}>
+                    You haven't joined any FlowSpaces hosted by others yet. Enter a room code in <span className="text-indigo-400 font-bold">Join FlowSpace</span> to collaborate!
+                  </p>
+                </div>
+                <button
+                  onClick={() => setTab('join')}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow-md transition-all inline-flex items-center gap-1.5"
+                >
+                  <LogIn size={14} />
+                  <span>Join with Code</span>
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                {joinedBoards
+                  .filter(b => {
+                    if (!searchQuery.trim()) return true;
+                    const q = searchQuery.toLowerCase();
+                    return (b.title || '').toLowerCase().includes(q) || (b.roomCode || '').toLowerCase().includes(q) || (b.ownerName || '').toLowerCase().includes(q);
+                  })
+                  .map((b) => (
+                    <div
+                      key={b.id}
+                      onClick={() => onJoinCode(b.id, b.roomCode)}
+                      className={`p-4 rounded-3xl border ${isDark
+                        ? 'bg-slate-950/60 hover:bg-slate-950/90 border-white/[0.08] hover:border-indigo-500/50 shadow-lg shadow-black/20'
+                        : 'bg-white hover:bg-indigo-50/20 border-slate-200 hover:border-indigo-300 shadow-sm'
+                        } cursor-pointer transition-all flex flex-col justify-between group h-40`}
+                    >
+                      {/* Top Card Row: Title & Remove icon */}
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <h4
+                            title={b.title || 'Untitled FlowSpace'}
+                            className={`text-sm font-black ${isDark ? 'text-white' : 'text-slate-900'} group-hover:text-indigo-400 transition-colors truncate`}
+                          >
+                            {b.title || 'Untitled FlowSpace'}
+                          </h4>
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-400 border border-indigo-500/20 truncate max-w-[130px]">
+                              Host: {b.ownerName || 'Teammate'}
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-medium capitalize">
+                              {b.background || 'dots'}
+                            </span>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={(e) => handleRemoveJoinedBoard(b.id, e)}
+                          className={`p-1.5 ${isDark ? 'text-slate-400 hover:text-rose-400 hover:bg-rose-500/10' : 'text-slate-500 hover:text-rose-600 hover:bg-rose-50'} rounded-lg transition-all shrink-0`}
+                          title="Remove from Joined History"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+
+                      {/* Bottom Card Row: Room Code & Enter Button */}
+                      <div className="pt-2 border-t border-white/[0.05] flex items-center justify-between">
+                        <button
+                          onClick={(e) => handleCopyCode(b.roomCode, b.id, e)}
+                          className="text-[11px] font-mono font-black text-indigo-400 bg-indigo-500/10 hover:bg-indigo-500/20 px-2 py-0.5 rounded-lg border border-indigo-500/20 flex items-center gap-1 transition-all"
+                          title="Click to copy room code"
+                        >
+                          <span>{b.roomCode}</span>
+                          {copiedCodeId === b.id ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+                        </button>
+
+                        <div className="flex items-center gap-1.5 text-xs font-black text-indigo-400 group-hover:text-indigo-300">
+                          <span>Re-join</span>
+                          <div className="w-7 h-7 rounded-xl bg-indigo-600/20 group-hover:bg-indigo-600 text-indigo-400 group-hover:text-white flex items-center justify-center transition-all">
+                            <ArrowRight size={13} />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
               </div>
             )}
           </div>

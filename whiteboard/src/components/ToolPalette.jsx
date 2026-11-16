@@ -46,8 +46,8 @@ export default function ToolPalette({
     { id: 'circle', label: 'Circle (C)', icon: Circle },
     { id: 'arrow', label: 'Arrow (A)', icon: ArrowUpRight },
     { id: 'line', label: 'Line (L)', icon: Minus },
-    { id: 'diamond', label: 'Diamond', icon: Diamond },
-    { id: 'star', label: 'Star', icon: Star }
+    { id: 'diamond', label: 'Diamond (D)', icon: Diamond },
+    { id: 'star', label: 'Star (S)', icon: Star }
   ];
 
   const handleShapeSelect = (shapeId) => {
@@ -192,7 +192,7 @@ export default function ToolPalette({
                   ? 'bg-yellow-500 text-slate-950 font-black shadow-md shadow-yellow-500/30'
                   : idleButton
               }`}
-              title="Post-it Sticky Note (S)"
+              title="Post-it Sticky Note (N)"
             >
               <StickyNote size={17} />
             </button>

@@ -27,6 +27,7 @@ export default function CollaboratorsModal({
   isOwner,
   onUpdateMemberRole,
   onKickMember,
+  onRevokeAllAccess,
   onApproveJoinRequest,
   onDeclineJoinRequest,
   onRegenerateCode,
@@ -37,6 +38,7 @@ export default function CollaboratorsModal({
   const [copiedCode, setCopiedCode] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [memberToRemove, setMemberToRemove] = useState(null);
+  const [showRevokeConfirm, setShowRevokeConfirm] = useState(false);
 
   if (!isOpen) return null;
 
@@ -45,26 +47,35 @@ export default function CollaboratorsModal({
   const maxAllowed = isApex ? WHITEBOARD_LIMITS.APEX.maxCollaborators : WHITEBOARD_LIMITS.CORE.maxCollaborators;
   const isHostOnline = isCurrentUserOwner || presenceList.some(p => p.uid === boardData?.ownerId) || Boolean(boardData?.ownerActive);
 
-  // Assemble distinct attendees list (excluding host to prevent host duplication)
+  // Pending knock requests: waiting for host review, NEVER counted or displayed in participants list
+  const pendingKnocks = Object.values(boardData?.joinRequests || {}).filter(r => r && r.status === 'pending');
+  const pendingKnockUids = new Set(pendingKnocks.map(k => k.uid));
+
+  // Assemble distinct attendees list (excluding host to prevent host duplication, excluding pending knocks)
   const attendeesMap = new Map();
 
-  // 1. If viewing user is an attendee, include themselves first with (You)
-  if (!isCurrentUserOwner && currentUser?.uid) {
-    const role = boardData?.members?.[currentUser.uid]?.role || 'editor';
-    attendeesMap.set(currentUser.uid, {
-      uid: currentUser.uid,
-      name: currentUser.displayName || currentUser.email?.split('@')[0] || 'You',
-      role,
-      isSelf: true,
-      isOnline: true,
-      color: '#6366f1'
-    });
+  // 1. If viewing user is an attendee and approved in members, include themselves first with (You)
+  if (!isCurrentUserOwner && currentUser?.uid && !pendingKnockUids.has(currentUser.uid)) {
+    const memberObj = boardData?.members?.[currentUser.uid];
+    if (memberObj) {
+      const role = memberObj.role || 'editor';
+      attendeesMap.set(currentUser.uid, {
+        uid: currentUser.uid,
+        name: currentUser.displayName || currentUser.email?.split('@')[0] || 'You',
+        role,
+        isSelf: true,
+        isOnline: true,
+        color: '#6366f1'
+      });
+    }
   }
 
-  // 2. Add other active presences (strictly excluding the host and self)
+  // 2. Add other active presences (strictly excluding the host, self, and pending knocks)
   presenceList.forEach((p) => {
-    if (p.uid === boardData?.ownerId || p.uid === currentUser?.uid) return;
-    const role = boardData?.members?.[p.uid]?.role || 'editor';
+    if (p.uid === boardData?.ownerId || p.uid === currentUser?.uid || pendingKnockUids.has(p.uid)) return;
+    // Collaborator MUST be an approved member in boardData.members
+    if (!boardData?.members?.[p.uid]) return;
+    const role = boardData.members[p.uid].role || 'editor';
     attendeesMap.set(p.uid, {
       uid: p.uid,
       name: p.name || 'Collaborator',
@@ -78,7 +89,7 @@ export default function CollaboratorsModal({
   // 3. Add registered members from boardData.members if offline
   if (boardData?.members) {
     Object.entries(boardData.members).forEach(([uid, m]) => {
-      if (uid === boardData?.ownerId) return; // Never put host in attendees list
+      if (uid === boardData?.ownerId || pendingKnockUids.has(uid)) return; // Never put host or knockers in attendees list
       if (!attendeesMap.has(uid)) {
         attendeesMap.set(uid, {
           uid,
@@ -95,7 +106,6 @@ export default function CollaboratorsModal({
   const attendeesList = Array.from(attendeesMap.values());
   const onlineCount = (isHostOnline ? 1 : 0) + attendeesList.filter(a => a.isOnline).length;
   const currentCount = Math.max(1, onlineCount);
-  const pendingKnocks = Object.values(boardData?.joinRequests || {}).filter(r => r.status === 'pending');
   const allowExport = boardData?.allowGuestExport !== undefined ? boardData.allowGuestExport : true;
 
   const handleCopyCode = () => {
@@ -140,26 +150,22 @@ export default function CollaboratorsModal({
         </div>
 
         {/* Room Code & Share Banner */}
-        <div className={`p-4 border-b flex items-center justify-between ${
-          isDark ? 'bg-slate-950/60 border-white/[0.06]' : 'bg-slate-50 border-slate-200/80'
-        }`}>
+        <div className={`p-4 border-b flex items-center justify-between ${isDark ? 'bg-slate-950/60 border-white/[0.06]' : 'bg-slate-50 border-slate-200/80'
+          }`}>
           <div>
-            <span className={`text-[10px] font-extrabold uppercase tracking-wider block mb-0.5 ${
-              isDark ? 'text-slate-400' : 'text-slate-500'
-            }`}>
+            <span className={`text-[10px] font-extrabold uppercase tracking-wider block mb-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'
+              }`}>
               Room Code
             </span>
             <div className="flex items-center gap-2">
-              <span className={`text-sm font-mono font-black ${
-                isDark ? 'text-indigo-300' : 'text-indigo-600'
-              }`}>
+              <span className={`text-sm font-mono font-black ${isDark ? 'text-indigo-300' : 'text-indigo-600'
+                }`}>
                 {boardData?.roomCode}
               </span>
               <button
                 onClick={handleCopyCode}
-                className={`p-1 rounded transition-all ${
-                  isDark ? 'text-slate-400 hover:text-white hover:bg-white/[0.08]' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200'
-                }`}
+                className={`p-1 rounded transition-all ${isDark ? 'text-slate-400 hover:text-white hover:bg-white/[0.08]' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200'
+                  }`}
                 title="Copy Room Code"
               >
                 {copiedCode ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
@@ -171,11 +177,10 @@ export default function CollaboratorsModal({
             <button
               onClick={handleRegen}
               disabled={isRegenerating}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all disabled:opacity-50 ${
-                isDark
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all disabled:opacity-50 ${isDark
                   ? 'bg-white/[0.05] hover:bg-white/[0.1] text-slate-300'
                   : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 shadow-2xs'
-              }`}
+                }`}
               title="Invalidate old code and generate a fresh one"
             >
               <RefreshCw size={13} className={isRegenerating ? 'animate-spin' : ''} />
@@ -188,15 +193,13 @@ export default function CollaboratorsModal({
         {isOwner && (
           <div className={`border-b divide-y ${isDark ? 'border-white/[0.06] divide-white/[0.06]' : 'border-slate-200/80 divide-slate-200/80'}`}>
             {/* Control 1: Presentation Lock */}
-            <div className={`p-4 flex items-center justify-between ${
-              isDark ? 'bg-indigo-500/[0.04]' : 'bg-indigo-50/40'
-            }`}>
+            <div className={`p-4 flex items-center justify-between ${isDark ? 'bg-indigo-500/[0.04]' : 'bg-indigo-50/40'
+              }`}>
               <div className="flex items-center gap-2.5">
-                <div className={`p-2 rounded-xl ${
-                  boardData?.isLocked
+                <div className={`p-2 rounded-xl ${boardData?.isLocked
                     ? (isDark ? 'bg-rose-500/20 text-rose-300' : 'bg-rose-100 text-rose-600')
                     : (isDark ? 'bg-emerald-500/20 text-emerald-300' : 'bg-emerald-100 text-emerald-700')
-                }`}>
+                  }`}>
                   {boardData?.isLocked ? <Lock size={16} /> : <Unlock size={16} />}
                 </div>
                 <div>
@@ -210,26 +213,23 @@ export default function CollaboratorsModal({
               </div>
               <button
                 onClick={onToggleLock}
-                className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${
-                  boardData?.isLocked
+                className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${boardData?.isLocked
                     ? 'bg-rose-600 hover:bg-rose-500 text-white'
                     : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-xs'
-                }`}
+                  }`}
               >
                 {boardData?.isLocked ? 'Unlock' : 'Lock All'}
               </button>
             </div>
 
             {/* Control 2: Attendee Export Access */}
-            <div className={`p-4 flex items-center justify-between ${
-              isDark ? 'bg-white/[0.02]' : 'bg-slate-50/60'
-            }`}>
+            <div className={`p-4 flex items-center justify-between ${isDark ? 'bg-white/[0.02]' : 'bg-slate-50/60'
+              }`}>
               <div className="flex items-center gap-2.5">
-                <div className={`p-2 rounded-xl ${
-                  allowExport
+                <div className={`p-2 rounded-xl ${allowExport
                     ? (isDark ? 'bg-indigo-500/20 text-indigo-300' : 'bg-indigo-100 text-indigo-700')
                     : (isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-200 text-slate-600')
-                }`}>
+                  }`}>
                   <Download size={16} />
                 </div>
                 <div>
@@ -243,14 +243,39 @@ export default function CollaboratorsModal({
               </div>
               <button
                 onClick={onToggleExportPermission}
-                className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${
-                  allowExport
+                className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${allowExport
                     ? (isDark ? 'bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/30 border border-indigo-500/30' : 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 border border-indigo-200')
                     : (isDark ? 'bg-slate-800 text-slate-400 hover:bg-slate-700 border border-slate-700' : 'bg-slate-200 text-slate-700 hover:bg-slate-300 border border-slate-300')
-                }`}
+                  }`}
                 title={allowExport ? 'Click to restrict export to host only' : 'Click to allow attendees to export'}
               >
                 {allowExport ? 'Allowed' : 'Restricted'}
+              </button>
+            </div>
+
+            {/* Control 3: Revoke All Collaborator Access */}
+            <div className={`p-4 flex items-center justify-between ${isDark ? 'bg-rose-500/[0.04]' : 'bg-rose-50/40'
+              }`}>
+              <div className="flex items-center gap-2.5">
+                <div className={`p-2 rounded-xl ${isDark ? 'bg-rose-500/20 text-rose-300' : 'bg-rose-100 text-rose-600'
+                  }`}>
+                  <UserX size={16} />
+                </div>
+                <div>
+                  <p className={`text-xs font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                    Revoke All Collaborator Access
+                  </p>
+                  <p className={`text-[11px] font-medium ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                    Disconnects all attendees & resets room code. No one can rejoin without your permission.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowRevokeConfirm(true)}
+                className="px-3 py-1.5 rounded-xl text-xs font-black bg-rose-600 hover:bg-rose-500 text-white transition-all shadow-xs"
+                title="Revoke access from all users and regenerate room code"
+              >
+                Revoke All
               </button>
             </div>
           </div>
@@ -279,9 +304,8 @@ export default function CollaboratorsModal({
               <span className="text-[10px] text-slate-400">Host permission required</span>
             </div>
             {pendingKnocks.map((k) => (
-              <div key={k.uid} className={`flex items-center justify-between p-2.5 rounded-xl border gap-2 ${
-                isDark ? 'bg-slate-900/80 border-amber-500/30' : 'bg-white border-amber-300 shadow-2xs'
-              }`}>
+              <div key={k.uid} className={`flex items-center justify-between p-2.5 rounded-xl border gap-2 ${isDark ? 'bg-slate-900/80 border-amber-500/30' : 'bg-white border-amber-300 shadow-2xs'
+                }`}>
                 <div className="min-w-0">
                   <p className={`text-xs font-bold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>{k.name}</p>
                   <p className="text-[10px] text-slate-400 truncate">{k.email || 'Requesting user'}</p>
@@ -289,9 +313,8 @@ export default function CollaboratorsModal({
                 <div className="flex items-center gap-1.5 shrink-0">
                   <button
                     onClick={() => onApproveJoinRequest?.(k.uid, 'viewer')}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
-                      isDark ? 'bg-white/10 hover:bg-white/20 text-slate-200' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                    }`}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${isDark ? 'bg-white/10 hover:bg-white/20 text-slate-200' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                      }`}
                     title="Admit as View-Only (cannot draw)"
                   >
                     Allow Viewer
@@ -319,17 +342,15 @@ export default function CollaboratorsModal({
         {/* Member List */}
         <div className="p-4 overflow-y-auto space-y-2 flex-1">
           {/* Room Owner / Host Card */}
-          <div className={`flex items-center justify-between p-3 rounded-2xl border ${
-            isDark ? 'bg-white/[0.04] border-white/[0.06]' : 'bg-slate-50 border-slate-200'
-          }`}>
+          <div className={`flex items-center justify-between p-3 rounded-2xl border ${isDark ? 'bg-white/[0.04] border-white/[0.06]' : 'bg-slate-50 border-slate-200'
+            }`}>
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-amber-500 to-indigo-600 text-white font-black text-xs flex items-center justify-center shadow-md shrink-0">
                 {boardData?.ownerName ? boardData.ownerName.charAt(0).toUpperCase() : 'H'}
               </div>
               <div className="min-w-0">
-                <p className={`text-xs font-extrabold flex items-center gap-1.5 truncate ${
-                  isDark ? 'text-white' : 'text-slate-900'
-                }`}>
+                <p className={`text-xs font-extrabold flex items-center gap-1.5 truncate ${isDark ? 'text-white' : 'text-slate-900'
+                  }`}>
                   <span className="truncate">{boardData?.ownerName || 'FlowSpace Host'}</span>
                   {isCurrentUserOwner && (
                     <span className="text-[10px] text-indigo-500 font-bold shrink-0">(You)</span>
@@ -367,9 +388,8 @@ export default function CollaboratorsModal({
             return (
               <div
                 key={p.uid}
-                className={`flex items-center justify-between p-3 rounded-2xl border transition-all ${
-                  isDark ? 'bg-white/[0.02] hover:bg-white/[0.04] border-white/[0.05]' : 'bg-white hover:bg-slate-50 border-slate-200 shadow-2xs'
-                }`}
+                className={`flex items-center justify-between p-3 rounded-2xl border transition-all ${isDark ? 'bg-white/[0.02] hover:bg-white/[0.04] border-white/[0.05]' : 'bg-white hover:bg-slate-50 border-slate-200 shadow-2xs'
+                  }`}
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <div
@@ -379,9 +399,8 @@ export default function CollaboratorsModal({
                     {p.name ? p.name.charAt(0).toUpperCase() : 'U'}
                   </div>
                   <div className="min-w-0">
-                    <p className={`text-xs font-bold flex items-center gap-1.5 truncate ${
-                      isDark ? 'text-white' : 'text-slate-900'
-                    }`}>
+                    <p className={`text-xs font-bold flex items-center gap-1.5 truncate ${isDark ? 'text-white' : 'text-slate-900'
+                      }`}>
                       <span className="truncate">{p.name}</span>
                       {p.isSelf && (
                         <span className="text-[10px] text-indigo-500 font-bold shrink-0">(You)</span>
@@ -392,9 +411,8 @@ export default function CollaboratorsModal({
                         <span className="w-1.5 h-1.5 rounded-full bg-slate-400 shrink-0" title="Offline" />
                       )}
                     </p>
-                    <span className={`text-[10px] font-medium flex items-center gap-1 ${
-                      isDark ? 'text-slate-400' : 'text-slate-600'
-                    }`}>
+                    <span className={`text-[10px] font-medium flex items-center gap-1 ${isDark ? 'text-slate-400' : 'text-slate-600'
+                      }`}>
                       <span>{isViewer ? '👁️ View Only' : '✏️ Can Draw & Edit'}</span>
                       {!p.isOnline && <span className="text-slate-400 opacity-80">(Offline)</span>}
                     </span>
@@ -407,11 +425,10 @@ export default function CollaboratorsModal({
                     {/* Toggle Editor / Viewer Role */}
                     <button
                       onClick={() => onUpdateMemberRole(p.uid, isViewer ? 'editor' : 'viewer')}
-                      className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-bold transition-all ${
-                        isViewer
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-bold transition-all ${isViewer
                           ? (isDark ? 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25' : 'bg-amber-100 text-amber-800 hover:bg-amber-200')
                           : (isDark ? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25' : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200')
-                      }`}
+                        }`}
                       title={isViewer ? 'Grant draw access' : 'Restrict to view-only'}
                     >
                       {isViewer ? <Eye size={13} /> : <Edit3 size={13} />}
@@ -421,20 +438,18 @@ export default function CollaboratorsModal({
                     {/* Remove Member Trigger */}
                     <button
                       onClick={() => setMemberToRemove(p)}
-                      className={`p-1.5 rounded-xl transition-all ${
-                        isDark ? 'text-slate-400 hover:text-rose-400 hover:bg-rose-500/10' : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
-                      }`}
+                      className={`p-1.5 rounded-xl transition-all ${isDark ? 'text-slate-400 hover:text-rose-400 hover:bg-rose-500/10' : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
+                        }`}
                       title="Manage collaborator access"
                     >
                       <UserX size={15} />
                     </button>
                   </div>
                 ) : (
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
-                    p.isSelf
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${p.isSelf
                       ? 'bg-indigo-500/10 text-indigo-500 dark:text-indigo-300 border border-indigo-500/20'
                       : 'bg-slate-500/10 text-slate-500 dark:text-slate-400 border border-slate-500/20'
-                  }`}>
+                    }`}>
                     {p.isSelf ? (isViewer ? 'Viewer (You)' : 'Editor (You)') : (isViewer ? 'Viewer' : 'Editor')}
                   </span>
                 )}
@@ -473,11 +488,10 @@ export default function CollaboratorsModal({
                     onKickMember?.(memberToRemove.uid, false);
                     setMemberToRemove(null);
                   }}
-                  className={`w-full p-3.5 rounded-2xl border text-left transition-all flex items-start gap-3 group ${
-                    isDark
+                  className={`w-full p-3.5 rounded-2xl border text-left transition-all flex items-start gap-3 group ${isDark
                       ? 'bg-white/[0.04] hover:bg-white/[0.08] border-white/10 text-white'
                       : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-900'
-                  }`}
+                    }`}
                 >
                   <div className="w-8 h-8 rounded-xl bg-amber-500/15 text-amber-500 flex items-center justify-center shrink-0 mt-0.5">
                     <UserMinus size={16} />
@@ -502,11 +516,10 @@ export default function CollaboratorsModal({
                     onKickMember?.(memberToRemove.uid, true);
                     setMemberToRemove(null);
                   }}
-                  className={`w-full p-3.5 rounded-2xl border text-left transition-all flex items-start gap-3 group ${
-                    isDark
+                  className={`w-full p-3.5 rounded-2xl border text-left transition-all flex items-start gap-3 group ${isDark
                       ? 'bg-rose-500/10 hover:bg-rose-500/20 border-rose-500/30 text-white'
                       : 'bg-rose-50 hover:bg-rose-100 border-rose-200 text-slate-900'
-                  }`}
+                    }`}
                 >
                   <div className="w-8 h-8 rounded-xl bg-rose-500/20 text-rose-500 flex items-center justify-center shrink-0 mt-0.5">
                     <ShieldAlert size={16} />
@@ -529,11 +542,48 @@ export default function CollaboratorsModal({
                 <button
                   type="button"
                   onClick={() => setMemberToRemove(null)}
-                  className={`w-full py-2.5 rounded-xl ${
-                    isDark ? 'bg-white/10 hover:bg-white/15 text-slate-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                  } font-bold text-xs transition-all`}
+                  className={`w-full py-2.5 rounded-xl ${isDark ? 'bg-white/10 hover:bg-white/15 text-slate-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                    } font-bold text-xs transition-all`}
                 >
                   Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* Revoke All Collaborators Confirmation Modal */}
+        {showRevokeConfirm && (
+          <div className="fixed inset-0 z-[130] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 animate-in fade-in">
+            <div className={`w-full max-w-sm ${isDark ? 'bg-slate-900 border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'} border rounded-3xl p-6 shadow-2xl text-center space-y-4`}>
+              <div className="w-12 h-12 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-500 flex items-center justify-center mx-auto shadow-inner">
+                <ShieldAlert size={26} />
+              </div>
+              <div>
+                <h3 className={`text-base font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  Revoke All Access?
+                </h3>
+                <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-600'} mt-1.5 leading-relaxed`}>
+                  This will immediately disconnect all joined collaborators from this FlowSpace, clear their permissions, and generate a new room code. No one can rejoin without your new approval.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowRevokeConfirm(false)}
+                  className={`flex-1 py-2.5 rounded-xl ${isDark ? 'bg-white/10 hover:bg-white/15 text-slate-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                    } font-bold text-xs transition-all`}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await onRevokeAllAccess?.();
+                    setShowRevokeConfirm(false);
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs transition-all shadow-md shadow-rose-600/30"
+                >
+                  Yes, Revoke All
                 </button>
               </div>
             </div>

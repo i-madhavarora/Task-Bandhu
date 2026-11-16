@@ -110,7 +110,8 @@ export function useWhiteboardSync(boardId, currentUser) {
 
     try {
       const elemRef = doc(db, 'whiteboards', boardId, 'elements', elemId);
-      await setDoc(elemRef, elemWithId);
+      const cleaned = JSON.parse(JSON.stringify(elemWithId));
+      await setDoc(elemRef, cleaned);
     } catch (err) {
       console.error('Failed to sync element to Firestore:', err);
     }
