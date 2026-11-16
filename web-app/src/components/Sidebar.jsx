@@ -149,8 +149,8 @@ export default function Sidebar({
                     key={item.id}
                     onClick={() => { setActiveTab(item.id); onClose?.(); }}
                     className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs transition-all relative group ${isActive
-                        ? 'bg-indigo-50/90 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-500/30 dark:shadow-[0_0_18px_rgba(99,102,241,0.2)] font-extrabold'
-                        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100/70 dark:hover:bg-white/[0.04] hover:text-slate-900 dark:hover:text-white font-medium'
+                      ? 'bg-indigo-50/90 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-500/30 dark:shadow-[0_0_18px_rgba(99,102,241,0.2)] font-extrabold'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100/70 dark:hover:bg-white/[0.04] hover:text-slate-900 dark:hover:text-white font-medium'
                       }`}
                   >
                     <div className="flex items-center gap-2.5">
@@ -167,8 +167,8 @@ export default function Sidebar({
                     </div>
                     {typeof item.badge === 'number' && item.badge > 0 && (
                       <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${isActive
-                          ? 'bg-indigo-600 text-white'
-                          : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 group-hover:bg-slate-200 dark:group-hover:bg-slate-700'
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 group-hover:bg-slate-200 dark:group-hover:bg-slate-700'
                         }`}>
                         {item.badge}
                       </span>
@@ -202,8 +202,8 @@ export default function Sidebar({
                   type="button"
                   onClick={() => onSwitchWorkspace?.('personal')}
                   className={`py-1.5 px-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 ${currentWorkspace === 'personal'
-                      ? 'bg-white dark:bg-[#151e32] text-slate-900 dark:text-white shadow-xs'
-                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                    ? 'bg-white dark:bg-[#151e32] text-slate-900 dark:text-white shadow-xs'
+                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
                     }`}
                   title="Personal Workspace (Your private projects)"
                 >
@@ -214,8 +214,8 @@ export default function Sidebar({
                   type="button"
                   onClick={() => onSwitchWorkspace?.('team')}
                   className={`py-1.5 px-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 ${currentWorkspace === 'team'
-                      ? 'bg-white dark:bg-[#151e32] text-indigo-600 dark:text-indigo-400 shadow-xs'
-                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                    ? 'bg-white dark:bg-[#151e32] text-indigo-600 dark:text-indigo-400 shadow-xs'
+                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
                     }`}
                   title="Team Workspace (Collaborative team projects)"
                 >
@@ -239,8 +239,8 @@ export default function Sidebar({
                       key={proj.id || proj.name}
                       onClick={() => { onSelectProject?.(proj.name); onClose?.(); }}
                       className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-all relative group ${isProjActive
-                          ? 'bg-indigo-50/90 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-500/30 dark:shadow-[0_0_18px_rgba(99,102,241,0.2)] font-extrabold'
-                          : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100/70 dark:hover:bg-white/[0.04] hover:text-slate-900 dark:hover:text-white font-medium'
+                        ? 'bg-indigo-50/90 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-500/30 dark:shadow-[0_0_18px_rgba(99,102,241,0.2)] font-extrabold'
+                        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100/70 dark:hover:bg-white/[0.04] hover:text-slate-900 dark:hover:text-white font-medium'
                         }`}
                     >
                       <div className="flex items-center gap-2.5 truncate">
@@ -268,8 +268,8 @@ export default function Sidebar({
                   onClose?.();
                 }}
                 className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-all font-semibold ${activeTab === 'projects' && projectsFilter === currentWorkspace
-                    ? 'bg-indigo-50/90 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-500/30 font-bold'
-                    : 'text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100/60 dark:hover:bg-white/[0.03]'
+                  ? 'bg-indigo-50/90 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-500/30 font-bold'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100/60 dark:hover:bg-white/[0.03]'
                   }`}
               >
                 <div className="flex items-center gap-2">
@@ -293,8 +293,8 @@ export default function Sidebar({
                   onClose?.();
                 }}
                 className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-all font-semibold ${activeTab === 'projects' && projectsFilter === 'all'
-                    ? 'bg-indigo-50/90 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-500/30 font-bold'
-                    : 'text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100/60 dark:hover:bg-white/[0.03]'
+                  ? 'bg-indigo-50/90 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-500/30 font-bold'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100/60 dark:hover:bg-white/[0.03]'
                   }`}
               >
                 <div className="flex items-center gap-2">
@@ -322,8 +322,8 @@ export default function Sidebar({
                     key={item.id}
                     onClick={() => { setActiveTab(item.id); onClose?.(); }}
                     className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs transition-all relative group ${isActive
-                        ? 'bg-indigo-50/90 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-500/30 dark:shadow-[0_0_18px_rgba(99,102,241,0.2)] font-extrabold'
-                        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100/70 dark:hover:bg-white/[0.04] hover:text-slate-900 dark:hover:text-white font-medium'
+                      ? 'bg-indigo-50/90 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-500/30 dark:shadow-[0_0_18px_rgba(99,102,241,0.2)] font-extrabold'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100/70 dark:hover:bg-white/[0.04] hover:text-slate-900 dark:hover:text-white font-medium'
                       }`}
                   >
                     <div className="flex items-center gap-2.5">
@@ -365,8 +365,8 @@ export default function Sidebar({
                   type="button"
                   onClick={() => { setActiveTab('connect'); onClose?.(); }}
                   className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs transition-all relative group ${activeTab === 'connect'
-                      ? 'bg-indigo-50/90 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-500/30 dark:shadow-[0_0_18px_rgba(99,102,241,0.2)] font-extrabold'
-                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100/70 dark:hover:bg-white/[0.04] hover:text-slate-900 dark:hover:text-white font-medium'
+                    ? 'bg-indigo-50/90 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-500/30 dark:shadow-[0_0_18px_rgba(99,102,241,0.2)] font-extrabold'
+                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100/70 dark:hover:bg-white/[0.04] hover:text-slate-900 dark:hover:text-white font-medium'
                     }`}
                 >
                   <div className="flex items-center gap-2.5">
@@ -391,8 +391,8 @@ export default function Sidebar({
             type="button"
             onClick={() => { setActiveTab('profile'); onClose?.(); }}
             className={`w-full flex items-center gap-2.5 p-2 rounded-2xl transition-all text-left group ${activeTab === 'profile'
-                ? 'bg-indigo-50 dark:bg-indigo-500/15 border border-indigo-200 dark:border-indigo-500/30'
-                : 'hover:bg-white dark:hover:bg-white/[0.05] border border-transparent hover:border-slate-200/60 dark:hover:border-white/[0.06]'
+              ? 'bg-indigo-50 dark:bg-indigo-500/15 border border-indigo-200 dark:border-indigo-500/30'
+              : 'hover:bg-white dark:hover:bg-white/[0.05] border border-transparent hover:border-slate-200/60 dark:hover:border-white/[0.06]'
               }`}
             title="View & Edit Account Profile"
           >

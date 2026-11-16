@@ -67,9 +67,8 @@ export default function PersonalizedSplashScreen({
 
   return (
     <div
-      className={`fixed inset-0 z-[9999] flex flex-col items-center justify-center select-none overflow-hidden transition-all duration-500 ${
-        isFadingOut ? 'opacity-0 scale-105 pointer-events-none' : 'opacity-100 scale-100'
-      } ${isDarkMode ? 'bg-[#080b12] text-white' : 'bg-slate-50 text-slate-900'}`}
+      className={`fixed inset-0 z-[9999] flex flex-col items-center justify-center select-none overflow-hidden transition-all duration-500 ${isFadingOut ? 'opacity-0 scale-105 pointer-events-none' : 'opacity-100 scale-100'
+        } ${isDarkMode ? 'bg-[#080b12] text-white' : 'bg-slate-50 text-slate-900'}`}
     >
       {/* Background Animated Ambient Mesh Gradients */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
@@ -87,7 +86,7 @@ export default function PersonalizedSplashScreen({
 
       {/* Main Container */}
       <div className="relative z-10 flex flex-col items-center max-w-md w-full px-6 text-center">
-        
+
         {/* BIG LOGO CONTAINER with Orbital Rings & Glowing Aura */}
         <div className="relative mb-7 flex items-center justify-center">
           <div className="absolute inset-0 rounded-[40px] blur-3xl opacity-80 bg-indigo-500 scale-125" />

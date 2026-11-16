@@ -4418,8 +4418,8 @@ export default function Dashboard() {
                       {projectsViewTab === 'personal'
                         ? 'Personal Only'
                         : projectsViewTab === 'team'
-                        ? 'Team Only'
-                        : 'Combined (Personal + Team)'}
+                          ? 'Team Only'
+                          : 'Combined (Personal + Team)'}
                     </span>
                   </span>
                 ) : !effectiveUser?.isGuest && (
@@ -4878,10 +4878,9 @@ export default function Dashboard() {
                         <button
                           type="button"
                           onClick={() => setProjectSubTab(isTeamProj ? 'chat' : 'notes')}
-                          className={`flex items-center gap-2 px-4 py-2 font-black text-xs sm:text-sm rounded-2xl transition-all ${
-                            (isTeamProj ? projectSubTab === 'chat' : projectSubTab === 'notes')
-                              ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md shadow-indigo-500/20'
-                              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/[0.05]'
+                          className={`flex items-center gap-2 px-4 py-2 font-black text-xs sm:text-sm rounded-2xl transition-all ${(isTeamProj ? projectSubTab === 'chat' : projectSubTab === 'notes')
+                            ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md shadow-indigo-500/20'
+                            : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/[0.05]'
                             }`}
                         >
                           {isTeamProj ? (
@@ -5062,9 +5061,8 @@ export default function Dashboard() {
                       {/* Notes Header Bar */}
                       <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-white/[0.06] flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/70 dark:bg-[#111827]/70">
                         <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-white shadow-md ${
-                            PROJECT_COLOR_BG[currentActiveProjectObj.color] || 'bg-indigo-500'
-                          }`}>
+                          <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-white shadow-md ${PROJECT_COLOR_BG[currentActiveProjectObj.color] || 'bg-indigo-500'
+                            }`}>
                             <FileText size={20} />
                           </div>
                           <div>

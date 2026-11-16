@@ -243,33 +243,30 @@ export default function WhiteboardHubModal({
           <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-2xl">
             <button
               onClick={() => setActiveTab('recent')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                activeTab === 'recent'
-                  ? 'bg-white dark:bg-indigo-600 text-slate-900 dark:text-white shadow-xs font-extrabold'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${activeTab === 'recent'
+                ? 'bg-white dark:bg-indigo-600 text-slate-900 dark:text-white shadow-xs font-extrabold'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
             >
               <Clock size={13} />
               <span>My FlowSpaces</span>
             </button>
             <button
               onClick={() => setActiveTab('create')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                activeTab === 'create'
-                  ? 'bg-white dark:bg-indigo-600 text-slate-900 dark:text-white shadow-xs font-extrabold'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${activeTab === 'create'
+                ? 'bg-white dark:bg-indigo-600 text-slate-900 dark:text-white shadow-xs font-extrabold'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
             >
               <Plus size={13} />
               <span>Create New</span>
             </button>
             <button
               onClick={() => setActiveTab('join')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                activeTab === 'join'
-                  ? 'bg-white dark:bg-indigo-600 text-slate-900 dark:text-white shadow-xs font-extrabold'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${activeTab === 'join'
+                ? 'bg-white dark:bg-indigo-600 text-slate-900 dark:text-white shadow-xs font-extrabold'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
             >
               <LogIn size={13} />
               <span>Join with Code</span>
@@ -402,11 +399,10 @@ export default function WhiteboardHubModal({
                     key={g.id}
                     type="button"
                     onClick={() => setBgStyle(g.id)}
-                    className={`p-3 rounded-2xl border text-center transition-all font-bold text-xs ${
-                      bgStyle === g.id
-                        ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
-                        : 'bg-slate-50 dark:bg-white/[0.03] hover:bg-slate-100 dark:hover:bg-white/[0.06] border-slate-200 dark:border-white/[0.06] text-slate-600 dark:text-slate-400'
-                    }`}
+                    className={`p-3 rounded-2xl border text-center transition-all font-bold text-xs ${bgStyle === g.id
+                      ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
+                      : 'bg-slate-50 dark:bg-white/[0.03] hover:bg-slate-100 dark:hover:bg-white/[0.06] border-slate-200 dark:border-white/[0.06] text-slate-600 dark:text-slate-400'
+                      }`}
                   >
                     {g.name}
                   </button>

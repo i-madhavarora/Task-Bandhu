@@ -331,11 +331,10 @@ export default function JoinRoomModal({
               <button
                 type="button"
                 onClick={onExit}
-                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-2xl border text-xs font-black transition-all shadow-xs ${
-                  isDark
-                    ? 'bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 hover:text-white border-indigo-500/30'
-                    : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 hover:text-indigo-900 border-indigo-200'
-                }`}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-2xl border text-xs font-black transition-all shadow-xs ${isDark
+                  ? 'bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 hover:text-white border-indigo-500/30'
+                  : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 hover:text-indigo-900 border-indigo-200'
+                  }`}
                 title="Return to Task Bandhu Dashboard"
               >
                 <ArrowLeft size={14} />
@@ -363,33 +362,30 @@ export default function JoinRoomModal({
           <div className={`grid grid-cols-3 gap-1.5 p-1 ${isDark ? 'bg-slate-950/60 border-white/[0.06]' : 'bg-slate-100 border-slate-200'} rounded-2xl border`}>
             <button
               onClick={() => { setTab('create'); setNewTitle(''); }}
-              className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-black transition-all ${
-                tab === 'create'
-                  ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-md shadow-indigo-600/30'
-                  : isDark ? 'text-slate-400 hover:text-white hover:bg-white/[0.04]' : 'text-slate-600 hover:text-slate-900 hover:bg-white'
-              }`}
+              className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-black transition-all ${tab === 'create'
+                ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-md shadow-indigo-600/30'
+                : isDark ? 'text-slate-400 hover:text-white hover:bg-white/[0.04]' : 'text-slate-600 hover:text-slate-900 hover:bg-white'
+                }`}
             >
               <Plus size={15} />
               <span>Create FlowSpace</span>
             </button>
             <button
               onClick={() => setTab('join')}
-              className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-black transition-all ${
-                tab === 'join'
-                  ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-md shadow-indigo-600/30'
-                  : isDark ? 'text-slate-400 hover:text-white hover:bg-white/[0.04]' : 'text-slate-600 hover:text-slate-900 hover:bg-white'
-              }`}
+              className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-black transition-all ${tab === 'join'
+                ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-md shadow-indigo-600/30'
+                : isDark ? 'text-slate-400 hover:text-white hover:bg-white/[0.04]' : 'text-slate-600 hover:text-slate-900 hover:bg-white'
+                }`}
             >
               <LogIn size={15} />
               <span>Join FlowSpace</span>
             </button>
             <button
               onClick={() => setTab('recent')}
-              className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-black transition-all ${
-                tab === 'recent'
-                  ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-md shadow-indigo-600/30'
-                  : isDark ? 'text-slate-400 hover:text-white hover:bg-white/[0.04]' : 'text-slate-600 hover:text-slate-900 hover:bg-white'
-              }`}
+              className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-black transition-all ${tab === 'recent'
+                ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-md shadow-indigo-600/30'
+                : isDark ? 'text-slate-400 hover:text-white hover:bg-white/[0.04]' : 'text-slate-600 hover:text-slate-900 hover:bg-white'
+                }`}
             >
               <Clock size={15} />
               <span>My FlowSpaces</span>
@@ -436,26 +432,23 @@ export default function JoinRoomModal({
                       key={g.id}
                       type="button"
                       onClick={() => setBgStyle(g.id)}
-                      className={`p-3 rounded-2xl border text-center transition-all flex flex-col items-center gap-2 group ${
-                        isSelected
-                          ? isDark
-                            ? 'bg-gradient-to-b from-indigo-600/30 to-indigo-600/15 border-indigo-500 shadow-lg shadow-indigo-600/20'
-                            : 'bg-indigo-50/90 border-2 border-indigo-600 shadow-md shadow-indigo-500/10'
-                          : isDark
-                            ? 'bg-white/[0.02] hover:bg-white/[0.06] border-white/[0.06] text-slate-400 hover:text-slate-200'
-                            : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600 hover:text-slate-900'
-                      }`}
+                      className={`p-3 rounded-2xl border text-center transition-all flex flex-col items-center gap-2 group ${isSelected
+                        ? isDark
+                          ? 'bg-gradient-to-b from-indigo-600/30 to-indigo-600/15 border-indigo-500 shadow-lg shadow-indigo-600/20'
+                          : 'bg-indigo-50/90 border-2 border-indigo-600 shadow-md shadow-indigo-500/10'
+                        : isDark
+                          ? 'bg-white/[0.02] hover:bg-white/[0.06] border-white/[0.06] text-slate-400 hover:text-slate-200'
+                          : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600 hover:text-slate-900'
+                        }`}
                     >
-                      <div className={`p-2 rounded-xl transition-transform group-hover:scale-110 ${
-                        isSelected ? 'bg-indigo-600 text-white shadow-sm' : isDark ? 'bg-white/[0.05] text-slate-400' : 'bg-white text-slate-500 border border-slate-200'
-                      }`}>
+                      <div className={`p-2 rounded-xl transition-transform group-hover:scale-110 ${isSelected ? 'bg-indigo-600 text-white shadow-sm' : isDark ? 'bg-white/[0.05] text-slate-400' : 'bg-white text-slate-500 border border-slate-200'
+                        }`}>
                         <Icon size={18} />
                       </div>
-                      <span className={`text-xs leading-none ${
-                        isSelected
-                          ? isDark ? 'text-white font-black' : 'text-indigo-950 font-black'
-                          : isDark ? 'text-slate-400 font-bold' : 'text-slate-700 font-bold'
-                      }`}>
+                      <span className={`text-xs leading-none ${isSelected
+                        ? isDark ? 'text-white font-black' : 'text-indigo-950 font-black'
+                        : isDark ? 'text-slate-400 font-bold' : 'text-slate-700 font-bold'
+                        }`}>
                         {g.name}
                       </span>
                     </button>
@@ -592,11 +585,10 @@ export default function JoinRoomModal({
                       <div
                         key={b.id}
                         onClick={() => onJoinCode(b.id, b.roomCode)}
-                        className={`p-4 rounded-3xl border ${
-                          isDark
-                            ? 'bg-slate-950/60 hover:bg-slate-950/90 border-white/[0.08] hover:border-indigo-500/50 shadow-lg shadow-black/20'
-                            : 'bg-white hover:bg-indigo-50/20 border-slate-200 hover:border-indigo-300 shadow-sm'
-                        } cursor-pointer transition-all flex flex-col justify-between group h-40`}
+                        className={`p-4 rounded-3xl border ${isDark
+                          ? 'bg-slate-950/60 hover:bg-slate-950/90 border-white/[0.08] hover:border-indigo-500/50 shadow-lg shadow-black/20'
+                          : 'bg-white hover:bg-indigo-50/20 border-slate-200 hover:border-indigo-300 shadow-sm'
+                          } cursor-pointer transition-all flex flex-col justify-between group h-40`}
                       >
                         {/* Top Card Row: Title & Action icons */}
                         <div className="flex items-start justify-between gap-2">
@@ -609,9 +601,8 @@ export default function JoinRoomModal({
                                   maxLength={MAX_TITLE_LENGTH}
                                   onChange={(e) => setEditingTitleValue(e.target.value)}
                                   autoFocus
-                                  className={`text-xs font-bold px-2 py-1 rounded-lg border border-indigo-500 outline-none w-full ${
-                                    isDark ? 'bg-slate-800 text-white' : 'bg-white text-slate-900'
-                                  }`}
+                                  className={`text-xs font-bold px-2 py-1 rounded-lg border border-indigo-500 outline-none w-full ${isDark ? 'bg-slate-800 text-white' : 'bg-white text-slate-900'
+                                    }`}
                                 />
                                 <button
                                   onClick={(e) => handleSaveRename(b.id, e)}
